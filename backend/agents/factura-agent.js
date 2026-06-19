@@ -76,6 +76,7 @@ async function runFacturaAgent() {
 
       // Upload PDF attachments to Drive: O2MAD Facturas / Year / Sociedad / Month
       const sociedadName = SOCIEDADES[data.sociedad_codigo] || data.sociedad_codigo;
+      const driveFolder = [ROOT_FOLDER, year, sociedadName, month].join('/');
       const driveLinks = [];
       if (email.attachments.length) {
         // Anchor under the configured root folder id if present (set by setup-drive.js);
@@ -99,6 +100,8 @@ async function runFacturaAgent() {
         importe: data.importe,
         sociedad_codigo: data.sociedad_codigo,
         estado: 'procesada',
+        drive_url: driveLinks[0] || null,
+        drive_folder: driveLinks.length ? driveFolder : null,
       };
       const { error } = await supabase.from('facturas').upsert(row, { onConflict: 'referencia' });
       if (error) throw new Error(`Supabase: ${error.message}`);
