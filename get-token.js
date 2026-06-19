@@ -38,6 +38,12 @@ const SCOPES = [
   'https://www.googleapis.com/auth/drive',    // full Drive
 ];
 
+// Pre-select the Google account on the consent screen so it doesn't default to whoever
+// is already signed in. Per-account default, overridable with --login-hint=<email>.
+const LOGIN_HINTS = { apper: 'apperstreetapp@gmail.com' };
+const hintArg = process.argv.find(a => a.startsWith('--login-hint='));
+const LOGIN_HINT = hintArg ? hintArg.split('=')[1].trim() : (LOGIN_HINTS[ACCOUNT] || null);
+
 if (!GOOGLE_CLIENT_ID || !GOOGLE_CLIENT_SECRET) {
   console.error('Missing GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET in .env');
   process.exit(1);
@@ -49,6 +55,7 @@ const authUrl = oauth2.generateAuthUrl({
   access_type: 'offline',      // required to receive a refresh token
   prompt: 'consent',           // force a refresh token even on re-consent
   scope: SCOPES,
+  ...(LOGIN_HINT ? { login_hint: LOGIN_HINT } : {}),  // go straight to this account
 });
 
 // Persist the new refresh token into .env under TOKEN_VAR (replace existing line or append).
