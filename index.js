@@ -23,14 +23,16 @@ else console.log('[o2madhub] ✓ all required env vars present');
 ['DRIVE_ROOT_FOLDER_ID', 'NOTIFY_TO', 'NOTIFY_CC', 'RAILWAY_URL']
   .forEach(k => { if (!process.env[k]) console.warn(`[o2madhub] (optional) ${k} not set`); });
 
-// Run the agent, then email the summary. Shared by the cron job and the manual endpoint.
-async function runDaily() {
-  console.log(`[o2madhub] daily run @ ${new Date().toISOString()}`);
+// Run the agent, then (optionally) email the summary. Shared by cron and the manual endpoint.
+async function runDaily({ notify = true } = {}) {
+  console.log(`[o2madhub] daily run @ ${new Date().toISOString()} (notify=${notify})`);
   const result = await runFacturaAgent();
-  try {
-    await sendDailySummary(result);
-  } catch (e) {
-    console.error('[o2madhub] summary email failed:', e.message);
+  if (notify) {
+    try {
+      await sendDailySummary(result);
+    } catch (e) {
+      console.error('[o2madhub] summary email failed:', e.message);
+    }
   }
   return result;
 }
@@ -38,9 +40,11 @@ async function runDaily() {
 app.get('/health', (_req, res) => res.json({ ok: true, ts: new Date().toISOString() }));
 
 // Manual trigger (handy for testing without waiting for 08:00).
-app.post('/run', async (_req, res) => {
+app.post('/run', async (req, res) => {
   try {
-    const result = await runDaily();
+    // ?notify=false → run the agent but skip the summary email (for debugging).
+    const notify = req.query.notify !== 'false';
+    const result = await runDaily({ notify });
     res.json({
       ok: true,
       processed: result.processed.length,
