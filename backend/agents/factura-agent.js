@@ -38,7 +38,17 @@ async function runFacturaAgent() {
       if (email.attachments.length) {
         pdfBuffer = await g.getAttachment(id, email.attachments[0].attachmentId);
       }
-      const data = await extractFactura(email, pdfBuffer);
+      // If Claude can't parse the PDF (corrupt / not really a PDF), fall back to
+      // text-only extraction so the message still gets processed.
+      let data;
+      try {
+        data = await extractFactura(email, pdfBuffer);
+      } catch (e) {
+        if (pdfBuffer && /pdf|PDF/.test(e.message)) {
+          console.log(`[factura-agent]   (PDF ilegible para ${id}, usando texto del correo)`);
+          data = await extractFactura(email, null);
+        } else throw e;
+      }
 
       if (!data.es_factura) {
         skipped.push({ subject: email.subject, reason: 'no es factura' });
