@@ -92,9 +92,18 @@ async function getAttachmentWith(gmailClient, messageId, attachmentId) {
 }
 
 // Build a Gmail search query from a normalized spec { keywords, days }.
+// Besides the factura keywords, also catches invoices that arrive WITHOUT those keywords:
+//   * from a whitelist of known invoice senders (INVOICE_SENDERS env), and
+//   * inside reply/forward threads carrying a PDF attachment.
+// The agent's es_factura check filters out anything that isn't really an invoice.
 function buildGmailQuery({ keywords, days } = {}) {
   const kw = keywords || '(factura OR invoice OR recibo OR receipt OR fra)';
-  return `newer_than:${days || 1}d ${kw}`;
+  const senders = (process.env.INVOICE_SENDERS || 'bielsb@bsbadministracio.es,sandra@o2mad.com')
+    .split(',').map(s => s.trim()).filter(Boolean).map(s => `from:${s}`).join(' OR ');
+  const clauses = [kw];
+  if (senders) clauses.push(`((${senders}) has:attachment)`);
+  clauses.push('(subject:(Re OR Fwd) has:attachment filename:pdf)');
+  return `newer_than:${days || 1}d (${clauses.join(' OR ')})`;
 }
 
 // --- Primary-account singletons (kept for Drive uploads + setup/backfill scripts) ---
