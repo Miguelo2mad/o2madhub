@@ -43,6 +43,37 @@ async function runFacturaAgent() {
       const referencia = data.referencia || `GM-${id}`;
       const { year, month } = periodFor(data, email);
 
+      // GUARD 1 — never overwrite an existing alert/pending invoice.
+      const { data: existing } = await supabase
+        .from('facturas').select('estado').eq('referencia', referencia).maybeSingle();
+      if (existing && ['alerta', 'pendiente'].includes(existing.estado)) {
+        skipped.push({ subject: email.subject, reason: `protegida (estado=${existing.estado})` });
+        console.log(`[factura-agent] ⊘ protegida ${referencia} (estado=${existing.estado})`);
+        continue;
+      }
+
+      // GUARD 2 — dedup: same proveedor + same importe within ±7 days.
+      if (data.importe != null) {
+        const base = data.fecha_factura ? new Date(data.fecha_factura) : new Date(email.date);
+        if (!isNaN(base.getTime())) {
+          const iso = d => d.toISOString().slice(0, 10);
+          const lo = new Date(base); lo.setDate(lo.getDate() - 7);
+          const hi = new Date(base); hi.setDate(hi.getDate() + 7);
+          const { data: dups } = await supabase
+            .from('facturas').select('referencia')
+            .eq('proveedor', data.proveedor)
+            .eq('importe', data.importe)
+            .gte('fecha_factura', iso(lo))
+            .lte('fecha_factura', iso(hi))
+            .neq('referencia', referencia);
+          if (dups && dups.length) {
+            skipped.push({ subject: email.subject, reason: `duplicada de ${dups[0].referencia}` });
+            console.log(`[factura-agent] ⊘ duplicada ${referencia} ~ ${dups[0].referencia}`);
+            continue;
+          }
+        }
+      }
+
       // Upload PDF attachments to Drive: O2MAD Facturas / Year / Sociedad / Month
       const sociedadName = SOCIEDADES[data.sociedad_codigo] || data.sociedad_codigo;
       const driveLinks = [];

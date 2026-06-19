@@ -34,14 +34,26 @@ const FACTURA_SCHEMA = {
   required: ['proveedor', 'importe', 'fecha_factura', 'sociedad_codigo', 'referencia', 'concepto', 'es_factura'],
 };
 
-const SYSTEM = `Eres un asistente que extrae datos de facturas de proveedores para O2MAD.
+const SYSTEM = `Eres un asistente que extrae datos de FACTURAS DE PROVEEDORES (gastos de empresa) para O2MAD.
 Devuelve los campos solicitados a partir del correo. Reglas:
+
+- es_factura: marca true SOLO si es una factura de empresa legítima de un proveedor.
+  Marca false (NO es factura) en estos casos:
+    · Comida a domicilio o gastos personales (Glovo, Uber Eats, Just Eat, restaurantes, etc.).
+    · Notificaciones de pago de PayPal / pasarelas (un aviso "has pagado a X" NO es una factura).
+    · Newsletters, promociones, avisos, confirmaciones de pedido sin factura.
+  Además, una factura legítima debe tener un NÚMERO/REFERENCIA de factura reconocible
+  (p. ej. "Factura nº", "Invoice", "FA-...", "F2...", "Ref.", "Nº ..."). Si no hay número
+  de factura identificable, marca es_factura: false.
+
 - importe: número en euros sin símbolo (ej. 72.00). null si no aparece.
 - fecha_factura: formato YYYY-MM-DD. null si no aparece.
+- referencia: el número de factura tal cual aparece. null si no hay.
 - sociedad_codigo: elige el código que mejor encaje según el proveedor/concepto:
 ${Object.entries(SOCIEDADES).map(([k, v]) => `    ${k} = ${v}`).join('\n')}
-  Si no está claro, usa "x".
-- es_factura: false si el correo no es realmente una factura/recibo (newsletter, aviso, etc.).`;
+  Reglas específicas de proveedor:
+    · "POM Design & Development S.L." → sociedad "d"
+  Si no está claro, usa "x".`;
 
 // Extract invoice fields from an email-like object { subject, from, date, bodyText }.
 async function extractFactura(email) {
