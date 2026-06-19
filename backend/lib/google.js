@@ -92,9 +92,10 @@ async function ensureFolder(name, parentId = null) {
   return created.data.id;
 }
 
-// Walk/create a nested path of folders (array of names) and return the deepest folder id.
-async function ensureFolderPath(names) {
-  let parent = null;
+// Walk/create a nested path of folders (array of names) under an optional starting
+// parent id, and return the deepest folder id.
+async function ensureFolderPath(names, startParent = null) {
+  let parent = startParent;
   for (const name of names) parent = await ensureFolder(name, parent);
   return parent;
 }

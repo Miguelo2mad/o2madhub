@@ -78,7 +78,11 @@ async function runFacturaAgent() {
       const sociedadName = SOCIEDADES[data.sociedad_codigo] || data.sociedad_codigo;
       const driveLinks = [];
       if (email.attachments.length) {
-        const folderId = await g.ensureFolderPath([ROOT_FOLDER, year, sociedadName, month]);
+        // Anchor under the configured root folder id if present (set by setup-drive.js);
+        // otherwise resolve/create "O2MAD Facturas" by name at the Drive root.
+        const rootId = process.env.DRIVE_ROOT_FOLDER_ID || null;
+        const pathNames = rootId ? [year, sociedadName, month] : [ROOT_FOLDER, year, sociedadName, month];
+        const folderId = await g.ensureFolderPath(pathNames, rootId);
         for (const att of email.attachments) {
           const buf = await g.getAttachment(id, att.attachmentId);
           const up = await g.uploadFile(`${referencia} - ${att.filename}`, buf, folderId);
