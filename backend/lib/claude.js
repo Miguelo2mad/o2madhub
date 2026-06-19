@@ -109,6 +109,13 @@ Devuelve los campos solicitados. Reglas:
 - sociedad_codigo: identifica la SOCIEDAD DESTINATARIA del grupo O2MAD por su CIF o razón
   social. Opciones (código = razón social — CIF — señas para reconocerla):
 ${Object.entries(SOCIEDADES_INFO).map(([k, v]) => `    ${k} = ${v.nombre}${v.cif ? ` — CIF ${v.cif}` : ''} — ${v.claves}`).join('\n')}
+  PRIORIDAD MÁXIMA — si el PDF muestra el CIF del DESTINATARIO (a quién se factura), úsalo:
+    · CIF B55405195 → 'd'   (O2DOSMAD Design & Strategy SL)
+    · CIF B57944829 → 's'   (O2 Marketing and Design SL)
+    · CIF B26829291 → 'g'   (Gulliver Ventures SL)
+    · CIF B57856825 → 'a'   (Apper Street SL)
+  El CIF del destinatario manda sobre cualquier otra pista. Solo si no aparece el CIF,
+  decide por la razón social / señas de arriba.
   Reglas específicas de proveedor:
     · "POM Design & Development S.L." → sociedad "d"
   Si no está claro, usa "x".`;
