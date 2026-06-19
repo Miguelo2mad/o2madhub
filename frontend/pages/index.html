@@ -184,9 +184,11 @@
     });
     $('logout-btn').addEventListener('click', () => sb.auth.signOut());
 
-    // Role from user metadata; default gestor. Set role:"admin" in a user's metadata for full access.
-    function resolveRole(user) {
-      return (user?.app_metadata?.role || user?.user_metadata?.role || 'gestor').toLowerCase();
+    // Role comes from the profiles table (server-enforced via RLS). Falls back to
+    // metadata then 'gestor'. The profiles row is created automatically on signup.
+    async function resolveRole(user) {
+      const { data } = await sb.from('profiles').select('role').eq('id', user.id).maybeSingle();
+      return (data?.role || user?.app_metadata?.role || user?.user_metadata?.role || 'gestor').toLowerCase();
     }
 
     sb.auth.onAuthStateChange((_event, session) => {
@@ -203,8 +205,8 @@
       if (channel) { sb.removeChannel(channel); channel = null; }
     }
 
-    function showApp(user) {
-      role = resolveRole(user);
+    async function showApp(user) {
+      role = await resolveRole(user);
       $('login').classList.add('hidden');
       $('app').classList.remove('hidden');
       $('user-email').textContent = user.email;
