@@ -5,14 +5,41 @@ require('dotenv').config();
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
-// Códigos de sociedad usados en la tabla `facturas`.
-const SOCIEDADES = {
-  g: 'Gulliver AI',
-  a: 'Apper Street',
-  d: 'O2DOSMAD Design',
-  s: 'SalesPro',
-  x: 'Sin Clasificar',
+// Sociedades del grupo O2MAD, con razón social, CIF y señas para identificar a qué
+// sociedad va DIRIGIDA (destinataria) cada factura. 'd' y 's' son DOS entidades legales
+// distintas, ambas en Gran Via Asima 20 (Palma) — distínguelas por CIF / razón social.
+const SOCIEDADES_INFO = {
+  d: {
+    nombre: 'O2DOSMAD Design & Strategy SL',
+    cif: 'B55405195',
+    claves: 'O2DOSMAD, O2MAD, O2 Mad, info@o2mad.com, marketing@o2mad.com, Gran Via Asima 20 Palma',
+  },
+  s: {
+    nombre: 'O2 Marketing and Design SL',
+    cif: 'B57944829',
+    claves: 'O2 Marketing and Design, CL Gran Via Asima 20 2 7 (07000) Palma — entidad legal DISTINTA de O2DOSMAD',
+  },
+  g: {
+    nombre: 'Gulliver Ventures SL',
+    cif: 'B26829291',
+    claves: 'gulliver, gulliverventures, Gulliver Ventures',
+  },
+  a: {
+    nombre: 'Apper Street SL',
+    cif: 'B57856825',
+    claves: 'apper street, apperstreet, apperstreetapp@gmail.com',
+  },
+  x: {
+    nombre: 'Sin clasificar',
+    cif: null,
+    claves: 'úsalo cuando no haya señal clara (CIF / razón social) de la sociedad destinataria',
+  },
 };
+
+// Mapa código → razón social, para uso de display (carpetas de Drive, emails, dashboard).
+const SOCIEDADES = Object.fromEntries(
+  Object.entries(SOCIEDADES_INFO).map(([code, info]) => [code, info.nombre])
+);
 
 // JSON schema the model must fill. Structured outputs guarantees a parseable object.
 const FACTURA_SCHEMA = {
@@ -61,9 +88,10 @@ Devuelve los campos solicitados. Reglas:
     · proveedor = emisor real de la factura (quien la emite).
     · importe = importe TOTAL exacto del PDF (con IVA si aparece el total).
     · referencia = número de factura del PDF.
-    · sociedad_codigo = SOCIEDAD DESTINATARIA (cliente al que va dirigida la factura), mapeando:
-        O2DOSMAD / O2MAD Design → d;  Gulliver → g;  Apper Street → a;
-        Brand Strategy / SalesPro → s;  si no está claro → x.
+    · sociedad_codigo = SOCIEDAD DESTINATARIA del grupo O2MAD (a quién va dirigida y debe
+      pagar la factura). Identifícala por CIF o razón social (ver la lista de abajo). Ojo:
+      'd' (O2DOSMAD Design & Strategy SL, CIF B55405195) y 's' (O2 Marketing and Design SL,
+      CIF B57944829) son sociedades DISTINTAS — usa el CIF del destinatario para decidir.
   El correo solo sirve de contexto; los valores del PDF tienen prioridad.
 
 - es_factura: marca true SOLO si es una factura de empresa legítima de un proveedor.
@@ -78,8 +106,9 @@ Devuelve los campos solicitados. Reglas:
 - importe: número en euros sin símbolo (ej. 72.00). null si no aparece.
 - fecha_factura: formato YYYY-MM-DD. null si no aparece.
 - referencia: el número de factura tal cual aparece. null si no hay.
-- sociedad_codigo: elige el código que mejor encaje según el proveedor/concepto:
-${Object.entries(SOCIEDADES).map(([k, v]) => `    ${k} = ${v}`).join('\n')}
+- sociedad_codigo: identifica la SOCIEDAD DESTINATARIA del grupo O2MAD por su CIF o razón
+  social. Opciones (código = razón social — CIF — señas para reconocerla):
+${Object.entries(SOCIEDADES_INFO).map(([k, v]) => `    ${k} = ${v.nombre}${v.cif ? ` — CIF ${v.cif}` : ''} — ${v.claves}`).join('\n')}
   Reglas específicas de proveedor:
     · "POM Design & Development S.L." → sociedad "d"
   Si no está claro, usa "x".`;
@@ -120,4 +149,4 @@ async function extractFactura(email, pdfBuffer = null) {
   return JSON.parse(text);
 }
 
-module.exports = { client, extractFactura, SOCIEDADES, FACTURA_SCHEMA };
+module.exports = { client, extractFactura, SOCIEDADES, SOCIEDADES_INFO, FACTURA_SCHEMA };
