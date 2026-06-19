@@ -51,19 +51,26 @@ function writeRefreshToken(token) {
 
 const app = express();
 
+// Non-secret diagnostics land here so nothing is lost to a stdout flush race.
+const DIAG = '/tmp/get-token-result.json';
+function diag(obj) { try { fs.writeFileSync(DIAG, JSON.stringify(obj, null, 2)); } catch {} }
+
 app.get('/callback', async (req, res) => {
+  res.set('Connection', 'close');
   const { code, error } = req.query;
   if (error) {
     res.status(400).send(`Authorization failed: ${error}`);
     console.error('Authorization failed:', error);
-    return server.close(() => process.exit(1));
+    diag({ ok: false, stage: 'consent', error });
+    return finish(1);
   }
   try {
     const { tokens } = await oauth2.getToken(code);
     res.send('<h2>✓ Authorized.</h2><p>You can close this tab and return to the terminal.</p>');
 
     console.log('\n=== TOKENS RECEIVED ===');
-    if (tokens.refresh_token) {
+    const hasRefresh = Boolean(tokens.refresh_token);
+    if (hasRefresh) {
       console.log('REFRESH TOKEN:\n' + tokens.refresh_token);
       writeRefreshToken(tokens.refresh_token);
       console.log('\n✓ Written to .env (GOOGLE_REFRESH_TOKEN).');
@@ -72,14 +79,26 @@ app.get('/callback', async (req, res) => {
       console.log('  https://myaccount.google.com/permissions and run again.');
     }
     console.log('Access token acquired:', Boolean(tokens.access_token));
+    diag({ ok: true, hasRefreshToken: hasRefresh, hasAccessToken: Boolean(tokens.access_token),
+      scope: tokens.scope, token_type: tokens.token_type, expiry_date: tokens.expiry_date });
     console.log('\nNext: node verify-google.js');
+    finish(0);
   } catch (e) {
+    const detail = e.response && e.response.data;
     res.status(500).send('Token exchange failed: ' + e.message);
-    console.error('Token exchange failed:', e.message);
-  } finally {
-    server.close(() => process.exit(0));
+    console.error('Token exchange FAILED:', e.message);
+    console.error('Detail:', detail);
+    diag({ ok: false, stage: 'token_exchange', message: e.message, detail });
+    finish(1);
   }
 });
+
+// Flush stdout, then exit. server.close drains keep-alive; timer is a backstop.
+function finish(code) {
+  process.exitCode = code;
+  server.close();
+  setTimeout(() => process.exit(code), 800);
+}
 
 const server = app.listen(PORT, () => {
   console.log(`Listening on ${REDIRECT_URI}`);
