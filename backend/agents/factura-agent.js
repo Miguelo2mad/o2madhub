@@ -18,11 +18,21 @@ function periodFor(factura, email) {
   return { year: String(valid.getFullYear()), month: MESES[valid.getMonth()] };
 }
 
-async function runFacturaAgent() {
-  const query = process.env.FACTURA_QUERY || 'newer_than:1d (factura OR invoice OR recibo)';
-  console.log(`[factura-agent] Gmail query: ${query}`);
+const KEYWORDS = process.env.FACTURA_KEYWORDS || '(factura OR invoice OR recibo OR receipt OR fra)';
 
-  const ids = await g.listMessages(query, 50);
+// Build the Gmail query for a given lookback window (days). Falls back to FACTURA_QUERY env.
+function buildQuery(days) {
+  if (days) return `newer_than:${days}d ${KEYWORDS}`;
+  return process.env.FACTURA_QUERY || `newer_than:1d ${KEYWORDS}`;
+}
+
+async function runFacturaAgent(opts = {}) {
+  const days = opts.days ?? null;
+  const query = buildQuery(days);
+  const limit = days ? 500 : 50; // wider window → fetch more candidates
+  console.log(`[factura-agent] Gmail query: ${query}  (limit ${limit})`);
+
+  const ids = await g.listMessages(query, limit);
   console.log(`[factura-agent] ${ids.length} candidate message(s)`);
 
   const processed = [];
@@ -140,7 +150,9 @@ async function runFacturaAgent() {
 
 module.exports = { runFacturaAgent };
 
-// Allow running directly: node backend/agents/factura-agent.js
+// Allow running directly: node backend/agents/factura-agent.js [--days=N]
 if (require.main === module) {
-  runFacturaAgent().catch(e => { console.error(e); process.exit(1); });
+  const arg = process.argv.find(a => a.startsWith('--days='));
+  const days = arg ? parseInt(arg.split('=')[1], 10) : null;
+  runFacturaAgent({ days }).catch(e => { console.error(e); process.exit(1); });
 }

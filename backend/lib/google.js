@@ -23,9 +23,19 @@ const drive = google.drive({ version: 'v3', auth });
 // --- Gmail ---
 
 // List message IDs matching a Gmail search query (e.g. "newer_than:1d factura").
+// Paginates up to `max` total results.
 async function listMessages(query, max = 50) {
-  const res = await gmail.users.messages.list({ userId: 'me', q: query, maxResults: max });
-  return res.data.messages || [];
+  const out = [];
+  let pageToken;
+  do {
+    const res = await gmail.users.messages.list({
+      userId: 'me', q: query, pageToken,
+      maxResults: Math.min(100, max - out.length),
+    });
+    (res.data.messages || []).forEach(m => out.push(m));
+    pageToken = res.data.nextPageToken;
+  } while (pageToken && out.length < max);
+  return out;
 }
 
 // Fetch a full message and flatten the parts we care about.
