@@ -23,6 +23,7 @@ const esc = (s) => String(s ?? '').replace(/[&<>]/g, c => ({ '&': '&amp;', '<': 
 function buildHtml({ processed, skipped, errors }) {
   const today = new Date().toLocaleDateString('es-ES', { day: '2-digit', month: 'long', year: 'numeric' });
   const total = processed.reduce((s, f) => s + (Number(f.importe) || 0), 0);
+  const appUrl = process.env.RAILWAY_URL || `http://localhost:${process.env.PORT || 8080}`;
 
   const rows = processed.map(f => {
     const links = (f.driveLinks || []).map((l, i) => `<a href="${esc(l)}">PDF${f.driveLinks.length > 1 ? ' ' + (i + 1) : ''}</a>`).join(' · ') || '—';
@@ -49,7 +50,8 @@ function buildHtml({ processed, skipped, errors }) {
       <tbody>${rows}</tbody>
     </table>` : '<p>No se procesaron facturas nuevas hoy.</p>'}
     ${errors.length ? `<h3 style="color:#b00">Errores</h3><ul>${errors.map(e => `<li>${esc(e.id)}: ${esc(e.message)}</li>`).join('')}</ul>` : ''}
-    <p style="color:#888;font-size:12px">Enviado automáticamente por o2madhub.</p>
+    <p style="color:#888;font-size:12px">Enviado automáticamente por
+      <a href="${esc(appUrl)}">o2madhub</a>.</p>
   </div>`;
 }
 
