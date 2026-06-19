@@ -14,6 +14,15 @@ app.use(express.json());
 
 const PORT = process.env.PORT || 8080;
 
+// Fail loud at boot if required config is missing (visible in Railway deploy logs).
+const REQUIRED = ['SUPABASE_URL', 'SUPABASE_SERVICE_KEY', 'GOOGLE_CLIENT_ID',
+  'GOOGLE_CLIENT_SECRET', 'GOOGLE_REFRESH_TOKEN', 'GMAIL_USER', 'ANTHROPIC_API_KEY'];
+const missing = REQUIRED.filter(k => !process.env[k]);
+if (missing.length) console.error(`[o2madhub] ⚠ MISSING env vars: ${missing.join(', ')}`);
+else console.log('[o2madhub] ✓ all required env vars present');
+['DRIVE_ROOT_FOLDER_ID', 'NOTIFY_TO', 'NOTIFY_CC', 'RAILWAY_URL']
+  .forEach(k => { if (!process.env[k]) console.warn(`[o2madhub] (optional) ${k} not set`); });
+
 // Run the agent, then email the summary. Shared by the cron job and the manual endpoint.
 async function runDaily() {
   console.log(`[o2madhub] daily run @ ${new Date().toISOString()}`);
@@ -37,6 +46,7 @@ app.post('/run', async (_req, res) => {
       processed: result.processed.length,
       skipped: result.skipped.length,
       errors: result.errors.length,
+      errorDetails: result.errors, // [{ id, message }] — for debugging without log access
     });
   } catch (e) {
     res.status(500).json({ ok: false, error: e.message });
