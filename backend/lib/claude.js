@@ -11,7 +11,7 @@ const SOCIEDADES = {
   a: 'Apper Street',
   d: 'O2DOSMAD Design',
   s: 'SalesPro',
-  x: 'General / Holding',
+  x: 'Sin Clasificar',
 };
 
 // JSON schema the model must fill. Structured outputs guarantees a parseable object.

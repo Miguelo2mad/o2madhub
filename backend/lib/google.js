@@ -100,19 +100,35 @@ async function ensureFolderPath(names, startParent = null) {
   return parent;
 }
 
-// Upload a buffer as a file into a folder. Returns { id, webViewLink }.
+// Find a file by exact name within a folder. Returns { id, webViewLink } or null.
+async function findFileInFolder(name, folderId) {
+  const safeName = name.replace(/'/g, "\\'");
+  const res = await drive.files.list({
+    q: `name='${safeName}' and '${folderId}' in parents and trashed=false`,
+    fields: 'files(id,webViewLink)',
+    spaces: 'drive',
+  });
+  return res.data.files?.[0] || null;
+}
+
+// Upload a buffer as a file into a folder. If a file with the same name already
+// exists in that folder, skip the upload and return the existing file.
+// Returns { id, webViewLink, existed }.
 async function uploadFile(name, buffer, folderId, mimeType = 'application/pdf') {
+  const existing = await findFileInFolder(name, folderId);
+  if (existing) return { ...existing, existed: true };
+
   const { Readable } = require('stream');
   const res = await drive.files.create({
     requestBody: { name, parents: [folderId] },
     media: { mimeType, body: Readable.from(buffer) },
     fields: 'id, webViewLink',
   });
-  return res.data;
+  return { ...res.data, existed: false };
 }
 
 module.exports = {
   auth, gmail, drive,
   listMessages, getMessage, getAttachment,
-  ensureFolder, ensureFolderPath, uploadFile,
+  ensureFolder, ensureFolderPath, findFileInFolder, uploadFile,
 };

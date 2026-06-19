@@ -85,8 +85,12 @@ async function runFacturaAgent() {
         const pathNames = rootId ? [year, sociedadName, month] : [ROOT_FOLDER, year, sociedadName, month];
         const folderId = await g.ensureFolderPath(pathNames, rootId);
         for (const att of email.attachments) {
+          const fname = `${referencia} - ${att.filename}`;
+          // Dedup: reuse the existing file's link instead of re-uploading.
+          const existing = await g.findFileInFolder(fname, folderId);
+          if (existing) { driveLinks.push(existing.webViewLink); continue; }
           const buf = await g.getAttachment(id, att.attachmentId);
-          const up = await g.uploadFile(`${referencia} - ${att.filename}`, buf, folderId);
+          const up = await g.uploadFile(fname, buf, folderId);
           driveLinks.push(up.webViewLink);
         }
       }
