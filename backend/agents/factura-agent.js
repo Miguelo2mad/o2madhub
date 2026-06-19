@@ -135,8 +135,11 @@ async function processAccount(account, opts = {}) {
         estado: 'procesada',
         drive_url: driveLinks[0] || null,
         drive_folder: driveLinks.length ? driveFolder : null,
-        source_account: account.id,
       };
+      // source_account marks the ORIGIN mailbox — set it only on INSERT (first writer wins).
+      // On UPDATE we omit it so an upsert from another account can't overwrite the origin
+      // when the same referencia appears in two mailboxes (e.g. intra-group invoices).
+      if (!existing) row.source_account = account.id;
       const { error } = await supabase.from('facturas').upsert(row, { onConflict: 'referencia' });
       if (error) throw new Error(`Supabase: ${error.message}`);
 

@@ -37,6 +37,25 @@ const FACTURA_SCHEMA = {
 const SYSTEM = `Eres un asistente que extrae datos de FACTURAS DE PROVEEDORES (gastos de empresa) para O2MAD.
 Devuelve los campos solicitados. Reglas:
 
+- REGLA CRÍTICA — SOLO capturamos facturas en las que el grupo O2MAD es quien PAGA
+  (un gasto / compra a un proveedor). NUNCA capturamos facturas que EMITE O2MAD a sus
+  clientes (esos son ingresos/ventas, no gastos). Marca es_factura: false si se cumple
+  CUALQUIERA de estas condiciones:
+    · El EMISOR (quien emite la factura, campo "proveedor") es una empresa del grupo O2MAD:
+      "O2 Mad", "O2 Marketing & Design", "O2DOSMAD", "O2DOSMAD Design & Strategy",
+      "Apper Street" / "ApperStreet SL", "Gulliver", "SalesPro" / "Salespro Solutions".
+      → es_factura: false (es una factura que emitimos nosotros).
+    · El DESTINATARIO / CLIENTE de la factura (la empresa A QUIEN va dirigida y debe pagar)
+      es un cliente externo, en especial: Zafiro, PURO / Purobeach, Clínica Nadal, Krishna,
+      Canyamel, Inner Hotels, Universal Beach, Roots Beach, Son Caulelles, Clicktotravel,
+      Expogrup, Assessoria Diagonal, o CUALQUIER hotel / restaurante cliente.
+      → es_factura: false (le estamos facturando a un cliente).
+  MUY IMPORTANTE — distingue el DESTINATARIO de la factura del PROYECTO mencionado en el
+  concepto. Si un proveedor EXTERNO (un fotógrafo, freelance, agencia, etc.) nos factura
+  A NOSOTROS por trabajo de un proyecto que menciona "Zafiro" / "PURO" / un hotel, ESO SÍ es
+  una factura de proveedor válida que pagamos → es_factura: true. Solo excluye cuando el
+  cliente es el RECEPTOR de la factura, no cuando solo aparece como proyecto en el concepto.
+
 - SI SE ADJUNTA UN PDF: extrae los datos del PDF (es la fuente principal), no del correo:
     · fecha_factura = FECHA DE EMISIÓN que aparece en el PDF (YYYY-MM-DD), NUNCA la fecha del correo.
     · proveedor = emisor real de la factura (quien la emite).
