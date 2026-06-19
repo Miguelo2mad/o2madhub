@@ -25,84 +25,82 @@
     .hidden { display: none !important; }
 
     /* ---- Login ---- */
-    #login {
-      min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px;
-    }
-    .login-card {
-      width: 100%; max-width: 380px; background: var(--negro-soft);
-      border: 1px solid var(--arena-dim); border-radius: 14px; padding: 40px 32px;
-    }
+    #login { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px; }
+    .login-card { width: 100%; max-width: 380px; background: var(--negro-soft); border: 1px solid var(--arena-dim); border-radius: 14px; padding: 40px 32px; }
     .brand { text-align: center; margin-bottom: 28px; }
     .brand h1 { font-size: 28px; letter-spacing: 4px; color: var(--blanco); font-weight: 700; }
     .brand h1 span { color: var(--arena); }
     .brand p { color: var(--arena); font-size: 12px; letter-spacing: 2px; margin-top: 6px; text-transform: uppercase; }
     label { display: block; font-size: 12px; color: var(--arena); margin: 16px 0 6px; letter-spacing: 1px; text-transform: uppercase; }
-    input {
-      width: 100%; padding: 12px 14px; background: var(--negro); border: 1px solid var(--arena-dim);
-      border-radius: 8px; color: var(--blanco); font-size: 15px;
-    }
+    input { width: 100%; padding: 12px 14px; background: var(--negro); border: 1px solid var(--arena-dim); border-radius: 8px; color: var(--blanco); font-size: 15px; }
     input:focus { outline: none; border-color: var(--arena); }
-    button {
-      cursor: pointer; border: none; border-radius: 8px; font-size: 15px; font-weight: 600;
-      transition: opacity .15s;
-    }
+    button { cursor: pointer; border: none; border-radius: 8px; font-size: 15px; font-weight: 600; transition: opacity .15s; }
     button:hover { opacity: .88; }
     .btn-primary { width: 100%; margin-top: 24px; padding: 13px; background: var(--arena); color: var(--negro); }
     .btn-ghost { background: transparent; color: var(--arena); border: 1px solid var(--arena-dim); padding: 8px 16px; font-size: 13px; }
     .error { color: var(--rojo); font-size: 13px; margin-top: 14px; min-height: 18px; }
 
-    /* ---- Dashboard ---- */
-    header {
-      display: flex; align-items: center; justify-content: space-between;
-      padding: 18px 28px; border-bottom: 1px solid var(--arena-dim); background: var(--negro-soft);
-      position: sticky; top: 0; z-index: 10;
-    }
+    /* ---- Header ---- */
+    header { display: flex; align-items: center; justify-content: space-between; padding: 18px 28px; border-bottom: 1px solid var(--arena-dim); background: var(--negro-soft); position: sticky; top: 0; z-index: 10; }
     header .logo { font-size: 20px; letter-spacing: 3px; font-weight: 700; }
     header .logo span { color: var(--arena); }
     header .user { display: flex; align-items: center; gap: 14px; font-size: 13px; color: var(--arena); }
     .role-pill { background: var(--arena-dim); color: var(--arena); padding: 3px 10px; border-radius: 20px; font-size: 11px; letter-spacing: 1px; text-transform: uppercase; }
+    .live-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--verde); margin-right: 6px; animation: pulse 2s infinite; }
+    @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .3; } }
     main { padding: 28px; max-width: 1200px; margin: 0 auto; }
 
-    .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; margin-bottom: 28px; }
-    .kpi { background: var(--negro-soft); border: 1px solid var(--arena-dim); border-radius: 12px; padding: 20px; }
+    /* ---- KPIs / alerts ---- */
+    .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 16px; margin-bottom: 24px; }
+    .kpi { background: var(--negro-soft); border: 1px solid var(--arena-dim); border-radius: 12px; padding: 18px; }
     .kpi .label { font-size: 12px; color: var(--arena); letter-spacing: 1px; text-transform: uppercase; }
-    .kpi .value { font-size: 30px; font-weight: 700; margin-top: 8px; }
-
+    .kpi .value { font-size: 28px; font-weight: 700; margin-top: 8px; }
+    .alerts { margin-bottom: 24px; }
     .section-title { font-size: 14px; letter-spacing: 2px; color: var(--arena); text-transform: uppercase; margin: 6px 0 14px; }
-
-    .alerts { margin-bottom: 28px; }
-    .alert-row {
-      display: flex; align-items: center; gap: 12px; background: rgba(217,104,79,0.10);
-      border-left: 3px solid var(--rojo); border-radius: 8px; padding: 12px 16px; margin-bottom: 8px; font-size: 14px;
-    }
+    .alert-row { display: flex; align-items: center; gap: 12px; background: rgba(217,104,79,0.10); border-left: 3px solid var(--rojo); border-radius: 8px; padding: 12px 16px; margin-bottom: 8px; font-size: 14px; }
     .alert-row b { color: var(--blanco); }
+    .muted { color: rgba(245,240,232,.45); }
 
-    .toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; gap: 12px; flex-wrap: wrap; }
-    .toolbar input[type=search] { max-width: 280px; }
+    /* ---- Breadcrumb ---- */
+    .breadcrumb { font-size: 13px; color: var(--arena); margin-bottom: 20px; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+    .breadcrumb .crumb { background: none; border: none; color: var(--arena); cursor: pointer; padding: 0; font-size: 13px; }
+    .breadcrumb .crumb:hover { text-decoration: underline; opacity: 1; }
+    .breadcrumb .crumb.current { color: var(--blanco); cursor: default; font-weight: 600; }
+    .breadcrumb .sep { color: rgba(196,168,130,.5); }
 
+    /* ---- Cards grid ---- */
+    .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 18px; }
+    .card { background: var(--negro-soft); border: 1px solid var(--arena-dim); border-radius: 14px; padding: 24px; cursor: pointer; transition: transform .12s, border-color .12s; }
+    .card:hover { transform: translateY(-3px); border-color: var(--arena); }
+    .card .card-name { font-size: 18px; font-weight: 700; color: var(--blanco); margin-bottom: 4px; }
+    .card .card-code { font-size: 11px; color: var(--arena); letter-spacing: 2px; text-transform: uppercase; margin-bottom: 16px; }
+    .card .card-stats { display: flex; justify-content: space-between; align-items: flex-end; }
+    .card .card-stat .n { font-size: 24px; font-weight: 700; }
+    .card .card-stat .l { font-size: 11px; color: var(--arena); text-transform: uppercase; letter-spacing: 1px; }
+    .card .card-stat.right { text-align: right; }
+
+    /* ---- Table ---- */
+    .toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; gap: 12px; flex-wrap: wrap; }
+    .toolbar .backs { display: flex; gap: 10px; }
     .table-wrap { overflow-x: auto; border: 1px solid var(--arena-dim); border-radius: 12px; }
     table { width: 100%; border-collapse: collapse; font-size: 13px; }
     th, td { padding: 11px 14px; text-align: left; border-bottom: 1px solid var(--arena-dim); white-space: nowrap; }
-    th { color: var(--arena); font-size: 11px; letter-spacing: 1px; text-transform: uppercase; background: var(--negro-soft); position: sticky; top: 0; }
+    th { color: var(--arena); font-size: 11px; letter-spacing: 1px; text-transform: uppercase; background: var(--negro-soft); }
     tr:last-child td { border-bottom: none; }
     td.num { text-align: right; font-variant-numeric: tabular-nums; }
     .badge { padding: 3px 9px; border-radius: 20px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .5px; }
     .badge.alerta { background: rgba(217,104,79,.18); color: var(--rojo); }
     .badge.pendiente { background: rgba(217,164,65,.18); color: var(--ambar); }
     .badge.procesada { background: rgba(127,168,107,.18); color: var(--verde); }
-    .muted { color: rgba(245,240,232,.45); }
-    .live-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--verde); margin-right: 6px; animation: pulse 2s infinite; }
-    @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .3; } }
+    .btn-pdf { background: var(--arena-dim); color: var(--arena); border: none; border-radius: 6px; padding: 5px 12px; font-size: 12px; cursor: pointer; }
+    .btn-pdf[disabled] { opacity: .35; cursor: not-allowed; }
   </style>
 </head>
 <body>
   <!-- ===== LOGIN ===== -->
   <section id="login">
     <div class="login-card">
-      <div class="brand">
-        <h1>O2<span>MAD</span> HUB</h1>
-        <p>Panel de facturas</p>
-      </div>
+      <div class="brand"><h1>O2<span>MAD</span> HUB</h1><p>Panel de facturas</p></div>
       <form id="login-form">
         <label for="email">Email</label>
         <input id="email" type="email" autocomplete="username" required />
@@ -126,33 +124,43 @@
       </div>
     </header>
     <main>
-      <!-- KPIs (admin only) -->
+      <!-- KPIs + alerts (admin only) -->
       <div id="kpis" class="kpis"></div>
-
-      <!-- Alerts (admin only) -->
       <div id="alerts-block" class="alerts">
         <div class="section-title">Alertas</div>
         <div id="alerts-list"></div>
       </div>
 
-      <!-- Facturas table (all roles) -->
-      <div class="toolbar">
-        <div class="section-title" style="margin:0">Facturas</div>
-        <div style="display:flex;gap:10px">
-          <input type="search" id="search" placeholder="Buscar proveedor, ref…" />
+      <!-- Breadcrumb -->
+      <nav class="breadcrumb" id="breadcrumb"></nav>
+
+      <!-- VIEW: sociedades -->
+      <div id="view-sociedades">
+        <div class="cards" id="sociedad-cards"></div>
+      </div>
+
+      <!-- VIEW: meses -->
+      <div id="view-meses" class="hidden">
+        <div class="cards" id="mes-cards"></div>
+      </div>
+
+      <!-- VIEW: facturas -->
+      <div id="view-facturas" class="hidden">
+        <div class="toolbar">
+          <div class="backs">
+            <button class="btn-ghost" data-nav="sociedades">← Sociedades</button>
+            <button class="btn-ghost" data-nav="meses">← Meses</button>
+          </div>
           <button class="btn-ghost" id="csv-btn">Descargar CSV</button>
         </div>
-      </div>
-      <div class="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>Fecha</th><th>Proveedor</th><th>Ref.</th><th>Concepto</th>
-              <th>Sociedad</th><th class="num">Importe</th><th>Estado</th><th>PDF</th>
-            </tr>
-          </thead>
-          <tbody id="facturas-body"></tbody>
-        </table>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th>Fecha</th><th>Proveedor</th><th>Ref.</th><th>Concepto</th><th class="num">Importe</th><th>Estado</th><th>PDF</th></tr>
+            </thead>
+            <tbody id="facturas-body"></tbody>
+          </table>
+        </div>
       </div>
     </main>
   </div>
@@ -163,41 +171,59 @@
     const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVxcnVvZW9pcXZsbmx6aWRxeHFyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE4NTY4MDcsImV4cCI6MjA5NzQzMjgwN30.QYMAUUrARJ9i_F8tb4gyGBkJAL66m7izlqgE2gZyz5k';
     const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-    const SOCIEDADES = { g: 'Gulliver AI', a: 'Apper Street', d: 'O2DOSMAD Design', s: 'SalesPro', x: 'Sin Clasificar' };
+    // Display order + names for the sociedad cards.
+    const SOCIEDADES = [
+      { code: 'd', name: 'O2MAD Design' },
+      { code: 's', name: 'Brand Strategy' },
+      { code: 'g', name: 'Gulliver Ventures' },
+      { code: 'a', name: 'Apper Street' },
+      { code: 'x', name: 'Sin Clasificar' },
+    ];
+    const SOC_NAME = Object.fromEntries(SOCIEDADES.map(s => [s.code, s.name]));
+    const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
+
     const $ = (id) => document.getElementById(id);
     const eur = (n) => n == null ? '—' : new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' }).format(n);
     const esc = (s) => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+    const sum = (arr) => arr.reduce((s, f) => s + (Number(f.importe) || 0), 0);
+
+    // Month key/label from a factura's fecha (null → "sin-fecha").
+    function monthKey(f) {
+      if (!f.fecha_factura) return 'sin-fecha';
+      const d = new Date(f.fecha_factura);
+      return isNaN(d) ? 'sin-fecha' : `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    }
+    function monthLabel(key) {
+      if (key === 'sin-fecha') return 'Sin fecha';
+      const [y, m] = key.split('-');
+      return `${MESES[Number(m) - 1]} ${y}`;
+    }
 
     let allFacturas = [];
     let role = 'gestor';
     let channel = null;
+    let view = 'sociedades';   // 'sociedades' | 'meses' | 'facturas'
+    let selSoc = null;         // sociedad code
+    let selMonth = null;       // month key
 
     // ---- Auth ----
     $('login-form').addEventListener('submit', async (e) => {
       e.preventDefault();
       $('login-error').textContent = '';
-      const { error } = await sb.auth.signInWithPassword({
-        email: $('email').value.trim(),
-        password: $('password').value,
-      });
+      const { error } = await sb.auth.signInWithPassword({ email: $('email').value.trim(), password: $('password').value });
       if (error) $('login-error').textContent = error.message;
     });
     $('logout-btn').addEventListener('click', () => sb.auth.signOut());
 
-    // Role comes from the profiles table (server-enforced via RLS). Falls back to
-    // metadata then 'gestor'. The profiles row is created automatically on signup.
     async function resolveRole(user) {
       const { data } = await sb.from('profiles').select('role').eq('id', user.id).maybeSingle();
       return (data?.role || user?.app_metadata?.role || user?.user_metadata?.role || 'gestor').toLowerCase();
     }
 
     sb.auth.onAuthStateChange((_event, session) => {
-      if (session?.user) showApp(session.user);
-      else showLogin();
+      if (session?.user) showApp(session.user); else showLogin();
     });
-    sb.auth.getSession().then(({ data }) => {
-      if (data.session?.user) showApp(data.session.user);
-    });
+    sb.auth.getSession().then(({ data }) => { if (data.session?.user) showApp(data.session.user); });
 
     function showLogin() {
       $('app').classList.add('hidden');
@@ -211,20 +237,18 @@
       $('app').classList.remove('hidden');
       $('user-email').textContent = user.email;
       $('user-role').textContent = role;
-
-      // Admin sees KPIs + alerts; gestor sees only the facturas table + CSV.
       const adminOnly = role === 'admin';
       $('kpis').classList.toggle('hidden', !adminOnly);
       $('alerts-block').classList.toggle('hidden', !adminOnly);
-
-      loadFacturas();
+      view = 'sociedades'; selSoc = null; selMonth = null;
+      await loadFacturas();
       subscribeRealtime();
     }
 
     // ---- Data ----
     async function loadFacturas() {
       const { data, error } = await sb.from('facturas')
-        .select('fecha_factura,proveedor,referencia,concepto,importe,sociedad_codigo,estado,alerta_texto,fecha_vencimiento,drive_url')
+        .select('fecha_factura,proveedor,referencia,concepto,importe,sociedad_codigo,estado,alerta_texto,drive_url')
         .order('fecha_factura', { ascending: false, nullsFirst: false });
       if (error) { console.error(error); return; }
       allFacturas = data || [];
@@ -238,26 +262,32 @@
         .subscribe();
     }
 
+    // ---- Navigation ----
+    function goSociedades() { view = 'sociedades'; selSoc = null; selMonth = null; render(); }
+    function goMeses(code) { view = 'meses'; selSoc = code; selMonth = null; render(); }
+    function goFacturas(code, key) { view = 'facturas'; selSoc = code; selMonth = key; render(); }
+
+    document.querySelectorAll('[data-nav]').forEach(b =>
+      b.addEventListener('click', () => b.dataset.nav === 'sociedades' ? goSociedades() : goMeses(selSoc)));
+
     // ---- Render ----
     function render() {
-      const q = $('search').value.trim().toLowerCase();
-      const rows = q
-        ? allFacturas.filter(f => (`${f.proveedor} ${f.referencia} ${f.concepto}`).toLowerCase().includes(q))
-        : allFacturas;
-
       if (role === 'admin') { renderKpis(); renderAlerts(); }
-      renderTable(rows);
+      renderBreadcrumb();
+      $('view-sociedades').classList.toggle('hidden', view !== 'sociedades');
+      $('view-meses').classList.toggle('hidden', view !== 'meses');
+      $('view-facturas').classList.toggle('hidden', view !== 'facturas');
+      if (view === 'sociedades') renderSociedades();
+      else if (view === 'meses') renderMeses();
+      else renderFacturas();
     }
 
     function renderKpis() {
-      const total = allFacturas.reduce((s, f) => s + (Number(f.importe) || 0), 0);
-      const alertas = allFacturas.filter(f => f.estado === 'alerta').length;
-      const pendientes = allFacturas.filter(f => f.estado === 'pendiente').length;
       const kpis = [
         { label: 'Facturas', value: allFacturas.length },
-        { label: 'Importe total', value: eur(total) },
-        { label: 'Alertas', value: alertas },
-        { label: 'Pendientes', value: pendientes },
+        { label: 'Importe total', value: eur(sum(allFacturas)) },
+        { label: 'Alertas', value: allFacturas.filter(f => f.estado === 'alerta').length },
+        { label: 'Pendientes', value: allFacturas.filter(f => f.estado === 'pendiente').length },
       ];
       $('kpis').innerHTML = kpis.map(k => `<div class="kpi"><div class="label">${k.label}</div><div class="value">${k.value}</div></div>`).join('');
     }
@@ -269,35 +299,91 @@
         : '<div class="muted">Sin alertas.</div>';
     }
 
-    function renderTable(rows) {
+    function renderBreadcrumb() {
+      const parts = [];
+      parts.push(view === 'sociedades'
+        ? `<span class="crumb current">Todas las sociedades</span>`
+        : `<button class="crumb" data-bc="soc">Todas las sociedades</button>`);
+      if (selSoc) {
+        parts.push('<span class="sep">›</span>');
+        parts.push(view === 'meses'
+          ? `<span class="crumb current">${esc(SOC_NAME[selSoc] || selSoc)}</span>`
+          : `<button class="crumb" data-bc="mes">${esc(SOC_NAME[selSoc] || selSoc)}</button>`);
+      }
+      if (selMonth) {
+        parts.push('<span class="sep">›</span>');
+        parts.push(`<span class="crumb current">${esc(monthLabel(selMonth))}</span>`);
+      }
+      $('breadcrumb').innerHTML = parts.join(' ');
+      const socBtn = $('breadcrumb').querySelector('[data-bc="soc"]');
+      const mesBtn = $('breadcrumb').querySelector('[data-bc="mes"]');
+      if (socBtn) socBtn.addEventListener('click', goSociedades);
+      if (mesBtn) mesBtn.addEventListener('click', () => goMeses(selSoc));
+    }
+
+    function renderSociedades() {
+      $('sociedad-cards').innerHTML = SOCIEDADES.map(s => {
+        const rows = allFacturas.filter(f => f.sociedad_codigo === s.code);
+        return `<div class="card" data-soc="${s.code}">
+          <div class="card-name">${esc(s.name)}</div>
+          <div class="card-code">${esc(s.code)}</div>
+          <div class="card-stats">
+            <div class="card-stat"><div class="n">${rows.length}</div><div class="l">Facturas</div></div>
+            <div class="card-stat right"><div class="n">${eur(sum(rows))}</div><div class="l">Importe</div></div>
+          </div>
+        </div>`;
+      }).join('');
+      $('sociedad-cards').querySelectorAll('[data-soc]').forEach(c =>
+        c.addEventListener('click', () => goMeses(c.dataset.soc)));
+    }
+
+    function renderMeses() {
+      const rows = allFacturas.filter(f => f.sociedad_codigo === selSoc);
+      const groups = {};
+      for (const f of rows) { const k = monthKey(f); (groups[k] = groups[k] || []).push(f); }
+      const keys = Object.keys(groups).sort((a, b) => b.localeCompare(a)); // recent first; 'sin-fecha' sorts first
+      $('mes-cards').innerHTML = keys.length ? keys.map(k => `<div class="card" data-mes="${k}">
+        <div class="card-name">${esc(monthLabel(k))}</div>
+        <div class="card-code">${esc(SOC_NAME[selSoc] || selSoc)}</div>
+        <div class="card-stats">
+          <div class="card-stat"><div class="n">${groups[k].length}</div><div class="l">Facturas</div></div>
+          <div class="card-stat right"><div class="n">${eur(sum(groups[k]))}</div><div class="l">Importe</div></div>
+        </div>
+      </div>`).join('') : '<div class="muted">Esta sociedad no tiene facturas.</div>';
+      $('mes-cards').querySelectorAll('[data-mes]').forEach(c =>
+        c.addEventListener('click', () => goFacturas(selSoc, c.dataset.mes)));
+    }
+
+    function currentFacturas() {
+      return allFacturas.filter(f => f.sociedad_codigo === selSoc && monthKey(f) === selMonth);
+    }
+
+    function renderFacturas() {
+      const rows = currentFacturas();
       $('facturas-body').innerHTML = rows.length ? rows.map(f => `<tr>
         <td>${esc(f.fecha_factura || '—')}</td>
         <td>${esc(f.proveedor)}</td>
         <td>${esc(f.referencia)}</td>
         <td>${esc(f.concepto || '')}</td>
-        <td>${esc(SOCIEDADES[f.sociedad_codigo] || f.sociedad_codigo || '')}</td>
         <td class="num">${eur(f.importe)}</td>
         <td><span class="badge ${esc(f.estado)}">${esc(f.estado)}</span></td>
-        <td>${f.drive_url ? `<a href="${esc(f.drive_url)}" target="_blank" rel="noopener">PDF</a>` : '<span class="muted">—</span>'}</td>
-      </tr>`).join('') : '<tr><td colspan="8" class="muted" style="text-align:center;padding:24px">Sin facturas.</td></tr>';
+        <td>${f.drive_url
+          ? `<button class="btn-pdf" onclick="window.open('${esc(f.drive_url)}','_blank','noopener')">Ver PDF</button>`
+          : `<button class="btn-pdf" disabled>Ver PDF</button>`}</td>
+      </tr>`).join('') : '<tr><td colspan="7" class="muted" style="text-align:center;padding:24px">Sin facturas.</td></tr>';
     }
 
-    $('search').addEventListener('input', render);
-
-    // ---- CSV (all roles) ----
+    // ---- CSV (current sociedad + month) ----
     $('csv-btn').addEventListener('click', () => {
-      const cols = ['fecha_factura', 'proveedor', 'referencia', 'concepto', 'sociedad_codigo', 'importe', 'estado', 'drive_url'];
-      const head = cols.join(',');
-      const csvCell = (v) => {
-        const s = String(v ?? '');
-        return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-      };
-      const body = allFacturas.map(f => cols.map(c => csvCell(f[c])).join(',')).join('\n');
-      const blob = new Blob(['﻿' + head + '\n' + body], { type: 'text/csv;charset=utf-8;' });
+      const cols = ['fecha_factura', 'proveedor', 'referencia', 'concepto', 'importe', 'estado', 'sociedad_codigo', 'drive_url'];
+      const cell = (v) => { const s = String(v ?? ''); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
+      const rows = currentFacturas();
+      const body = rows.map(f => cols.map(c => cell(f[c])).join(',')).join('\n');
+      const blob = new Blob(['﻿' + cols.join(',') + '\n' + body], { type: 'text/csv;charset=utf-8;' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `facturas-o2mad-${new Date().toISOString().slice(0, 10)}.csv`;
+      a.download = `facturas-${SOC_NAME[selSoc] || selSoc}-${selMonth}.csv`.replace(/\s+/g, '_');
       a.click();
       URL.revokeObjectURL(url);
     });
