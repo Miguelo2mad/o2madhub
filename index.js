@@ -3,6 +3,7 @@
 const express = require('express');
 const cors = require('cors');
 const cron = require('node-cron');
+const path = require('path');
 require('dotenv').config();
 
 const { runFacturaAgent } = require('./backend/agents/factura-agent');
@@ -36,6 +37,10 @@ async function runDaily({ notify = true } = {}) {
   }
   return result;
 }
+
+// Hub dashboard (Supabase Auth + realtime). Served at / and /hub.
+const HUB_PAGE = path.join(__dirname, 'frontend', 'pages', 'index.html');
+app.get(['/', '/hub'], (_req, res) => res.sendFile(HUB_PAGE));
 
 app.get('/health', (_req, res) => res.json({ ok: true, ts: new Date().toISOString() }));
 

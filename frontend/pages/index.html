@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>O2MAD Hub</title>
+  <style>
+    :root {
+      --negro: #0F0E0C;
+      --arena: #C4A882;
+      --blanco: #F5F0E8;
+      --negro-soft: #1a1916;
+      --arena-dim: rgba(196, 168, 130, 0.18);
+      --rojo: #d9684f;
+      --ambar: #d9a441;
+      --verde: #7fa86b;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+      background: var(--negro); color: var(--blanco); min-height: 100vh;
+      -webkit-font-smoothing: antialiased;
+    }
+    a { color: var(--arena); }
+    .hidden { display: none !important; }
+
+    /* ---- Login ---- */
+    #login {
+      min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px;
+    }
+    .login-card {
+      width: 100%; max-width: 380px; background: var(--negro-soft);
+      border: 1px solid var(--arena-dim); border-radius: 14px; padding: 40px 32px;
+    }
+    .brand { text-align: center; margin-bottom: 28px; }
+    .brand h1 { font-size: 28px; letter-spacing: 4px; color: var(--blanco); font-weight: 700; }
+    .brand h1 span { color: var(--arena); }
+    .brand p { color: var(--arena); font-size: 12px; letter-spacing: 2px; margin-top: 6px; text-transform: uppercase; }
+    label { display: block; font-size: 12px; color: var(--arena); margin: 16px 0 6px; letter-spacing: 1px; text-transform: uppercase; }
+    input {
+      width: 100%; padding: 12px 14px; background: var(--negro); border: 1px solid var(--arena-dim);
+      border-radius: 8px; color: var(--blanco); font-size: 15px;
+    }
+    input:focus { outline: none; border-color: var(--arena); }
+    button {
+      cursor: pointer; border: none; border-radius: 8px; font-size: 15px; font-weight: 600;
+      transition: opacity .15s;
+    }
+    button:hover { opacity: .88; }
+    .btn-primary { width: 100%; margin-top: 24px; padding: 13px; background: var(--arena); color: var(--negro); }
+    .btn-ghost { background: transparent; color: var(--arena); border: 1px solid var(--arena-dim); padding: 8px 16px; font-size: 13px; }
+    .error { color: var(--rojo); font-size: 13px; margin-top: 14px; min-height: 18px; }
+
+    /* ---- Dashboard ---- */
+    header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 18px 28px; border-bottom: 1px solid var(--arena-dim); background: var(--negro-soft);
+      position: sticky; top: 0; z-index: 10;
+    }
+    header .logo { font-size: 20px; letter-spacing: 3px; font-weight: 700; }
+    header .logo span { color: var(--arena); }
+    header .user { display: flex; align-items: center; gap: 14px; font-size: 13px; color: var(--arena); }
+    .role-pill { background: var(--arena-dim); color: var(--arena); padding: 3px 10px; border-radius: 20px; font-size: 11px; letter-spacing: 1px; text-transform: uppercase; }
+    main { padding: 28px; max-width: 1200px; margin: 0 auto; }
+
+    .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; margin-bottom: 28px; }
+    .kpi { background: var(--negro-soft); border: 1px solid var(--arena-dim); border-radius: 12px; padding: 20px; }
+    .kpi .label { font-size: 12px; color: var(--arena); letter-spacing: 1px; text-transform: uppercase; }
+    .kpi .value { font-size: 30px; font-weight: 700; margin-top: 8px; }
+
+    .section-title { font-size: 14px; letter-spacing: 2px; color: var(--arena); text-transform: uppercase; margin: 6px 0 14px; }
+
+    .alerts { margin-bottom: 28px; }
+    .alert-row {
+      display: flex; align-items: center; gap: 12px; background: rgba(217,104,79,0.10);
+      border-left: 3px solid var(--rojo); border-radius: 8px; padding: 12px 16px; margin-bottom: 8px; font-size: 14px;
+    }
+    .alert-row b { color: var(--blanco); }
+
+    .toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; gap: 12px; flex-wrap: wrap; }
+    .toolbar input[type=search] { max-width: 280px; }
+
+    .table-wrap { overflow-x: auto; border: 1px solid var(--arena-dim); border-radius: 12px; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th, td { padding: 11px 14px; text-align: left; border-bottom: 1px solid var(--arena-dim); white-space: nowrap; }
+    th { color: var(--arena); font-size: 11px; letter-spacing: 1px; text-transform: uppercase; background: var(--negro-soft); position: sticky; top: 0; }
+    tr:last-child td { border-bottom: none; }
+    td.num { text-align: right; font-variant-numeric: tabular-nums; }
+    .badge { padding: 3px 9px; border-radius: 20px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .5px; }
+    .badge.alerta { background: rgba(217,104,79,.18); color: var(--rojo); }
+    .badge.pendiente { background: rgba(217,164,65,.18); color: var(--ambar); }
+    .badge.procesada { background: rgba(127,168,107,.18); color: var(--verde); }
+    .muted { color: rgba(245,240,232,.45); }
+    .live-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--verde); margin-right: 6px; animation: pulse 2s infinite; }
+    @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .3; } }
+  </style>
+</head>
+<body>
+  <!-- ===== LOGIN ===== -->
+  <section id="login">
+    <div class="login-card">
+      <div class="brand">
+        <h1>O2<span>MAD</span> HUB</h1>
+        <p>Panel de facturas</p>
+      </div>
+      <form id="login-form">
+        <label for="email">Email</label>
+        <input id="email" type="email" autocomplete="username" required />
+        <label for="password">Contraseña</label>
+        <input id="password" type="password" autocomplete="current-password" required />
+        <button class="btn-primary" type="submit">Entrar</button>
+        <div class="error" id="login-error"></div>
+      </form>
+    </div>
+  </section>
+
+  <!-- ===== DASHBOARD ===== -->
+  <div id="app" class="hidden">
+    <header>
+      <div class="logo">O2<span>MAD</span> HUB</div>
+      <div class="user">
+        <span><span class="live-dot"></span>en vivo</span>
+        <span id="user-email"></span>
+        <span class="role-pill" id="user-role"></span>
+        <button class="btn-ghost" id="logout-btn">Salir</button>
+      </div>
+    </header>
+    <main>
+      <!-- KPIs (admin only) -->
+      <div id="kpis" class="kpis"></div>
+
+      <!-- Alerts (admin only) -->
+      <div id="alerts-block" class="alerts">
+        <div class="section-title">Alertas</div>
+        <div id="alerts-list"></div>
+      </div>
+
+      <!-- Facturas table (all roles) -->
+      <div class="toolbar">
+        <div class="section-title" style="margin:0">Facturas</div>
+        <div style="display:flex;gap:10px">
+          <input type="search" id="search" placeholder="Buscar proveedor, ref…" />
+          <button class="btn-ghost" id="csv-btn">Descargar CSV</button>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Fecha</th><th>Proveedor</th><th>Ref.</th><th>Concepto</th>
+              <th>Sociedad</th><th class="num">Importe</th><th>Estado</th><th>PDF</th>
+            </tr>
+          </thead>
+          <tbody id="facturas-body"></tbody>
+        </table>
+      </div>
+    </main>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script>
+    const SUPABASE_URL = 'https://eqruoeoiqvlnlzidqxqr.supabase.co';
+    const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVxcnVvZW9pcXZsbmx6aWRxeHFyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE4NTY4MDcsImV4cCI6MjA5NzQzMjgwN30.QYMAUUrARJ9i_F8tb4gyGBkJAL66m7izlqgE2gZyz5k';
+    const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+    const SOCIEDADES = { g: 'Gulliver AI', a: 'Apper Street', d: 'O2DOSMAD Design', s: 'SalesPro', x: 'Sin Clasificar' };
+    const $ = (id) => document.getElementById(id);
+    const eur = (n) => n == null ? '—' : new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' }).format(n);
+    const esc = (s) => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+    let allFacturas = [];
+    let role = 'gestor';
+    let channel = null;
+
+    // ---- Auth ----
+    $('login-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      $('login-error').textContent = '';
+      const { error } = await sb.auth.signInWithPassword({
+        email: $('email').value.trim(),
+        password: $('password').value,
+      });
+      if (error) $('login-error').textContent = error.message;
+    });
+    $('logout-btn').addEventListener('click', () => sb.auth.signOut());
+
+    // Role from user metadata; default gestor. Set role:"admin" in a user's metadata for full access.
+    function resolveRole(user) {
+      return (user?.app_metadata?.role || user?.user_metadata?.role || 'gestor').toLowerCase();
+    }
+
+    sb.auth.onAuthStateChange((_event, session) => {
+      if (session?.user) showApp(session.user);
+      else showLogin();
+    });
+    sb.auth.getSession().then(({ data }) => {
+      if (data.session?.user) showApp(data.session.user);
+    });
+
+    function showLogin() {
+      $('app').classList.add('hidden');
+      $('login').classList.remove('hidden');
+      if (channel) { sb.removeChannel(channel); channel = null; }
+    }
+
+    function showApp(user) {
+      role = resolveRole(user);
+      $('login').classList.add('hidden');
+      $('app').classList.remove('hidden');
+      $('user-email').textContent = user.email;
+      $('user-role').textContent = role;
+
+      // Admin sees KPIs + alerts; gestor sees only the facturas table + CSV.
+      const adminOnly = role === 'admin';
+      $('kpis').classList.toggle('hidden', !adminOnly);
+      $('alerts-block').classList.toggle('hidden', !adminOnly);
+
+      loadFacturas();
+      subscribeRealtime();
+    }
+
+    // ---- Data ----
+    async function loadFacturas() {
+      const { data, error } = await sb.from('facturas')
+        .select('fecha_factura,proveedor,referencia,concepto,importe,sociedad_codigo,estado,alerta_texto,fecha_vencimiento,drive_url')
+        .order('fecha_factura', { ascending: false, nullsFirst: false });
+      if (error) { console.error(error); return; }
+      allFacturas = data || [];
+      render();
+    }
+
+    function subscribeRealtime() {
+      if (channel) sb.removeChannel(channel);
+      channel = sb.channel('facturas-rt')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'facturas' }, loadFacturas)
+        .subscribe();
+    }
+
+    // ---- Render ----
+    function render() {
+      const q = $('search').value.trim().toLowerCase();
+      const rows = q
+        ? allFacturas.filter(f => (`${f.proveedor} ${f.referencia} ${f.concepto}`).toLowerCase().includes(q))
+        : allFacturas;
+
+      if (role === 'admin') { renderKpis(); renderAlerts(); }
+      renderTable(rows);
+    }
+
+    function renderKpis() {
+      const total = allFacturas.reduce((s, f) => s + (Number(f.importe) || 0), 0);
+      const alertas = allFacturas.filter(f => f.estado === 'alerta').length;
+      const pendientes = allFacturas.filter(f => f.estado === 'pendiente').length;
+      const kpis = [
+        { label: 'Facturas', value: allFacturas.length },
+        { label: 'Importe total', value: eur(total) },
+        { label: 'Alertas', value: alertas },
+        { label: 'Pendientes', value: pendientes },
+      ];
+      $('kpis').innerHTML = kpis.map(k => `<div class="kpi"><div class="label">${k.label}</div><div class="value">${k.value}</div></div>`).join('');
+    }
+
+    function renderAlerts() {
+      const alerts = allFacturas.filter(f => f.estado === 'alerta');
+      $('alerts-list').innerHTML = alerts.length
+        ? alerts.map(f => `<div class="alert-row">⚠ <b>${esc(f.proveedor)}</b> · ${esc(f.referencia)} — ${esc(f.alerta_texto || 'Alerta')} ${f.importe != null ? '· ' + eur(f.importe) : ''}</div>`).join('')
+        : '<div class="muted">Sin alertas.</div>';
+    }
+
+    function renderTable(rows) {
+      $('facturas-body').innerHTML = rows.length ? rows.map(f => `<tr>
+        <td>${esc(f.fecha_factura || '—')}</td>
+        <td>${esc(f.proveedor)}</td>
+        <td>${esc(f.referencia)}</td>
+        <td>${esc(f.concepto || '')}</td>
+        <td>${esc(SOCIEDADES[f.sociedad_codigo] || f.sociedad_codigo || '')}</td>
+        <td class="num">${eur(f.importe)}</td>
+        <td><span class="badge ${esc(f.estado)}">${esc(f.estado)}</span></td>
+        <td>${f.drive_url ? `<a href="${esc(f.drive_url)}" target="_blank" rel="noopener">PDF</a>` : '<span class="muted">—</span>'}</td>
+      </tr>`).join('') : '<tr><td colspan="8" class="muted" style="text-align:center;padding:24px">Sin facturas.</td></tr>';
+    }
+
+    $('search').addEventListener('input', render);
+
+    // ---- CSV (all roles) ----
+    $('csv-btn').addEventListener('click', () => {
+      const cols = ['fecha_factura', 'proveedor', 'referencia', 'concepto', 'sociedad_codigo', 'importe', 'estado', 'drive_url'];
+      const head = cols.join(',');
+      const csvCell = (v) => {
+        const s = String(v ?? '');
+        return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+      };
+      const body = allFacturas.map(f => cols.map(c => csvCell(f[c])).join(',')).join('\n');
+      const blob = new Blob(['﻿' + head + '\n' + body], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `facturas-o2mad-${new Date().toISOString().slice(0, 10)}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+    });
+  </script>
+</body>
+</html>
