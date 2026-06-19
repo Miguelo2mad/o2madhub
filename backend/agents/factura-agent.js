@@ -32,7 +32,13 @@ async function runFacturaAgent() {
   for (const { id } of ids) {
     try {
       const email = await g.getMessage(id);
-      const data = await extractFactura(email);
+      // Download the first PDF attachment (if any) and let Claude read it — the PDF's
+      // emission date / provider / amount / recipient take priority over the email.
+      let pdfBuffer = null;
+      if (email.attachments.length) {
+        pdfBuffer = await g.getAttachment(id, email.attachments[0].attachmentId);
+      }
+      const data = await extractFactura(email, pdfBuffer);
 
       if (!data.es_factura) {
         skipped.push({ subject: email.subject, reason: 'no es factura' });

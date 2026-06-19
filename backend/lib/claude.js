@@ -35,7 +35,17 @@ const FACTURA_SCHEMA = {
 };
 
 const SYSTEM = `Eres un asistente que extrae datos de FACTURAS DE PROVEEDORES (gastos de empresa) para O2MAD.
-Devuelve los campos solicitados a partir del correo. Reglas:
+Devuelve los campos solicitados. Reglas:
+
+- SI SE ADJUNTA UN PDF: extrae los datos del PDF (es la fuente principal), no del correo:
+    · fecha_factura = FECHA DE EMISIÓN que aparece en el PDF (YYYY-MM-DD), NUNCA la fecha del correo.
+    · proveedor = emisor real de la factura (quien la emite).
+    · importe = importe TOTAL exacto del PDF (con IVA si aparece el total).
+    · referencia = número de factura del PDF.
+    · sociedad_codigo = SOCIEDAD DESTINATARIA (cliente al que va dirigida la factura), mapeando:
+        O2DOSMAD / O2MAD Design → d;  Gulliver → g;  Apper Street → a;
+        Brand Strategy / SalesPro → s;  si no está claro → x.
+  El correo solo sirve de contexto; los valores del PDF tienen prioridad.
 
 - es_factura: marca true SOLO si es una factura de empresa legítima de un proveedor.
   Marca false (NO es factura) en estos casos:
@@ -56,7 +66,9 @@ ${Object.entries(SOCIEDADES).map(([k, v]) => `    ${k} = ${v}`).join('\n')}
   Si no está claro, usa "x".`;
 
 // Extract invoice fields from an email-like object { subject, from, date, bodyText }.
-async function extractFactura(email) {
+// If pdfBuffer is provided, the PDF is sent to Claude as a document block and is the
+// primary source (emission date, real provider, exact amount, recipient sociedad).
+async function extractFactura(email, pdfBuffer = null) {
   const userText = [
     `De: ${email.from}`,
     `Asunto: ${email.subject}`,
@@ -66,16 +78,23 @@ async function extractFactura(email) {
     (email.bodyText || '').slice(0, 8000),
   ].join('\n');
 
+  const content = [];
+  if (pdfBuffer) {
+    content.push({
+      type: 'document',
+      source: { type: 'base64', media_type: 'application/pdf', data: pdfBuffer.toString('base64') },
+    });
+  }
+  content.push({ type: 'text', text: `${SYSTEM}\n\n---\n${userText}` });
+
   const res = await client.messages.create({
     model: 'claude-opus-4-8',
     max_tokens: 1024,
     output_config: {
-      effort: 'low', // extracción simple → barato y rápido
+      effort: pdfBuffer ? 'medium' : 'low', // reading a PDF benefits from a bit more effort
       format: { type: 'json_schema', schema: FACTURA_SCHEMA },
     },
-    messages: [
-      { role: 'user', content: `${SYSTEM}\n\n---\n${userText}` },
-    ],
+    messages: [{ role: 'user', content }],
   });
 
   const text = res.content.find(b => b.type === 'text')?.text || '{}';
