@@ -1,5 +1,11 @@
 // Generates a Google OAuth2 refresh token via a local loopback flow.
-// Usage: node get-token.js
+// Usage:
+//   node get-token.js                     → writes GOOGLE_REFRESH_TOKEN (primary o2mad account)
+//   node get-token.js --account=apper     → writes ACCT_APPER_GOOGLE_REFRESH_TOKEN
+//   node get-token.js --account=<id>      → writes ACCT_<ID>_GOOGLE_REFRESH_TOKEN
+//
+// Sign in on the consent screen as the Google account you want THIS token for — the same
+// OAuth client (GOOGLE_CLIENT_ID) mints refresh tokens for any account.
 //
 // PREREQUISITE: the OAuth client (GOOGLE_CLIENT_ID) must list
 //   http://localhost:3000/callback
@@ -19,6 +25,14 @@ const PORT = 3000;
 const REDIRECT_URI = `http://localhost:${PORT}/callback`;
 const { GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET } = process.env;
 
+// Which .env var receives the refresh token, chosen by --account=<id>.
+// Default (no flag) or --account=o2mad → the primary GOOGLE_REFRESH_TOKEN.
+const accountArg = process.argv.find(a => a.startsWith('--account='));
+const ACCOUNT = accountArg ? accountArg.split('=')[1].trim().toLowerCase() : 'o2mad';
+const TOKEN_VAR = (!ACCOUNT || ACCOUNT === 'o2mad')
+  ? 'GOOGLE_REFRESH_TOKEN'
+  : `ACCT_${ACCOUNT.toUpperCase()}_GOOGLE_REFRESH_TOKEN`;
+
 const SCOPES = [
   'https://mail.google.com/',                 // full Gmail (nodemailer)
   'https://www.googleapis.com/auth/drive',    // full Drive
@@ -37,14 +51,16 @@ const authUrl = oauth2.generateAuthUrl({
   scope: SCOPES,
 });
 
-// Persist the new refresh token into .env (replace existing line or append).
+// Persist the new refresh token into .env under TOKEN_VAR (replace existing line or append).
 function writeRefreshToken(token) {
   const envPath = path.join(__dirname, '.env');
   let env = fs.readFileSync(envPath, 'utf8');
-  if (/^GOOGLE_REFRESH_TOKEN=.*$/m.test(env)) {
-    env = env.replace(/^GOOGLE_REFRESH_TOKEN=.*$/m, `GOOGLE_REFRESH_TOKEN=${token}`);
+  const line = `${TOKEN_VAR}=${token}`;
+  const re = new RegExp(`^${TOKEN_VAR}=.*$`, 'm');
+  if (re.test(env)) {
+    env = env.replace(re, line);
   } else {
-    env += `\nGOOGLE_REFRESH_TOKEN=${token}\n`;
+    env += `\n${line}\n`;
   }
   fs.writeFileSync(envPath, env);
 }
@@ -73,7 +89,7 @@ app.get('/callback', async (req, res) => {
     if (hasRefresh) {
       console.log('REFRESH TOKEN:\n' + tokens.refresh_token);
       writeRefreshToken(tokens.refresh_token);
-      console.log('\n✓ Written to .env (GOOGLE_REFRESH_TOKEN).');
+      console.log(`\n✓ Written to .env (${TOKEN_VAR}) for account "${ACCOUNT}".`);
     } else {
       console.log('⚠ No refresh_token returned. Revoke access at');
       console.log('  https://myaccount.google.com/permissions and run again.');
@@ -102,6 +118,8 @@ function finish(code) {
 
 const server = app.listen(PORT, () => {
   console.log(`Listening on ${REDIRECT_URI}`);
+  console.log(`Target account: "${ACCOUNT}" → will write ${TOKEN_VAR}`);
+  console.log('Sign in on the consent screen as the Google account you want this token for.');
   console.log('\nOpening browser for consent. If it does not open, paste this URL:\n');
   console.log(authUrl + '\n');
   // macOS: open the default browser.

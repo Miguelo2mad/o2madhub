@@ -1,10 +1,20 @@
 // Shared Google OAuth2 client + Gmail and Drive helpers.
+//
+// Two ways to use this module:
+//   * Module-level singletons (auth/gmail/drive, listMessages/getMessage/...) bound to
+//     the PRIMARY account's GOOGLE_REFRESH_TOKEN — used by Drive uploads and the
+//     setup/backfill scripts.
+//   * createGmailClient(refreshToken) — a per-account Gmail mailbox (used by the
+//     multi-account agent). Returns the same { listMessages, getMessage, getAttachment }
+//     interface as backend/lib/outlook.js so the agent stays provider-agnostic.
 const { google } = require('googleapis');
 require('dotenv').config();
 
-function getOAuth2Client() {
+// Build an OAuth2 client for a given refresh token (defaults to the primary account's).
+function getOAuth2Client(refreshToken) {
   const { GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REFRESH_TOKEN } = process.env;
-  if (!GOOGLE_CLIENT_ID || !GOOGLE_CLIENT_SECRET || !GOOGLE_REFRESH_TOKEN) {
+  const token = refreshToken || GOOGLE_REFRESH_TOKEN;
+  if (!GOOGLE_CLIENT_ID || !GOOGLE_CLIENT_SECRET || !token) {
     throw new Error('Missing GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET / GOOGLE_REFRESH_TOKEN (see docs/gmail-oauth2-setup.md)');
   }
   const oauth2 = new google.auth.OAuth2(
@@ -12,7 +22,7 @@ function getOAuth2Client() {
     GOOGLE_CLIENT_SECRET,
     'https://developers.google.com/oauthplayground'
   );
-  oauth2.setCredentials({ refresh_token: GOOGLE_REFRESH_TOKEN });
+  oauth2.setCredentials({ refresh_token: token });
   return oauth2;
 }
 
@@ -20,15 +30,15 @@ const auth = getOAuth2Client();
 const gmail = google.gmail({ version: 'v1', auth });
 const drive = google.drive({ version: 'v3', auth });
 
-// --- Gmail ---
+// --- Gmail (low-level helpers; take an explicit gmail client) ---
 
 // List message IDs matching a Gmail search query (e.g. "newer_than:1d factura").
 // Paginates up to `max` total results.
-async function listMessages(query, max = 50) {
+async function listMessagesWith(gmailClient, query, max = 50) {
   const out = [];
   let pageToken;
   do {
-    const res = await gmail.users.messages.list({
+    const res = await gmailClient.users.messages.list({
       userId: 'me', q: query, pageToken,
       maxResults: Math.min(100, max - out.length),
     });
@@ -39,8 +49,8 @@ async function listMessages(query, max = 50) {
 }
 
 // Fetch a full message and flatten the parts we care about.
-async function getMessage(id) {
-  const res = await gmail.users.messages.get({ userId: 'me', id, format: 'full' });
+async function getMessageWith(gmailClient, id) {
+  const res = await gmailClient.users.messages.get({ userId: 'me', id, format: 'full' });
   const msg = res.data;
   const headers = Object.fromEntries(
     (msg.payload.headers || []).map(h => [h.name.toLowerCase(), h.value])
@@ -76,9 +86,35 @@ async function getMessage(id) {
 }
 
 // Download one attachment as a Buffer.
-async function getAttachment(messageId, attachmentId) {
-  const res = await gmail.users.messages.attachments.get({ userId: 'me', messageId, id: attachmentId });
+async function getAttachmentWith(gmailClient, messageId, attachmentId) {
+  const res = await gmailClient.users.messages.attachments.get({ userId: 'me', messageId, id: attachmentId });
   return Buffer.from(res.data.data, 'base64');
+}
+
+// Build a Gmail search query from a normalized spec { keywords, days }.
+function buildGmailQuery({ keywords, days } = {}) {
+  const kw = keywords || '(factura OR invoice OR recibo OR receipt OR fra)';
+  return `newer_than:${days || 1}d ${kw}`;
+}
+
+// --- Primary-account singletons (kept for Drive uploads + setup/backfill scripts) ---
+// listMessages here takes a RAW Gmail query string (backfill-drive.js relies on this).
+const listMessages = (query, max) => listMessagesWith(gmail, query, max);
+const getMessage = (id) => getMessageWith(gmail, id);
+const getAttachment = (messageId, attachmentId) => getAttachmentWith(gmail, messageId, attachmentId);
+
+// --- Per-account Gmail mailbox (provider-agnostic interface for the agent) ---
+// listMessages here takes a normalized spec { keywords, days } so it matches outlook.js.
+function createGmailClient(refreshToken) {
+  const client = google.gmail({ version: 'v1', auth: getOAuth2Client(refreshToken) });
+  const getEmailDetail = (id) => getMessageWith(client, id);
+  return {
+    provider: 'gmail',
+    listMessages: (spec, max) => listMessagesWith(client, buildGmailQuery(spec), max),
+    getMessage: getEmailDetail,
+    getEmailDetail,
+    getAttachment: (messageId, attachmentId) => getAttachmentWith(client, messageId, attachmentId),
+  };
 }
 
 // --- Drive ---
@@ -140,5 +176,6 @@ async function uploadFile(name, buffer, folderId, mimeType = 'application/pdf') 
 module.exports = {
   auth, gmail, drive,
   listMessages, getMessage, getAttachment,
+  createGmailClient,
   ensureFolder, ensureFolderPath, findFileInFolder, uploadFile,
 };
