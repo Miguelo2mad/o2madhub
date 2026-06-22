@@ -19,9 +19,13 @@ const ONLY_SOC = socArg ? socArg.split('=')[1].trim() : null;
 
 // The 2026 folder of each sociedad (under root DRIVE_INVOICES_FOLDER_ID). The folder's
 // sociedad is the fallback when the PDF's CIF doesn't resolve to a group company.
+// NB: Sandra's folder names map to entities by the distinctive word, NOT literally:
+//   "O2 Design"   → O2 Marketing and DESIGN SL      ('s', B57944829)
+//   "O2 Strategy" → O2DOSMAD Design & STRATEGY SL   ('d', B55405195)
+// CIF in the PDF always wins; this soc is only the fallback when the CIF can't be read.
 const SOCIEDAD_FOLDERS = [
-  { soc: 'd', name: 'O2 Design',   folderId: '1oJutDAVLERJH262qyG5eiNvWKPAzkzF4' },
-  { soc: 's', name: 'O2 Strategy', folderId: '1RQATFR6RAux7pSuMuKqBbwLIrBO3DO0n' },
+  { soc: 's', name: 'O2 Design',   folderId: '1oJutDAVLERJH262qyG5eiNvWKPAzkzF4' },
+  { soc: 'd', name: 'O2 Strategy', folderId: '1RQATFR6RAux7pSuMuKqBbwLIrBO3DO0n' },
   { soc: 'g', name: 'Gulliver',    folderId: '1_4heriJ7SDlJjEkwHxL1j1ofmO9QfCjd' },
   { soc: 'a', name: 'Apperstreet', folderId: '1nqeopPyT3DoEn-RlMmQ9iOo9f7UutOVD' },
 ];
