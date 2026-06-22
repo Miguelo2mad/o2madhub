@@ -13,6 +13,9 @@ require('dotenv').config();
 
 const APPLY = process.argv.includes('--apply');
 const CONCURRENCY = 5;
+// Optional: restrict to one sociedad folder, e.g. --soc=g
+const socArg = process.argv.find(a => a.startsWith('--soc='));
+const ONLY_SOC = socArg ? socArg.split('=')[1].trim() : null;
 
 // The 2026 folder of each sociedad (under root DRIVE_INVOICES_FOLDER_ID). The folder's
 // sociedad is the fallback when the PDF's CIF doesn't resolve to a group company.
@@ -51,6 +54,18 @@ async function collectPdfs(folderId, soc, path, acc) {
   return acc;
 }
 
+// Resolve the 2026 scan root for a sociedad. Some configured IDs are the "2026" folder
+// itself; others are the sociedad ROOT (with 2026/2025/2024… children). In the latter case
+// we descend into the "2026" child ONLY, so 2025/2024 are never scanned.
+async function resolve2026(sf) {
+  const meta = await g.drive.files.get({ fileId: sf.folderId, fields: 'name', supportsAllDrives: true });
+  if (/^2026$/.test((meta.data.name || '').trim())) return { id: sf.folderId, note: 'el ID ya es 2026' };
+  const children = await listChildren(sf.folderId);
+  const y2026 = children.find(c => c.mimeType === 'application/vnd.google-apps.folder' && /^2026$/.test((c.name || '').trim()));
+  if (y2026) return { id: y2026.id, note: `bajado a hijo "2026" de "${meta.data.name}"` };
+  return { id: sf.folderId, note: `"${meta.data.name}" sin subcarpetas de año — se escanea tal cual` };
+}
+
 async function downloadPdf(fileId) {
   const res = await g.drive.files.get({ fileId, alt: 'media', supportsAllDrives: true }, { responseType: 'arraybuffer' });
   return Buffer.from(res.data);
@@ -66,14 +81,18 @@ async function mapPool(items, limit, fn) {
 async function main() {
   if (!process.env.DRIVE_INVOICES_FOLDER_ID) console.warn('[drive-scan] (aviso) DRIVE_INVOICES_FOLDER_ID no está en .env');
 
-  // Collect PDFs per sociedad 2026 folder.
+  // Collect PDFs per sociedad 2026 folder. Each folderId IS the 2026 folder, so the walk
+  // only descends into 2026's subfolders (1T/2T → proveedor) — never 2025/2024.
+  const folders = SOCIEDAD_FOLDERS.filter(sf => !ONLY_SOC || sf.soc === ONLY_SOC);
+  if (!folders.length) throw new Error(`--soc=${ONLY_SOC} no coincide con ninguna sociedad (d/s/g/a)`);
   const all = [];
-  for (const sf of SOCIEDAD_FOLDERS) {
+  for (const sf of folders) {
     const before = all.length;
-    await collectPdfs(sf.folderId, sf.soc, [sf.name, '2026'], all);
-    console.log(`[drive-scan] ${sf.name} (2026 → ${sf.soc}): ${all.length - before} PDF(s)`);
+    const { id: scanId, note } = await resolve2026(sf);
+    await collectPdfs(scanId, sf.soc, [sf.name, '2026'], all);
+    console.log(`[drive-scan] ${sf.name} (2026 → ${sf.soc}): ${all.length - before} PDF(s)  [${note}]`);
   }
-  console.log(`[drive-scan] TOTAL: ${all.length} PDF(s)`);
+  console.log(`[drive-scan] TOTAL: ${all.length} PDF(s)${ONLY_SOC ? ` (solo --soc=${ONLY_SOC})` : ''}`);
 
   if (!APPLY) { console.log('\n(DRY RUN — sin Claude ni escritura. Ejecuta con --apply.)'); return; }
 
@@ -85,7 +104,12 @@ async function main() {
       let data;
       try { data = await extractFactura(email, buf); }
       catch (e) { if (/pdf/i.test(e.message)) { errors++; console.log(`  ✗ PDF ilegible: ${f.path}/${f.name}`); return; } throw e; }
-      if (!data.es_factura) { skipped++; return; }
+      // es_factura=false → emitida por O2MAD/grupo a un cliente, o no es factura de gasto.
+      if (!data.es_factura) {
+        skipped++;
+        console.log(`  ⊘ omitida (emisor O2MAD / no-gasto): ${data.proveedor || '?'} | ${(data.concepto || '').slice(0, 45)} | ${f.path}/${f.name}`);
+        return;
+      }
 
       const referencia = data.referencia || `DRV-${f.id}`;
       const { data: existing } = await supabase.from('facturas').select('referencia').eq('referencia', referencia).maybeSingle();
