@@ -159,4 +159,54 @@ async function extractFactura(email, pdfBuffer = null) {
   return JSON.parse(text);
 }
 
-module.exports = { client, extractFactura, SOCIEDADES, SOCIEDADES_INFO, FACTURA_SCHEMA };
+// ── STRICT CIF-only classification ─────────────────────────────────────────────
+// Maps a recipient CIF to a sociedad code. The ONLY allowed way to assign sociedad in
+// the strict ingest path — never folder name, never proveedor name.
+const CIF_TO_SOCIEDAD = { B55405195: 'd', B57944829: 's', B26829291: 'g', B57856825: 'a' };
+const normCif = (c) => (c || '').replace(/[\s.\-]/g, '').toUpperCase();
+
+const STRICT_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    es_factura: { type: 'boolean', description: 'true solo si es una factura de proveedor que PAGAMOS nosotros' },
+    es_emitida_por_o2mad: { type: 'boolean', description: 'true si el EMISOR es una empresa del grupo O2MAD (factura de venta nuestra)' },
+    proveedor: { type: ['string', 'null'] },
+    importe: { type: ['number', 'null'] },
+    fecha_factura: { type: ['string', 'null'], description: 'YYYY-MM-DD o null' },
+    referencia: { type: ['string', 'null'] },
+    concepto: { type: ['string', 'null'] },
+    destinatario_cif: { type: ['string', 'null'], description: 'CIF/NIF del DESTINATARIO (quien paga la factura) exactamente como aparece en el PDF; null si no se ve' },
+  },
+  required: ['es_factura', 'es_emitida_por_o2mad', 'proveedor', 'importe', 'fecha_factura', 'referencia', 'concepto', 'destinatario_cif'],
+};
+
+const STRICT_SYS = `Extrae datos de una FACTURA DE PROVEEDOR (gasto que paga el grupo O2MAD).
+Lo MÁS IMPORTANTE: extrae el CIF/NIF del DESTINATARIO — la empresa A QUIEN va dirigida la
+factura y que la paga (datos de "Cliente" / "Facturar a" / "Destinatario"), NUNCA el del
+emisor/proveedor. Devuélvelo exactamente como aparece, o null si no se encuentra.
+- es_factura=false si no es una factura real (newsletter, aviso de pago, etc.).
+- es_emitida_por_o2mad=true si el EMISOR es del grupo O2MAD (O2 Mad, O2 Marketing & Design,
+  O2DOSMAD, Apper Street, Gulliver, SalesPro) — esas son ventas nuestras, no gastos.
+No infieras el CIF: si no está impreso en el PDF, devuelve destinatario_cif=null.`;
+
+// Strict extraction: returns the raw fields + destinatario_cif + the sociedad resolved
+// SOLELY from that CIF (or null if no group CIF). Caller decides insert vs manual-email.
+async function extractStrict(email, pdfBuffer) {
+  const userText = [`Asunto/archivo: ${email.subject || ''}`, `Contexto: ${email.bodyText || ''}`.slice(0, 2000)].join('\n');
+  const content = [
+    { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: pdfBuffer.toString('base64') } },
+    { type: 'text', text: `${STRICT_SYS}\n\n---\n${userText}` },
+  ];
+  const res = await client.messages.create({
+    model: 'claude-opus-4-8',
+    max_tokens: 700,
+    output_config: { effort: 'low', format: { type: 'json_schema', schema: STRICT_SCHEMA } },
+    messages: [{ role: 'user', content }],
+  });
+  const data = JSON.parse(res.content.find(b => b.type === 'text')?.text || '{}');
+  data.sociedad_por_cif = CIF_TO_SOCIEDAD[normCif(data.destinatario_cif)] || null;
+  return data;
+}
+
+module.exports = { client, extractFactura, extractStrict, CIF_TO_SOCIEDAD, SOCIEDADES, SOCIEDADES_INFO, FACTURA_SCHEMA };
