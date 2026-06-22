@@ -116,8 +116,11 @@ ${Object.entries(SOCIEDADES_INFO).map(([k, v]) => `    ${k} = ${v.nombre}${v.cif
     · CIF B57856825 → 'a'   (Apper Street SL)
   El CIF del destinatario manda sobre cualquier otra pista. Solo si no aparece el CIF,
   decide por la razón social / señas de arriba.
-  Reglas específicas de proveedor:
+  Reglas específicas de proveedor (PRIORIDAD sobre el contexto, incluso si no hay CIF):
     · "POM Design & Development S.L." → sociedad "d"
+    · "Macaque Consulting" (cualquier variante) → sociedad "d"
+    · "Pedro Béjar" / "Agesbal" → sociedad "d"
+    · "Google One" → sociedad "s"
   Si no está claro, usa "x".`;
 
 // Extract invoice fields from an email-like object { subject, from, date, bodyText }.
