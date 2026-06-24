@@ -73,7 +73,19 @@ async function extractComarea(buffer, mimeType) {
     }],
   });
 
-  return JSON.parse(res.content.find(b => b.type === 'text')?.text || '{}');
+  return {
+    data:  JSON.parse(res.content.find(b => b.type === 'text')?.text || '{}'),
+    usage: res.usage,
+  };
+}
+
+// Precios Sonnet: input 0.000003 €/token, output 0.000015 €/token
+async function trackTokens(operacion, usage, usuario) {
+  const input  = usage?.input_tokens  || 0;
+  const output = usage?.output_tokens || 0;
+  const coste  = (input * 0.000003) + (output * 0.000015);
+  const { error } = await supabase.from('comarea_token_usage').insert({ operacion, input_tokens: input, output_tokens: output, coste_euros: coste, usuario });
+  if (error) console.error('[comarea] token tracking:', error.message);
 }
 
 // ── Routes ──────────────────────────────────────────────────────────────────
@@ -97,7 +109,8 @@ router.post('/facturas/upload', requireAuth, upload.single('factura'), async (re
   try {
     const { buffer, originalname, mimetype } = req.file;
 
-    const data = await extractComarea(buffer, mimetype);
+    const { data, usage } = await extractComarea(buffer, mimetype);
+    trackTokens('upload_factura', usage, req.user.email);
 
     const d = data.fecha_factura ? new Date(data.fecha_factura) : new Date();
     const year = String(d.getFullYear());
@@ -185,6 +198,30 @@ router.get('/analytics', requireAuth, async (req, res) => {
     por_proveedor: Object.entries(byProveedor)
       .map(([proveedor, v]) => ({ proveedor, ...v }))
       .sort((a, b) => b.total - a.total),
+  });
+});
+
+// GET /comarea/tokens — solo admin
+router.get('/tokens', requireAuth, requireRole('admin'), async (req, res) => {
+  const { data, error } = await supabase
+    .from('comarea_token_usage').select('input_tokens, output_tokens, coste_euros, created_at');
+  if (error) return res.status(500).json({ error: error.message });
+
+  const now = new Date();
+  const mesData = data.filter(r => {
+    const d = new Date(r.created_at);
+    return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+  });
+
+  const { data: facturas } = await supabase
+    .from('comarea_facturas').select('id', { count: 'exact', head: true });
+
+  res.json({
+    total_input_tokens:  data.reduce((s, r) => s + (r.input_tokens  || 0), 0),
+    total_output_tokens: data.reduce((s, r) => s + (r.output_tokens || 0), 0),
+    coste_total_euros:   data.reduce((s, r) => s + Number(r.coste_euros || 0), 0),
+    coste_mes_actual:    mesData.reduce((s, r) => s + Number(r.coste_euros || 0), 0),
+    llamadas_total:      data.length,
   });
 });
 

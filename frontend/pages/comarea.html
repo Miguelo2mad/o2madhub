@@ -258,6 +258,13 @@
     .btn-drive { display: inline-flex; align-items: center; gap: 6px; padding: 8px 14px; background: rgba(196,168,130,.1); border: 1px solid var(--accent); border-radius: 10px; color: var(--accent); font-size: 13px; text-decoration: none; font-weight: 600; }
     .btn-drive svg { width: 14px; height: 14px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 
+    /* ─── CARD USO IA ────────────────────────────────── */
+    .ia-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .ia-stat { background: var(--surface2); border-radius: 10px; padding: 12px; }
+    .ia-stat .label { font-size: 10px; color: var(--muted); letter-spacing: 1px; text-transform: uppercase; margin-bottom: 5px; }
+    .ia-stat .value { font-size: 18px; font-weight: 700; color: var(--accent); }
+    .ia-stat .sub   { font-size: 11px; color: var(--muted); margin-top: 2px; }
+
     /* hidden file inputs */
     input[type="file"] { display: none; }
   </style>
@@ -399,6 +406,10 @@
 
     <!-- TAB GESTOR -->
     <div class="tab-panel" id="panel-gestor">
+      <div id="gestor-ia-wrap" class="hidden">
+        <p class="section-title">Uso IA</p>
+        <div class="card" id="gestor-ia"><div class="empty">Cargando…</div></div>
+      </div>
       <p class="section-title">Carpetas en Drive por mes</p>
       <div class="card" id="gestor-list"><div class="empty">Cargando…</div></div>
     </div>
@@ -496,6 +507,42 @@ async function loadAnalytics() {
 async function loadDriveMeses() {
   const r = await apiFetch('/drive/meses');
   return r.json();
+}
+
+async function loadTokenUsage() {
+  const r = await apiFetch('/tokens');
+  if (!r.ok) return null;
+  return r.json();
+}
+
+function renderTokenUsage(t, totalFacturas) {
+  const costeTotal = t.coste_total_euros || 0;
+  const costeMes   = t.coste_mes_actual  || 0;
+  const llamadas   = t.llamadas_total    || 0;
+  const costeMedio = llamadas > 0 ? costeTotal / llamadas : 0;
+
+  document.getElementById('gestor-ia').innerHTML = `
+    <div class="ia-grid">
+      <div class="ia-stat">
+        <div class="label">Coste total</div>
+        <div class="value">${costeTotal.toFixed(4)} €</div>
+        <div class="sub">${llamadas} llamadas</div>
+      </div>
+      <div class="ia-stat">
+        <div class="label">Coste este mes</div>
+        <div class="value">${costeMes.toFixed(4)} €</div>
+      </div>
+      <div class="ia-stat">
+        <div class="label">Facturas proc.</div>
+        <div class="value">${llamadas}</div>
+      </div>
+      <div class="ia-stat">
+        <div class="label">Coste medio</div>
+        <div class="value">${costeMedio.toFixed(4)} €</div>
+        <div class="sub">por factura</div>
+      </div>
+    </div>
+  `;
 }
 
 // ── Render helpers ────────────────────────────────────────────────────────
@@ -702,6 +749,15 @@ async function refreshGestor() {
   } catch(e) {
     document.getElementById('gestor-list').innerHTML = `<div class="empty">${esc(e.message)}</div>`;
   }
+  if (userRole === 'admin') {
+    document.getElementById('gestor-ia-wrap').classList.remove('hidden');
+    try {
+      const t = await loadTokenUsage();
+      if (t) renderTokenUsage(t);
+    } catch(e) {
+      document.getElementById('gestor-ia').innerHTML = `<div class="empty">${esc(e.message)}</div>`;
+    }
+  }
 }
 
 // ── File upload handler ───────────────────────────────────────────────────
@@ -753,10 +809,10 @@ function boot() {
       const d = await login(email, pass);
       token = d.token; userEmail = d.user.email;
 
-      // Fetch role from profiles via analytics (quick check)
+      // Detectar rol: /tokens solo responde 200 a admins
       try {
-        const r = await apiFetch('/drive/meses');
-        userRole = r.ok ? 'gestor' : 'gestor';
+        const r = await apiFetch('/tokens');
+        userRole = r.ok ? 'admin' : 'gestor';
       } catch { userRole = 'gestor'; }
 
       localStorage.setItem('comarea_token', token);
@@ -811,10 +867,10 @@ function boot() {
     document.getElementById('facturas-list').innerHTML = renderFacturas(filtered, document.getElementById('filter-estado').value);
   });
 
-  // If already logged in, detect role from drive/meses availability
+  // Si ya hay sesión, detectar rol consultando /tokens (admin-only)
   if (token) {
-    apiFetch('/drive/meses').then(r => {
-      userRole = r.ok ? 'gestor' : 'gestor';
+    apiFetch('/tokens').then(r => {
+      userRole = r.ok ? 'admin' : 'gestor';
       localStorage.setItem('comarea_role', userRole);
       document.getElementById('nav-gestor').style.display = ['gestor','admin'].includes(userRole) ? '' : 'none';
     }).catch(() => {});
