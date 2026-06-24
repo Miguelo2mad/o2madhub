@@ -288,8 +288,8 @@
       <p>Gestión de facturas</p>
     </div>
     <div class="field">
-      <label>Email</label>
-      <input type="email" id="l-email" placeholder="usuario@ejemplo.com" autocomplete="email">
+      <label>Usuario</label>
+      <input type="text" id="login-user" placeholder="restaurante / gestor / admin" autocomplete="username">
     </div>
     <div class="field">
       <label>Contraseña</label>
@@ -462,11 +462,11 @@ async function apiFetch(path, opts = {}) {
 }
 
 // ── Auth ──────────────────────────────────────────────────────────────────
-async function login(email, password) {
+async function login(usuario, password) {
   const r = await fetch(API + '/login', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email, password }),
+    body: JSON.stringify({ usuario, password }),
   });
   const d = await r.json();
   if (!r.ok) throw new Error(d.error || 'Error al iniciar sesión');
@@ -798,17 +798,17 @@ function boot() {
 
   // Login
   document.getElementById('btn-login').addEventListener('click', async () => {
-    const email = document.getElementById('l-email').value.trim();
-    const pass  = document.getElementById('l-pass').value;
-    const errEl = document.getElementById('login-error');
+    const usuario = document.getElementById('login-user').value.trim();
+    const pass    = document.getElementById('l-pass').value;
+    const errEl   = document.getElementById('login-error');
     errEl.textContent = '';
-    if (!email || !pass) { errEl.textContent = 'Completa todos los campos'; return; }
+    if (!usuario || !pass) { errEl.textContent = 'Completa todos los campos'; return; }
     document.getElementById('btn-login').textContent = 'Entrando…';
     document.getElementById('btn-login').disabled = true;
     try {
-      const d = await login(email, pass);
-      token = d.token; userEmail = d.user.email;
-      userRole = d.user.role || 'gestor';
+      const d = await login(usuario, pass);
+      token = d.token; userEmail = d.usuario;
+      userRole = d.role || 'gestor';
 
       localStorage.setItem('comarea_token', token);
       localStorage.setItem('comarea_email', userEmail);
@@ -825,7 +825,7 @@ function boot() {
   });
 
   // Enter key on login
-  ['l-email','l-pass'].forEach(id => {
+  ['login-user','l-pass'].forEach(id => {
     document.getElementById(id).addEventListener('keydown', e => {
       if (e.key === 'Enter') document.getElementById('btn-login').click();
     });
