@@ -2,7 +2,6 @@
 // Mount in index.js with: app.use('/comarea', require('./backend/api/comarea'))
 const express = require('express');
 const multer  = require('multer');
-const crypto  = require('crypto');
 const { supabase } = require('../lib/supabase');
 const { client } = require('../lib/claude');
 const { ensureFolderPath, uploadFile } = require('../lib/google');
@@ -13,36 +12,28 @@ const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 
 const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
   'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
 
-// ── Auth: env-var passwords, custom HMAC token ──────────────────────────────
-// Roles: COMAREA_PASS_ADMIN → 'admin', COMAREA_PASS_GESTOR → 'gestor',
-//        COMAREA_PASS_RESTAURANTE → 'restaurante'
+// ── Auth: usuarios/contraseñas por env vars ─────────────────────────────────
+// Token = base64('usuario:timestamp'). requireAuth lo decodifica y consulta COMAREA_USERS.
 
-const SECRET = process.env.COMAREA_JWT_SECRET || 'comarea-dev-secret';
-
-function signToken(payload) {
-  const data = Buffer.from(JSON.stringify(payload)).toString('base64url');
-  const sig  = crypto.createHmac('sha256', SECRET).update(data).digest('base64url');
-  return `${data}.${sig}`;
-}
-
-function verifyToken(raw) {
-  const parts = (raw || '').split('.');
-  if (parts.length !== 2) return null;
-  const [data, sig] = parts;
-  const expected = crypto.createHmac('sha256', SECRET).update(data).digest('base64url');
-  const a = Buffer.from(sig), b = Buffer.from(expected);
-  if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return null;
-  try { return JSON.parse(Buffer.from(data, 'base64url').toString()); }
-  catch { return null; }
-}
+const COMAREA_USERS = {
+  restaurante: { pass: process.env.COMAREA_PASS_RESTAURANTE || 'comarea2025', role: 'restaurante' },
+  gestor:      { pass: process.env.COMAREA_PASS_GESTOR      || 'gestor2025',  role: 'gestor' },
+  admin:       { pass: process.env.COMAREA_PASS_ADMIN       || 'o2mad2025',   role: 'admin' },
+};
 
 function requireAuth(req, res, next) {
   const raw = (req.headers.authorization || '').replace(/^Bearer\s+/, '');
-  const payload = verifyToken(raw);
-  if (!payload) return res.status(401).json({ error: 'No autorizado' });
-  req.user = { email: payload.email };
-  req.role = payload.role;
-  next();
+  if (!raw) return res.status(401).json({ error: 'No autorizado' });
+  try {
+    const [usuario] = Buffer.from(raw, 'base64').toString().split(':');
+    const u = COMAREA_USERS[usuario?.toLowerCase()];
+    if (!u) return res.status(401).json({ error: 'No autorizado' });
+    req.user = { email: usuario };
+    req.role = u.role;
+    next();
+  } catch {
+    return res.status(401).json({ error: 'Token inválido' });
+  }
 }
 
 function requireRole(...roles) {
@@ -109,12 +100,6 @@ async function trackTokens(operacion, usage, usuario) {
 }
 
 // ── Routes ──────────────────────────────────────────────────────────────────
-
-const COMAREA_USERS = {
-  restaurante: { pass: process.env.COMAREA_PASS_RESTAURANTE || 'comarea2025', role: 'restaurante' },
-  gestor:      { pass: process.env.COMAREA_PASS_GESTOR      || 'gestor2025',  role: 'gestor' },
-  admin:       { pass: process.env.COMAREA_PASS_ADMIN       || 'o2mad2025',   role: 'admin' },
-};
 
 // POST /comarea/login
 router.post('/login', (req, res) => {
