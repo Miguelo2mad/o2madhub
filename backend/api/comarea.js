@@ -1,7 +1,8 @@
 // Comarea invoice module: manual upload via Claude Vision + Drive archive.
 // Mount in index.js with: app.use('/comarea', require('./backend/api/comarea'))
 const express = require('express');
-const multer = require('multer');
+const multer  = require('multer');
+const crypto  = require('crypto');
 const { supabase } = require('../lib/supabase');
 const { client } = require('../lib/claude');
 const { ensureFolderPath, uploadFile } = require('../lib/google');
@@ -12,16 +13,35 @@ const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 
 const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
   'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
 
-// ── Auth middleware ─────────────────────────────────────────────────────────
+// ── Auth: env-var passwords, custom HMAC token ──────────────────────────────
+// Roles: COMAREA_PASS_ADMIN → 'admin', COMAREA_PASS_GESTOR → 'gestor',
+//        COMAREA_PASS_RESTAURANTE → 'restaurante'
 
-async function requireAuth(req, res, next) {
-  const token = (req.headers.authorization || '').replace(/^Bearer\s+/, '');
-  if (!token) return res.status(401).json({ error: 'No autorizado' });
-  const { data: { user }, error } = await supabase.auth.getUser(token);
-  if (error || !user) return res.status(401).json({ error: 'Token inválido' });
-  const { data: profile } = await supabase.from('profiles').select('role').eq('id', user.id).maybeSingle();
-  req.user = user;
-  req.role = profile?.role || 'gestor';
+const SECRET = process.env.COMAREA_JWT_SECRET || 'comarea-dev-secret';
+
+function signToken(payload) {
+  const data = Buffer.from(JSON.stringify(payload)).toString('base64url');
+  const sig  = crypto.createHmac('sha256', SECRET).update(data).digest('base64url');
+  return `${data}.${sig}`;
+}
+
+function verifyToken(raw) {
+  const parts = (raw || '').split('.');
+  if (parts.length !== 2) return null;
+  const [data, sig] = parts;
+  const expected = crypto.createHmac('sha256', SECRET).update(data).digest('base64url');
+  const a = Buffer.from(sig), b = Buffer.from(expected);
+  if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return null;
+  try { return JSON.parse(Buffer.from(data, 'base64url').toString()); }
+  catch { return null; }
+}
+
+function requireAuth(req, res, next) {
+  const raw = (req.headers.authorization || '').replace(/^Bearer\s+/, '');
+  const payload = verifyToken(raw);
+  if (!payload) return res.status(401).json({ error: 'No autorizado' });
+  req.user = { email: payload.email };
+  req.role = payload.role;
   next();
 }
 
@@ -91,15 +111,20 @@ async function trackTokens(operacion, usage, usuario) {
 // ── Routes ──────────────────────────────────────────────────────────────────
 
 // POST /comarea/login
-router.post('/login', async (req, res) => {
+router.post('/login', (req, res) => {
   const { email, password } = req.body || {};
   if (!email || !password) return res.status(400).json({ error: 'email y password requeridos' });
-  const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-  if (error) return res.status(401).json({ error: error.message });
-  res.json({
-    token: data.session.access_token,
-    user: { id: data.user.id, email: data.user.email },
-  });
+
+  const roleMap = {
+    [process.env.COMAREA_PASS_ADMIN]:       'admin',
+    [process.env.COMAREA_PASS_GESTOR]:      'gestor',
+    [process.env.COMAREA_PASS_RESTAURANTE]: 'restaurante',
+  };
+  const role = roleMap[password];
+  if (!role) return res.status(401).json({ error: 'Contraseña incorrecta' });
+
+  const token = signToken({ email, role, ts: Date.now() });
+  res.json({ token, user: { email, role } });
 });
 
 // POST /comarea/facturas/upload

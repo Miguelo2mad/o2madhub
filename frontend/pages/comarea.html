@@ -808,12 +808,7 @@ function boot() {
     try {
       const d = await login(email, pass);
       token = d.token; userEmail = d.user.email;
-
-      // Detectar rol: /tokens solo responde 200 a admins
-      try {
-        const r = await apiFetch('/tokens');
-        userRole = r.ok ? 'admin' : 'gestor';
-      } catch { userRole = 'gestor'; }
+      userRole = d.user.role || 'gestor';
 
       localStorage.setItem('comarea_token', token);
       localStorage.setItem('comarea_email', userEmail);
