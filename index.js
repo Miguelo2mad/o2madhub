@@ -8,6 +8,7 @@ require('dotenv').config();
 
 const { runFacturaAgent } = require('./backend/agents/factura-agent');
 const { sendDailySummary } = require('./backend/api/notifications');
+const comareaRouter = require('./backend/api/comarea');
 
 const app = express();
 app.use(cors());
@@ -37,6 +38,8 @@ async function runDaily({ notify = true } = {}) {
   }
   return result;
 }
+
+app.use('/comarea', comareaRouter);
 
 // Hub dashboard (Supabase Auth + realtime). Served at / and /hub.
 const HUB_PAGE = path.join(__dirname, 'frontend', 'pages', 'index.html');
