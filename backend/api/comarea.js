@@ -110,21 +110,20 @@ async function trackTokens(operacion, usage, usuario) {
 
 // ── Routes ──────────────────────────────────────────────────────────────────
 
+const COMAREA_USERS = {
+  restaurante: { pass: process.env.COMAREA_PASS_RESTAURANTE || 'comarea2025', role: 'restaurante' },
+  gestor:      { pass: process.env.COMAREA_PASS_GESTOR      || 'gestor2025',  role: 'gestor' },
+  admin:       { pass: process.env.COMAREA_PASS_ADMIN       || 'o2mad2025',   role: 'admin' },
+};
+
 // POST /comarea/login
 router.post('/login', (req, res) => {
-  const { email, password } = req.body || {};
-  if (!email || !password) return res.status(400).json({ error: 'email y password requeridos' });
-
-  const roleMap = {
-    [process.env.COMAREA_PASS_ADMIN]:       'admin',
-    [process.env.COMAREA_PASS_GESTOR]:      'gestor',
-    [process.env.COMAREA_PASS_RESTAURANTE]: 'restaurante',
-  };
-  const role = roleMap[password];
-  if (!role) return res.status(401).json({ error: 'Contraseña incorrecta' });
-
-  const token = signToken({ email, role, ts: Date.now() });
-  res.json({ token, user: { email, role } });
+  const { usuario, password } = req.body || {};
+  if (!usuario || !password) return res.status(400).json({ ok: false, error: 'Usuario y contraseña requeridos' });
+  const u = COMAREA_USERS[usuario.toLowerCase()];
+  if (!u || u.pass !== password) return res.status(401).json({ ok: false, error: 'Credenciales incorrectas' });
+  const token = Buffer.from(`${usuario}:${Date.now()}`).toString('base64');
+  res.json({ ok: true, token, role: u.role, usuario });
 });
 
 // POST /comarea/facturas/upload
