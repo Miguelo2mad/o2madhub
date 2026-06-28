@@ -4,6 +4,10 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>O2MAD Hub</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/dist/tabler-icons.min.css" />
   <style>
     :root {
       --negro: #0F0E0C;
@@ -17,7 +21,7 @@
     }
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
       background: var(--negro); color: var(--blanco); min-height: 100vh;
       -webkit-font-smoothing: antialiased;
     }
@@ -32,25 +36,59 @@
     .brand h1 span { color: var(--arena); }
     .brand p { color: var(--arena); font-size: 12px; letter-spacing: 2px; margin-top: 6px; text-transform: uppercase; }
     label { display: block; font-size: 12px; color: var(--arena); margin: 16px 0 6px; letter-spacing: 1px; text-transform: uppercase; }
-    input { width: 100%; padding: 12px 14px; background: var(--negro); border: 1px solid var(--arena-dim); border-radius: 8px; color: var(--blanco); font-size: 15px; }
+    input { width: 100%; padding: 12px 14px; background: var(--negro); border: 1px solid var(--arena-dim); border-radius: 8px; color: var(--blanco); font-size: 15px; font-family: inherit; }
     input:focus { outline: none; border-color: var(--arena); }
-    button { cursor: pointer; border: none; border-radius: 8px; font-size: 15px; font-weight: 600; transition: opacity .15s; }
+    button { cursor: pointer; border: none; border-radius: 8px; font-size: 15px; font-weight: 600; transition: opacity .15s; font-family: inherit; }
     button:hover { opacity: .88; }
     .btn-primary { width: 100%; margin-top: 24px; padding: 13px; background: var(--arena); color: var(--negro); }
     .btn-ghost { background: transparent; color: var(--arena); border: 1px solid var(--arena-dim); padding: 8px 16px; font-size: 13px; }
     .error { color: var(--rojo); font-size: 13px; margin-top: 14px; min-height: 18px; }
 
-    /* ---- Header ---- */
-    header { display: flex; align-items: center; justify-content: space-between; padding: 18px 28px; border-bottom: 1px solid var(--arena-dim); background: var(--negro-soft); position: sticky; top: 0; z-index: 10; }
-    header .logo { font-size: 20px; letter-spacing: 3px; font-weight: 700; }
-    header .logo span { color: var(--arena); }
-    header .user { display: flex; align-items: center; gap: 14px; font-size: 13px; color: var(--arena); }
+    /* ---- Shared header ---- */
+    .hub-header { display: flex; align-items: center; justify-content: space-between; padding: 16px 28px; border-bottom: 1px solid var(--arena-dim); background: var(--negro-soft); position: sticky; top: 0; z-index: 10; }
+    .hub-header .logo { font-size: 20px; letter-spacing: 3px; font-weight: 700; }
+    .hub-header .logo span { color: var(--arena); }
+    .hub-header .user { display: flex; align-items: center; gap: 14px; font-size: 13px; color: var(--arena); }
     .role-pill { background: var(--arena-dim); color: var(--arena); padding: 3px 10px; border-radius: 20px; font-size: 11px; letter-spacing: 1px; text-transform: uppercase; }
     .live-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--verde); margin-right: 6px; animation: pulse 2s infinite; }
     @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .3; } }
-    main { padding: 28px; max-width: 1200px; margin: 0 auto; }
 
-    /* ---- KPIs / alerts ---- */
+    /* ---- Module selector ---- */
+    #modules { display: flex; flex-direction: column; min-height: 100vh; }
+    .modules-main { padding: 52px 32px; max-width: 960px; margin: 0 auto; width: 100%; }
+    .modules-greeting { margin-bottom: 40px; }
+    .greeting-eyebrow { font-size: 11px; letter-spacing: 2px; color: rgba(196,168,130,.6); text-transform: uppercase; margin-bottom: 10px; }
+    .greeting-title { font-size: 30px; font-weight: 700; line-height: 1.2; margin-bottom: 6px; }
+    .greeting-title .gname { color: var(--arena); }
+    .greeting-sub { font-size: 14px; color: rgba(245,240,232,.38); }
+    .modules-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 14px; }
+    .mod-card {
+      background: var(--negro-soft); border: 1px solid var(--arena-dim); border-radius: 14px;
+      padding: 22px 20px; cursor: pointer; transition: transform .13s, border-color .15s;
+      position: relative; display: flex; flex-direction: column; gap: 14px;
+      text-decoration: none; color: inherit;
+    }
+    .mod-card:hover { transform: translateY(-3px); border-color: rgba(196,168,130,.45); }
+    .mod-card.soon { opacity: .38; cursor: default; pointer-events: none; }
+    .mod-icon {
+      width: 42px; height: 42px; border-radius: 11px;
+      background: var(--arena-dim); display: flex; align-items: center; justify-content: center;
+      font-size: 20px; color: var(--arena);
+    }
+    .mod-icon i { font-size: 20px; }
+    .mod-body {}
+    .mod-name { font-size: 15px; font-weight: 700; margin-bottom: 4px; }
+    .mod-desc { font-size: 12px; color: rgba(245,240,232,.4); line-height: 1.45; }
+    .mod-badge {
+      position: absolute; top: 14px; right: 14px;
+      font-size: 9px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase;
+      padding: 2px 8px; border-radius: 20px;
+    }
+    .mod-badge.nuevo { background: rgba(196,168,130,.18); color: var(--arena); border: 1px solid rgba(196,168,130,.25); }
+    .mod-badge.pronto { background: rgba(245,240,232,.06); color: rgba(245,240,232,.35); }
+
+    /* ---- App (facturas) ---- */
+    #app main { padding: 28px; max-width: 1200px; margin: 0 auto; }
     .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 16px; margin-bottom: 24px; }
     .kpi { background: var(--negro-soft); border: 1px solid var(--arena-dim); border-radius: 12px; padding: 18px; }
     .kpi .label { font-size: 12px; color: var(--arena); letter-spacing: 1px; text-transform: uppercase; }
@@ -60,15 +98,11 @@
     .alert-row { display: flex; align-items: center; gap: 12px; background: rgba(217,104,79,0.10); border-left: 3px solid var(--rojo); border-radius: 8px; padding: 12px 16px; margin-bottom: 8px; font-size: 14px; }
     .alert-row b { color: var(--blanco); }
     .muted { color: rgba(245,240,232,.45); }
-
-    /* ---- Breadcrumb ---- */
     .breadcrumb { font-size: 13px; color: var(--arena); margin-bottom: 20px; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
-    .breadcrumb .crumb { background: none; border: none; color: var(--arena); cursor: pointer; padding: 0; font-size: 13px; }
+    .breadcrumb .crumb { background: none; border: none; color: var(--arena); cursor: pointer; padding: 0; font-size: 13px; font-family: inherit; }
     .breadcrumb .crumb:hover { text-decoration: underline; opacity: 1; }
     .breadcrumb .crumb.current { color: var(--blanco); cursor: default; font-weight: 600; }
     .breadcrumb .sep { color: rgba(196,168,130,.5); }
-
-    /* ---- Cards grid ---- */
     .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 18px; }
     .card { background: var(--negro-soft); border: 1px solid var(--arena-dim); border-radius: 14px; padding: 24px; cursor: pointer; transition: transform .12s, border-color .12s; }
     .card:hover { transform: translateY(-3px); border-color: var(--arena); }
@@ -78,8 +112,6 @@
     .card .card-stat .n { font-size: 24px; font-weight: 700; }
     .card .card-stat .l { font-size: 11px; color: var(--arena); text-transform: uppercase; letter-spacing: 1px; }
     .card .card-stat.right { text-align: right; }
-
-    /* ---- Table ---- */
     .toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; gap: 12px; flex-wrap: wrap; }
     .toolbar .backs { display: flex; gap: 10px; }
     .table-wrap { overflow-x: auto; border: 1px solid var(--arena-dim); border-radius: 12px; }
@@ -92,15 +124,16 @@
     .badge.alerta { background: rgba(217,104,79,.18); color: var(--rojo); }
     .badge.pendiente { background: rgba(217,164,65,.18); color: var(--ambar); }
     .badge.procesada { background: rgba(127,168,107,.18); color: var(--verde); }
-    .btn-pdf { background: var(--arena-dim); color: var(--arena); border: none; border-radius: 6px; padding: 5px 12px; font-size: 12px; cursor: pointer; }
+    .btn-pdf { background: var(--arena-dim); color: var(--arena); border: none; border-radius: 6px; padding: 5px 12px; font-size: 12px; cursor: pointer; font-family: inherit; }
     .btn-pdf[disabled] { opacity: .35; cursor: not-allowed; }
   </style>
 </head>
 <body>
+
   <!-- ===== LOGIN ===== -->
   <section id="login">
     <div class="login-card">
-      <div class="brand"><h1>O2<span>MAD</span> HUB</h1><p>Panel de facturas</p></div>
+      <div class="brand"><h1>O2<span>MAD</span> HUB</h1><p>Accede a tu espacio</p></div>
       <form id="login-form">
         <label for="email">Email</label>
         <input id="email" type="email" autocomplete="username" required />
@@ -112,10 +145,33 @@
     </div>
   </section>
 
-  <!-- ===== DASHBOARD ===== -->
-  <div id="app" class="hidden">
-    <header>
+  <!-- ===== MÓDULOS ===== -->
+  <div id="modules" class="hidden">
+    <header class="hub-header">
       <div class="logo">O2<span>MAD</span> HUB</div>
+      <div class="user">
+        <span id="mod-user-email"></span>
+        <span class="role-pill" id="mod-user-role"></span>
+        <button class="btn-ghost" id="mod-logout-btn">Salir</button>
+      </div>
+    </header>
+    <div class="modules-main">
+      <div class="modules-greeting">
+        <div class="greeting-eyebrow">O2MAD Hub</div>
+        <div class="greeting-title">Hola, <span class="gname" id="greeting-name"></span></div>
+        <div class="greeting-sub">¿A qué módulo accedes hoy?</div>
+      </div>
+      <div class="modules-grid" id="modules-grid"></div>
+    </div>
+  </div>
+
+  <!-- ===== DASHBOARD FACTURAS ===== -->
+  <div id="app" class="hidden">
+    <header class="hub-header">
+      <div style="display:flex;align-items:center;gap:16px">
+        <div class="logo">O2<span>MAD</span> HUB</div>
+        <button class="btn-ghost" id="hub-btn" style="font-size:12px;padding:6px 12px">← Hub</button>
+      </div>
       <div class="user">
         <span><span class="live-dot"></span>en vivo</span>
         <span id="user-email"></span>
@@ -124,27 +180,18 @@
       </div>
     </header>
     <main>
-      <!-- KPIs + alerts (admin only) -->
       <div id="kpis" class="kpis"></div>
       <div id="alerts-block" class="alerts">
         <div class="section-title">Alertas</div>
         <div id="alerts-list"></div>
       </div>
-
-      <!-- Breadcrumb -->
       <nav class="breadcrumb" id="breadcrumb"></nav>
-
-      <!-- VIEW: sociedades -->
       <div id="view-sociedades">
         <div class="cards" id="sociedad-cards"></div>
       </div>
-
-      <!-- VIEW: meses -->
       <div id="view-meses" class="hidden">
         <div class="cards" id="mes-cards"></div>
       </div>
-
-      <!-- VIEW: facturas -->
       <div id="view-facturas" class="hidden">
         <div class="toolbar">
           <div class="backs">
@@ -171,7 +218,46 @@
     const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVxcnVvZW9pcXZsbmx6aWRxeHFyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE4NTY4MDcsImV4cCI6MjA5NzQzMjgwN30.QYMAUUrARJ9i_F8tb4gyGBkJAL66m7izlqgE2gZyz5k';
     const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-    // Display order + names for the sociedad cards.
+    /* ---- Module definitions ---- */
+    const MODULES = [
+      {
+        id: 'facturas', name: 'Facturas', desc: 'Gestión de facturas y documentos contables',
+        icon: 'ti-file-invoice', url: null,
+        roles: ['admin', 'manager', 'gestor']
+      },
+      {
+        id: 'content', name: 'Content Studio', desc: 'Planificación de contenido con IA para redes sociales',
+        icon: 'ti-sparkles', url: '/content',
+        roles: ['admin', 'manager', 'equipo'], badge: 'Nuevo'
+      },
+      {
+        id: 'crm', name: 'CRM', desc: 'Gestión de clientes, contactos y oportunidades',
+        icon: 'ti-users', url: '/crm',
+        roles: ['admin', 'manager'], soon: true
+      },
+      {
+        id: 'presupuestos', name: 'Presupuestos', desc: 'Creación y seguimiento de propuestas comerciales',
+        icon: 'ti-file-invoice', url: '/presupuestos',
+        roles: ['admin', 'manager']
+      },
+      {
+        id: 'prospecting', name: 'Prospecting', desc: 'Captación y seguimiento de nuevos leads',
+        icon: 'ti-search', url: '/prospecting',
+        roles: ['admin', 'manager'], soon: true
+      },
+      {
+        id: 'campanas', name: 'Campañas', desc: 'Gestión y seguimiento de campañas de marketing',
+        icon: 'ti-speakerphone', url: '/campanas',
+        roles: ['admin', 'manager']
+      },
+      {
+        id: 'whatsapp', name: 'WhatsApp', desc: 'Automatización de mensajería y atención al cliente',
+        icon: 'ti-brand-whatsapp', url: '/whatsapp',
+        roles: ['admin', 'manager']
+      },
+    ];
+
+    /* ---- Facturas setup ---- */
     const SOCIEDADES = [
       { code: 'd', name: 'O2DOSMAD Design & Strategy SL' },
       { code: 's', name: 'O2 Marketing and Design SL' },
@@ -180,14 +266,13 @@
       { code: 'x', name: 'Sin Clasificar' },
     ];
     const SOC_NAME = Object.fromEntries(SOCIEDADES.map(s => [s.code, s.name]));
-    const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
+    const MESES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
 
     const $ = (id) => document.getElementById(id);
     const eur = (n) => n == null ? '—' : new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' }).format(n);
     const esc = (s) => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
     const sum = (arr) => arr.reduce((s, f) => s + (Number(f.importe) || 0), 0);
 
-    // Month key/label from a factura's fecha (null → "sin-fecha").
     function monthKey(f) {
       if (!f.fecha_factura) return 'sin-fecha';
       const d = new Date(f.fecha_factura);
@@ -201,19 +286,22 @@
 
     let allFacturas = [];
     let role = 'gestor';
+    let currentUser = null;
     let channel = null;
-    let view = 'sociedades';   // 'sociedades' | 'meses' | 'facturas'
-    let selSoc = null;         // sociedad code
-    let selMonth = null;       // month key
+    let view = 'sociedades';
+    let selSoc = null;
+    let selMonth = null;
 
-    // ---- Auth ----
+    /* ---- Auth ---- */
     $('login-form').addEventListener('submit', async (e) => {
       e.preventDefault();
       $('login-error').textContent = '';
       const { error } = await sb.auth.signInWithPassword({ email: $('email').value.trim(), password: $('password').value });
       if (error) $('login-error').textContent = error.message;
     });
+
     $('logout-btn').addEventListener('click', () => sb.auth.signOut());
+    $('mod-logout-btn').addEventListener('click', () => sb.auth.signOut());
 
     async function resolveRole(user) {
       const { data } = await sb.from('profiles').select('role').eq('id', user.id).maybeSingle();
@@ -221,31 +309,92 @@
     }
 
     sb.auth.onAuthStateChange((_event, session) => {
-      if (session?.user) showApp(session.user); else showLogin();
+      if (session?.user) onSignedIn(session.user); else showLogin();
     });
-    sb.auth.getSession().then(({ data }) => { if (data.session?.user) showApp(data.session.user); });
+    sb.auth.getSession().then(({ data }) => { if (data.session?.user) onSignedIn(data.session.user); });
+
+    async function onSignedIn(user) {
+      currentUser = user;
+      role = await resolveRole(user);
+      showModules();
+    }
 
     function showLogin() {
+      $('modules').classList.add('hidden');
       $('app').classList.add('hidden');
       $('login').classList.remove('hidden');
       if (channel) { sb.removeChannel(channel); channel = null; }
     }
 
-    async function showApp(user) {
-      role = await resolveRole(user);
+    /* ---- Module selector ---- */
+    function showModules() {
       $('login').classList.add('hidden');
+      $('app').classList.add('hidden');
+      $('modules').classList.remove('hidden');
+
+      const name = currentUser?.user_metadata?.full_name
+        || currentUser?.user_metadata?.name
+        || currentUser?.email?.split('@')[0]
+        || 'equipo';
+
+      $('greeting-name').textContent = name.split(' ')[0];
+      $('mod-user-email').textContent = currentUser?.email || '';
+      $('mod-user-role').textContent = role;
+      renderModules();
+    }
+
+    function renderModules() {
+      const visible = MODULES.filter(m => m.roles.includes(role));
+      $('modules-grid').innerHTML = visible.map(m => {
+        const badgeHtml = m.soon
+          ? `<span class="mod-badge pronto">Próximamente</span>`
+          : m.badge
+            ? `<span class="mod-badge nuevo">${esc(m.badge)}</span>`
+            : '';
+        return `<div class="mod-card ${m.soon ? 'soon' : ''}" data-mod="${esc(m.id)}">
+          ${badgeHtml}
+          <div class="mod-icon"><i class="ti ${esc(m.icon)}"></i></div>
+          <div class="mod-body">
+            <div class="mod-name">${esc(m.name)}</div>
+            <div class="mod-desc">${esc(m.desc)}</div>
+          </div>
+        </div>`;
+      }).join('');
+
+      $('modules-grid').querySelectorAll('.mod-card:not(.soon)').forEach(el => {
+        el.addEventListener('click', () => {
+          const mod = MODULES.find(m => m.id === el.dataset.mod);
+          if (!mod) return;
+          if (mod.url) {
+            window.location.href = mod.url;
+          } else {
+            enterFacturas();
+          }
+        });
+      });
+    }
+
+    /* ---- Facturas dashboard ---- */
+    function enterFacturas() {
+      $('modules').classList.add('hidden');
       $('app').classList.remove('hidden');
-      $('user-email').textContent = user.email;
+      $('user-email').textContent = currentUser?.email || '';
       $('user-role').textContent = role;
       const adminOnly = role === 'admin';
       $('kpis').classList.toggle('hidden', !adminOnly);
       $('alerts-block').classList.toggle('hidden', !adminOnly);
       view = 'sociedades'; selSoc = null; selMonth = null;
-      await loadFacturas();
+      loadFacturas();
       subscribeRealtime();
     }
 
-    // ---- Data ----
+    $('hub-btn').addEventListener('click', () => {
+      $('app').classList.add('hidden');
+      if (channel) { sb.removeChannel(channel); channel = null; }
+      showModules();
+    });
+
+    /* ---- Data ---- */
     async function loadFacturas() {
       const { data, error } = await sb.from('facturas')
         .select('fecha_factura,proveedor,referencia,concepto,importe,sociedad_codigo,estado,alerta_texto,drive_url')
@@ -262,7 +411,7 @@
         .subscribe();
     }
 
-    // ---- Navigation ----
+    /* ---- Navigation ---- */
     function goSociedades() { view = 'sociedades'; selSoc = null; selMonth = null; render(); }
     function goMeses(code) { view = 'meses'; selSoc = code; selMonth = null; render(); }
     function goFacturas(code, key) { view = 'facturas'; selSoc = code; selMonth = key; render(); }
@@ -270,7 +419,7 @@
     document.querySelectorAll('[data-nav]').forEach(b =>
       b.addEventListener('click', () => b.dataset.nav === 'sociedades' ? goSociedades() : goMeses(selSoc)));
 
-    // ---- Render ----
+    /* ---- Render ---- */
     function render() {
       if (role === 'admin') { renderKpis(); renderAlerts(); }
       renderBreadcrumb();
@@ -341,7 +490,7 @@
       const rows = allFacturas.filter(f => f.sociedad_codigo === selSoc);
       const groups = {};
       for (const f of rows) { const k = monthKey(f); (groups[k] = groups[k] || []).push(f); }
-      const keys = Object.keys(groups).sort((a, b) => b.localeCompare(a)); // recent first; 'sin-fecha' sorts first
+      const keys = Object.keys(groups).sort((a, b) => b.localeCompare(a));
       $('mes-cards').innerHTML = keys.length ? keys.map(k => `<div class="card" data-mes="${k}">
         <div class="card-name">${esc(monthLabel(k))}</div>
         <div class="card-code">${esc(SOC_NAME[selSoc] || selSoc)}</div>
@@ -373,7 +522,7 @@
       </tr>`).join('') : '<tr><td colspan="7" class="muted" style="text-align:center;padding:24px">Sin facturas.</td></tr>';
     }
 
-    // ---- CSV (current sociedad + month) ----
+    /* ---- CSV ---- */
     $('csv-btn').addEventListener('click', () => {
       const cols = ['fecha_factura', 'proveedor', 'referencia', 'concepto', 'importe', 'estado', 'sociedad_codigo', 'drive_url'];
       const cell = (v) => { const s = String(v ?? ''); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
