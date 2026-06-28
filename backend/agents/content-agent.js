@@ -94,61 +94,104 @@ async function getImageBase64(drive, fileId, mimeType) {
 // Etiquetar asset con Claude Vision
 async function tagAssetWithClaude(fileData, imageBase64) {
   try {
-    const prompt = `Analiza esta imagen/frame de vídeo de un cliente de hostelería o restauración en Mallorca.
-
-Devuelve SOLO un JSON válido con esta estructura exacta:
-{
-  "tags": ["tag1", "tag2", "tag3"],
-  "escena": "descripción breve de 5-8 palabras",
-  "descripcion": "descripción detallada de 1-2 frases",
-  "orientacion": "vertical|horizontal|cuadrado",
-  "score_calidad": 7,
-  "apta_para_publicar": true
-}
-
-Tags disponibles (elige los que apliquen):
-LUGAR: piscina, terraza, playa, habitacion, restaurante, bar, recepcion, jardin, spa, exterior, interior
-MOMENTO: amanecer, manana, mediodia, atardecer, noche
-CONTENIDO: personas, familia, pareja, individual, comida, bebida, coctel, detalle, paisaje, arquitectura
-AMBIENTE: romantico, familiar, lujo, relax, animado, intimo, moderno, rustico
-CALIDAD: luz-natural, luz-artificial, contraluz, primer-plano, plano-general
-
-score_calidad del 1 al 10 (10 = foto perfecta para publicar en Instagram).
-apta_para_publicar: false si hay logos de competidores, mala calidad extrema o contenido inapropiado.`;
-
-    const messages = [
-      {
-        role: 'user',
-        content: [
-          {
-            type: 'image',
-            source: {
-              type: 'base64',
-              media_type: 'image/jpeg',
-              data: imageBase64
-            }
-          },
-          { type: 'text', text: prompt }
-        ]
-      }
-    ];
+    if (!imageBase64 || imageBase64.length < 100) {
+      console.log(`⚠️ Imagen sin contenido suficiente para ${fileData.file_name}, usando defaults`);
+      return {
+        tags: ['sin-etiquetar'],
+        escena: 'No analizado',
+        descripcion: 'Imagen no disponible para análisis',
+        orientacion: 'horizontal',
+        score_calidad: 5,
+        apta_para_publicar: true
+      };
+    }
 
     const response = await getAnthropic().messages.create({
       model: 'claude-sonnet-4-6',
       max_tokens: 500,
-      messages
+      messages: [
+        {
+          role: 'user',
+          content: [
+            {
+              type: 'image',
+              source: {
+                type: 'base64',
+                media_type: 'image/jpeg',
+                data: imageBase64
+              }
+            },
+            {
+              type: 'text',
+              text: `Analiza esta imagen de un cliente de hostelería o restauración en Mallorca.
+
+Devuelve SOLO un JSON válido sin markdown ni texto adicional:
+{
+  "tags": ["tag1", "tag2", "tag3"],
+  "escena": "descripción breve de 5-8 palabras",
+  "descripcion": "descripción de 1-2 frases",
+  "orientacion": "vertical",
+  "score_calidad": 7,
+  "apta_para_publicar": true
+}
+
+Tags disponibles:
+LUGAR: piscina, terraza, playa, habitacion, restaurante, bar, recepcion, jardin, exterior, interior
+MOMENTO: amanecer, manana, mediodia, atardecer, noche
+CONTENIDO: personas, familia, pareja, comida, bebida, coctel, detalle, paisaje, arquitectura
+AMBIENTE: romantico, familiar, lujo, relax, animado, intimo, moderno
+CALIDAD: luz-natural, luz-artificial, primer-plano, plano-general
+
+orientacion: vertical | horizontal | cuadrado
+score_calidad: 1-10
+apta_para_publicar: false solo si hay logos competidores o mala calidad extrema`
+            }
+          ]
+        }
+      ]
     });
 
-    const text = response.content[0].text.trim();
-    const clean = text.replace(/```json|```/g, '').trim();
-    return JSON.parse(clean);
+    const rawText = response?.content?.[0]?.text;
+
+    if (!rawText || rawText.trim() === '' || rawText.trim() === 'undefined') {
+      console.log(`⚠️ Claude devolvió respuesta vacía para ${fileData.file_name}`);
+      return {
+        tags: ['sin-etiquetar'],
+        escena: 'Sin análisis',
+        descripcion: '',
+        orientacion: 'horizontal',
+        score_calidad: 5,
+        apta_para_publicar: true
+      };
+    }
+
+    const clean = rawText
+      .replace(/```json/gi, '')
+      .replace(/```/g, '')
+      .trim();
+
+    try {
+      return JSON.parse(clean);
+    } catch (parseErr) {
+      const match = clean.match(/\{[\s\S]*\}/);
+      if (match) return JSON.parse(match[0]);
+      console.log(`⚠️ No se pudo parsear JSON para ${fileData.file_name}: ${clean.substring(0, 100)}`);
+      return {
+        tags: ['sin-etiquetar'],
+        escena: 'Error de análisis',
+        descripcion: '',
+        orientacion: 'horizontal',
+        score_calidad: 5,
+        apta_para_publicar: true
+      };
+    }
 
   } catch (err) {
-    console.error('Error en Claude Vision:', err.message);
+    console.error(`❌ Error Claude Vision para ${fileData.file_name}:`, err.message);
     return {
       tags: ['sin-etiquetar'],
-      escena: 'No analizado',
-      descripcion: 'Error en análisis automático',
+      escena: 'Error de análisis',
+      descripcion: '',
       orientacion: 'horizontal',
       score_calidad: 5,
       apta_para_publicar: true
