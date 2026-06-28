@@ -172,4 +172,65 @@ router.get('/stats/:clientId', async (req, res) => {
   }
 });
 
+router.post('/analyze-web', async (req, res) => {
+  try {
+    const { url } = req.body;
+    if (!url) return res.status(400).json({ ok: false, error: 'URL requerida' });
+
+    const axios = require('axios');
+    let webContent = '';
+    try {
+      const webRes = await axios.get(url, {
+        timeout: 8000,
+        headers: { 'User-Agent': 'Mozilla/5.0 (compatible; O2MAD-Bot/1.0)' }
+      });
+      webContent = webRes.data
+        .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+        .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+        .replace(/<[^>]+>/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .substring(0, 3000);
+    } catch (e) {
+      return res.status(400).json({ ok: false, error: `No se pudo acceder a la web: ${e.message}` });
+    }
+
+    const anthropic = new (require('@anthropic-ai/sdk'))({ apiKey: process.env.ANTHROPIC_API_KEY });
+
+    const response = await anthropic.messages.create({
+      model: 'claude-sonnet-4-6',
+      max_tokens: 1000,
+      messages: [{
+        role: 'user',
+        content: `Eres el director creativo de O2MAD, agencia premium de marketing para hostelería en Mallorca.
+
+Analiza el siguiente contenido extraído de la web de un cliente y genera la configuración para su Content Studio.
+
+URL analizada: ${url}
+
+CONTENIDO DE LA WEB:
+${webContent}
+
+Devuelve SOLO un JSON válido con este formato exacto:
+{
+  "prompt_maestro": "Descripción del negocio en 3-4 frases: qué es, dónde está, qué ofrece, público objetivo, propuesta de valor única. Tono y personalidad de la marca.",
+  "tono": "2-3 palabras que describan el tono: ej: Cálido, aspiracional, familiar",
+  "prohibiciones": "Lista de cosas a evitar en el contenido de este cliente específico",
+  "hashtags": "#hashtag1 #hashtag2 #hashtag3 #hashtag4 #hashtag5",
+  "nombre_negocio": "Nombre del negocio tal como aparece en la web",
+  "tipo_negocio": "hotel|restaurante|beach_club|clinica|otro"
+}`
+      }]
+    });
+
+    const text = response.content[0].text.trim();
+    const clean = text.replace(/```json|```/g, '').trim();
+    const result = JSON.parse(clean);
+
+    res.json({ ok: true, data: result });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
 module.exports = router;

@@ -364,6 +364,13 @@
         <input id="f-drive" type="text" placeholder="1BxNXo_abc123..." required />
       </div>
       <div class="form-group">
+        <label for="f-web-url">Web del cliente (opcional — la IA analizará y generará el prompt)</label>
+        <input id="f-web-url" type="url" placeholder="https://www.rootsbeachmagalluf.com" />
+      </div>
+      <div class="form-group">
+        <button type="button" id="btn-analyze-web" style="width:100%;padding:10px;background:var(--arena);color:var(--negro);border-radius:8px;font-size:13px;font-weight:600">✦ Analizar web con IA</button>
+      </div>
+      <div class="form-group">
         <label for="f-prompt">Prompt maestro</label>
         <textarea id="f-prompt" rows="5" placeholder="Describe el estilo, tono y personalidad de la marca…" required></textarea>
       </div>
@@ -827,6 +834,28 @@
       await loadClients();
     } catch (err) {
       toast('Error: ' + err.message, 'error');
+    }
+  });
+
+  /* ════ ANALYZE WEB ════ */
+  $('btn-analyze-web').addEventListener('click', async () => {
+    const url = $('f-web-url').value.trim();
+    if (!url) { toast('Introduce una URL primero', 'info'); return; }
+    const btn = $('btn-analyze-web');
+    btn.disabled = true;
+    btn.textContent = 'Analizando web…';
+    try {
+      const { data } = await api('POST', '/api/content/analyze-web', { url });
+      if (data.prompt_maestro) $('f-prompt').value   = data.prompt_maestro;
+      if (data.tono)           $('f-tono').value     = data.tono;
+      if (data.prohibiciones)  $('f-prohib').value   = data.prohibiciones;
+      if (data.hashtags)       $('f-hashtags').value = data.hashtags;
+      toast('Prompt generado por IA — revisa y ajusta si quieres', 'success');
+    } catch (e) {
+      toast('Error al analizar web: ' + e.message, 'error');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = '✦ Analizar web con IA';
     }
   });
 
