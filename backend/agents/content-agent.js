@@ -20,14 +20,14 @@ function getAnthropic() {
 
 // Auth Google Drive
 async function getDriveClient() {
-  if (!process.env.GOOGLE_SERVICE_ACCOUNT_JSON || process.env.GOOGLE_SERVICE_ACCOUNT_JSON === 'undefined') {
-    throw new Error('GOOGLE_SERVICE_ACCOUNT_JSON no está configurada en las variables de entorno');
-  }
-  const auth = new google.auth.GoogleAuth({
-    credentials: JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_JSON),
-    scopes: ['https://www.googleapis.com/auth/drive.readonly']
+  const oauth2Client = new google.auth.OAuth2(
+    process.env.GOOGLE_CLIENT_ID,
+    process.env.GOOGLE_CLIENT_SECRET
+  );
+  oauth2Client.setCredentials({
+    refresh_token: process.env.GOOGLE_REFRESH_TOKEN
   });
-  return google.drive({ version: 'v3', auth });
+  return google.drive({ version: 'v3', auth: oauth2Client });
 }
 
 // Listar archivos de una carpeta de Drive recursivamente
