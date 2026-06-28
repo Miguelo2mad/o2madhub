@@ -160,6 +160,17 @@ apta_para_publicar: false si hay logos de competidores, mala calidad extrema o c
 async function scanClientAssets(clientId, clientName, driveFolderId) {
   console.log(`\n🔍 Escaneando assets de ${clientName}...`);
 
+  // Guardar estado inicial del scan
+  await getSupabase().from('content_scan_status').upsert({
+    client_id: clientId,
+    status: 'running',
+    total: 0,
+    processed: 0,
+    current_file: 'Conectando con Drive...',
+    started_at: new Date().toISOString(),
+    updated_at: new Date().toISOString()
+  }, { onConflict: 'client_id' });
+
   const drive = await getDriveClient();
 
   // 1. Listar todos los archivos de Drive
@@ -175,6 +186,15 @@ async function scanClientAssets(clientId, clientName, driveFolderId) {
   const existingIds = new Set((existing || []).map(e => e.drive_file_id));
   const newFiles = files.filter(f => !existingIds.has(f.drive_file_id));
   console.log(`✨ ${newFiles.length} assets nuevos para etiquetar`);
+
+  await getSupabase().from('content_scan_status').upsert({
+    client_id: clientId,
+    status: 'running',
+    total: newFiles.length,
+    processed: 0,
+    current_file: `${newFiles.length} archivos encontrados, etiquetando...`,
+    updated_at: new Date().toISOString()
+  }, { onConflict: 'client_id' });
 
   // 3. Etiquetar cada archivo nuevo con Claude Vision
   let processed = 0;
@@ -214,6 +234,15 @@ async function scanClientAssets(clientId, clientName, driveFolderId) {
         processed++;
       }
 
+      await getSupabase().from('content_scan_status').upsert({
+        client_id: clientId,
+        status: 'running',
+        total: newFiles.length,
+        processed: processed,
+        current_file: file.file_name,
+        updated_at: new Date().toISOString()
+      }, { onConflict: 'client_id' });
+
       // Pausa para no saturar la API
       await new Promise(r => setTimeout(r, 500));
 
@@ -222,6 +251,16 @@ async function scanClientAssets(clientId, clientName, driveFolderId) {
       errors++;
     }
   }
+
+  await getSupabase().from('content_scan_status').upsert({
+    client_id: clientId,
+    status: 'completed',
+    total: newFiles.length,
+    processed: processed,
+    current_file: 'Completado',
+    finished_at: new Date().toISOString(),
+    updated_at: new Date().toISOString()
+  }, { onConflict: 'client_id' });
 
   console.log(`✅ ${clientName}: ${processed} assets procesados, ${errors} errores`);
   return { processed, errors, total: newFiles.length };

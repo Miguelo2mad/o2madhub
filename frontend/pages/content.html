@@ -326,6 +326,23 @@
           <button class="btn-ghost" id="btn-scan" style="font-size:12px">⟳ Escanear Drive</button>
         </div>
       </div>
+      <div id="scan-progress-bar" style="display:none;background:var(--negro-soft);border:1px solid var(--arena-dim);border-radius:10px;padding:14px 16px;margin-bottom:14px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+          <div style="font-size:12px;color:var(--arena);display:flex;align-items:center;gap:8px">
+            <div style="display:flex;gap:4px">
+              <div style="width:5px;height:5px;border-radius:50%;background:#4ade80;animation:ppulse .8s ease-in-out infinite"></div>
+              <div style="width:5px;height:5px;border-radius:50%;background:#4ade80;animation:ppulse .8s ease-in-out .18s infinite"></div>
+              <div style="width:5px;height:5px;border-radius:50%;background:#4ade80;animation:ppulse .8s ease-in-out .36s infinite"></div>
+            </div>
+            Escaneando Drive con Claude Vision
+          </div>
+          <div id="scan-bar-pct" style="font-size:12px;font-weight:600;color:var(--arena)">0%</div>
+        </div>
+        <div style="height:5px;background:rgba(196,168,130,.1);border-radius:3px;overflow:hidden;margin-bottom:8px">
+          <div id="scan-bar-fill" style="height:100%;background:var(--arena);border-radius:3px;transition:width .5s ease;width:0%"></div>
+        </div>
+        <div id="scan-bar-text" style="font-size:11px;color:rgba(245,240,232,.4)">Iniciando…</div>
+      </div>
       <div class="assets-grid" id="assets-grid"></div>
     </div>
 
@@ -713,18 +730,60 @@
     });
   });
 
+  let scanPollInterval = null;
+
   async function scanDrive() {
     if (!selectedClientId) return;
     const btn = $('btn-scan');
     btn.disabled = true;
-    btn.innerHTML = '<span class="spinning">⟳</span> Escaneando…';
+    btn.innerHTML = '<span class="spinning">⟳</span> Iniciando…';
+
     try {
-      const { message } = await api('POST', `/api/content/scan/${selectedClientId}`);
-      toast(message || 'Scan iniciado en segundo plano', 'info');
-      setTimeout(() => { if (selectedClientId && currentView === 'assets') loadAssets(); }, 5000);
+      await api('POST', `/api/content/scan/${selectedClientId}`);
+
+      // Mostrar barra de progreso
+      $('scan-progress-bar').style.display = 'block';
+      $('scan-bar-fill').style.background = 'var(--arena)';
+      $('scan-bar-fill').style.width = '0%';
+      $('scan-bar-pct').textContent = '0%';
+      $('scan-bar-text').textContent = 'Iniciando…';
+
+      // Limpiar polling previo si existía
+      if (scanPollInterval) clearInterval(scanPollInterval);
+
+      scanPollInterval = setInterval(async () => {
+        try {
+          const { status: s } = await api('GET', `/api/content/scan-status/${selectedClientId}`);
+          if (!s) return;
+
+          const pct = s.total > 0 ? Math.round((s.processed / s.total) * 100) : 0;
+          $('scan-bar-fill').style.width = pct + '%';
+          $('scan-bar-pct').textContent = pct + '%';
+          $('scan-bar-text').textContent = s.total > 0
+            ? `Etiquetando ${s.processed} de ${s.total} — ${s.current_file}`
+            : s.current_file || 'Iniciando…';
+
+          if (s.status === 'completed') {
+            clearInterval(scanPollInterval);
+            scanPollInterval = null;
+            $('scan-bar-fill').style.width = '100%';
+            $('scan-bar-fill').style.background = '#4ade80';
+            $('scan-bar-pct').textContent = '100%';
+            $('scan-bar-text').textContent = `✓ ${s.processed} assets importados y etiquetados`;
+            btn.disabled = false;
+            btn.innerHTML = '⟳ Escanear Drive';
+            setTimeout(async () => {
+              $('scan-progress-bar').style.display = 'none';
+              await loadAssets();
+            }, 2000);
+          }
+        } catch (e) {
+          console.error('Error polling scan status:', e);
+        }
+      }, 3000);
+
     } catch (e) {
       toast('Error al escanear: ' + e.message, 'error');
-    } finally {
       btn.disabled = false;
       btn.innerHTML = '⟳ Escanear Drive';
     }

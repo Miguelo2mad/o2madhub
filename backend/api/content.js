@@ -172,6 +172,20 @@ router.get('/stats/:clientId', async (req, res) => {
   }
 });
 
+router.get('/scan-status/:clientId', async (req, res) => {
+  try {
+    const { data, error } = await getSupabase()
+      .from('content_scan_status')
+      .select('*')
+      .eq('client_id', req.params.clientId)
+      .single();
+    if (error) return res.json({ ok: true, status: null });
+    res.json({ ok: true, status: data });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
 router.post('/analyze-web', async (req, res) => {
   try {
     const { url } = req.body;
