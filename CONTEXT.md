@@ -48,6 +48,26 @@ o2madhub/
 └── database/                         # Schemas y migraciones SQL
 ```
 
+## Variables de entorno en Railway
+```
+SUPABASE_URL                ✅
+SUPABASE_SERVICE_KEY        ✅
+SUPABASE_ANON_KEY           ✅
+ANTHROPIC_API_KEY           ✅
+GOOGLE_CLIENT_ID            ✅
+GOOGLE_CLIENT_SECRET        ✅
+GOOGLE_REFRESH_TOKEN        ✅ (solo Gmail — NO tiene scope de Drive)
+ACCT_APPER_GOOGLE_REFRESH_TOKEN ✅
+DRIVE_ROOT_FOLDER_ID        ✅
+GMAIL_USER                  ✅
+FACTURA_QUERY               ✅
+NOTIFY_TO                   ✅
+NOTIFY_CC                   ✅
+RAILWAY_URL                 ✅
+GOOGLE_SERVICE_ACCOUNT_JSON ❌ PENDIENTE — necesario para Drive en Content Studio
+METRICOOL_API_KEY           ❌ PENDIENTE — necesario para programar en Metricool
+```
+
 ## Módulos activos
 
 ### ✅ Módulo 1 — Facturas
@@ -60,43 +80,66 @@ o2madhub/
 - Resumen diario a sandra@o2mad.com + pedro@agesbal.com
 - ~412 facturas procesadas
 
-### ✅ Módulo 2 — Content Studio AI (en construcción)
-- Scan carpetas Drive por cliente → etiquetado Claude Vision
-- Prompt maestro por cliente en Supabase
-- Generación plan semanal con IA (reel/foto/carrusel/story)
-- Aprobación por equipo → programación directa en Metricool API
-- Pendiente: API key Metricool + configurar primer cliente
-- Tablas Supabase: `asset_library`, `content_client_config`, `content_plan`
+### 🔧 Módulo 2 — Content Studio AI (en construcción)
+**Lo que está hecho:**
+- Tablas Supabase creadas: `asset_library`, `content_client_config`, `content_plan`, `content_scan_status`
+- Agente `content-agent.js` con scan Drive + etiquetado Claude Vision + generación plan semanal
+- API completa en `backend/api/content.js` con todas las rutas
+- Dashboard `frontend/pages/content.html` con navegación por cliente
+- Análisis automático de web del cliente para generar prompt maestro con IA
+- Barra de progreso en tiempo real con polling cada 3 segundos
+- Procesamiento en lotes paralelos de 5 para mayor velocidad
+- Primer cliente creado: **Roots Beach** (client_id: `roots`)
 
-### 🔄 Módulo 3 — CRM (planificado julio 2026)
-- Inbox AI con clasificación de emails y análisis de sentimiento
+**Bloqueado por:**
+- `GOOGLE_SERVICE_ACCOUNT_JSON` no configurada en Railway
+- El `GOOGLE_REFRESH_TOKEN` existente solo tiene scope de Gmail, no de Drive
+- **Solución pendiente mañana:** crear Service Account en Google Cloud Console, compartir carpeta Drive con el email de la service account, añadir JSON en Railway como `GOOGLE_SERVICE_ACCOUNT_JSON`
+
+**Pasos exactos para mañana:**
+1. Ir a console.cloud.google.com → IAM → Cuentas de servicio → Crear `o2madhub-drive`
+2. Descargar JSON de credenciales
+3. Copiar `client_email` del JSON
+4. En Google Drive → carpeta Roots Beach → Compartir con ese email como Lector
+5. En Railway → Variables → añadir `GOOGLE_SERVICE_ACCOUNT_JSON` con el contenido del JSON
+6. Restaurar getDriveClient() en content-agent.js para usar Service Account (no OAuth2)
+7. Lanzar scan: `POST /api/content/scan/roots`
+8. Verificar progreso: `GET /api/content/scan-status/roots`
+
+**Pendiente tras el scan:**
+- Añadir `METRICOOL_API_KEY` en Railway
+- Generar primer plan semanal para Roots Beach
+- Probar aprobación de pieza y programación en Metricool
+
+### 🔄 Módulo 3 — CRM (planificado)
+- Inbox AI con clasificación emails y análisis sentimiento
 - Contacto 360° por cliente
-- Kanban de proyectos con portal de aprobación cliente
+- Kanban proyectos con portal aprobación cliente
 - Upsell Engine (triggers 90d foto/video, 12m web)
 - Comunicaciones email + WhatsApp con plantillas Meta
 - Presupuestos con URL única, firma digital y tracking apertura
-- Tablas: `contacts`, `deals`, `projects`, `inbox_items`, `wa_messages`, `upsell_opps`, `activity_log`
+- Tablas: contacts, deals, projects, inbox_items, wa_messages, upsell_opps, activity_log
 
-### 🔄 Módulo 4 — Presupuestos (planificado julio 2026)
-- Generación por prompt de texto o nota de voz (Whisper)
+### 🔄 Módulo 4 — Presupuestos (planificado)
+- Generación por prompt texto o nota de voz (Whisper)
 - URL única por cliente: hub.o2mad.com/p/:token
 - Firma digital HTML5 canvas
-- Tracking de apertura: timestamp + dispositivo + ciudad
+- Tracking apertura: timestamp + dispositivo + ciudad
 - Push notification a Miguel en primera apertura
-- PDF descargable con branding O2MAD personalizado por cliente
+- PDF con branding O2MAD personalizado por cliente
 
 ### 🔄 Módulo 5 — Prospecting (planificado)
 - Scraper Google Places API por nicho + ciudad
 - Análisis web automático: PageSpeed, WHOIS, pixel Meta/GA4, CMS, motor reservas
-- Score de oportunidad IA por lead (1-10)
-- Panel de llamadas kanban: Pendiente/Llamado/Callback/Demo
+- Score oportunidad IA por lead (1-10)
+- Panel llamadas kanban: Pendiente/Llamado/Callback/Demo
 - Exportación CSV
 
 ### 🔄 Módulo 6 — Metricool Marketing Copilot (planificado)
 - Dashboard unificado todos los clientes
 - Informes automáticos con IA mensuales
 - Alertas inteligentes WhatsApp/email
-- PDFs premium con branding O2MAD
+- PDFs premium branding O2MAD
 - Scoring de clientes
 - Integrado en ficha CRM
 
@@ -112,38 +155,20 @@ Krishna, Canyamel Classic
 - Apper Street SL — CIF B57856825 — código `'a'`
 - Sin clasificar — código `'x'`
 
-## Variables de entorno necesarias (Railway)
-```
-SUPABASE_URL
-SUPABASE_KEY
-ANTHROPIC_API_KEY
-GOOGLE_SERVICE_ACCOUNT_JSON
-GMAIL_CLIENT_ID
-GMAIL_CLIENT_SECRET
-RESEND_API_KEY
-METRICOOL_API_KEY          ← pendiente añadir
-```
-
 ## Reglas críticas del sistema
-- CIF del destinatario es el ÚNICO método válido para clasificar facturas
-- Sin CIF → código 'x' → nunca asignar sociedad por suposición
-- Google APIs corren en background — nunca bloqueando middleware
-- Supabase es la fuente única de verdad para todos los módulos
-- Todos los módulos comparten el mismo Railway deployment y login
-
-## Próximos pasos inmediatos
-- [ ] Configurar primer cliente en Content Studio (carpeta Drive lista)
-- [ ] Añadir METRICOOL_API_KEY en Railway variables
-- [ ] Lanzar primer scan de Drive y generar plan semanal
-- [ ] Construir módulo CRM — Inbox AI primero
-- [ ] Módulo Presupuestos con firma digital
-- [ ] Módulo Prospecting
+1. CIF del destinatario es el ÚNICO método válido para clasificar facturas
+2. Sin CIF → código 'x' → nunca asignar sociedad por suposición
+3. Google APIs corren en background — nunca bloqueando middleware
+4. Supabase es la fuente única de verdad para todos los módulos
+5. Todos los módulos comparten el mismo Railway deployment y login
+6. content-agent.js debe usar GOOGLE_SERVICE_ACCOUNT_JSON para Drive (pendiente configurar)
+7. El resto del proyecto usa OAuth2 con GOOGLE_CLIENT_ID + SECRET + REFRESH_TOKEN
 
 ## Marca O2MAD
 - **Claim:** "We Sell Desire." (siempre con punto, nunca explicado)
 - **Colores:** Negro #0F0E0C · Arena #C4A882 · Arena Oscura #9A7A58 · Blanco #F5F0E8
 - **Tipografía:** Inter (dashboard) · Roboto Black 900 (headlines) · Roboto Light 300 (body)
-- **Nunca usar:** premium, lujo, emojis, exclamaciones, "sin subcontratas", "resultados medibles"
+- **Nunca usar:** premium, lujo, emojis, exclamaciones, sin subcontratas, resultados medibles
 - **CTAs:** "cuéntanos tu proyecto" o "agenda una llamada"
 - **PURO Group:** siempre "partner creativo" — nunca trofeo en portfolio
 
