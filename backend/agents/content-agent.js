@@ -409,9 +409,25 @@ Devuelve SOLO un JSON válido con este formato:
     messages: [{ role: 'user', content: prompt }]
   });
 
-  const text = response.content[0].text.trim();
-  const clean = text.replace(/```json|```/g, '').trim();
-  const plan = JSON.parse(clean);
+  const rawText = response?.content?.[0]?.text;
+
+  if (!rawText || rawText.trim() === '' || rawText.trim() === 'undefined') {
+    throw new Error('Claude no devolvió un plan válido — respuesta vacía');
+  }
+
+  let plan;
+  try {
+    const clean = rawText.replace(/```json/gi, '').replace(/```/g, '').trim();
+    try {
+      plan = JSON.parse(clean);
+    } catch (e) {
+      const match = clean.match(/\{[\s\S]*\}/);
+      if (match) plan = JSON.parse(match[0]);
+      else throw new Error('No se pudo extraer JSON del plan generado');
+    }
+  } catch (err) {
+    throw new Error('Error parseando plan de Claude: ' + err.message);
+  }
 
   // 5. Guardar plan en Supabase
   const domingo = new Date(lunes);

@@ -237,9 +237,25 @@ Devuelve SOLO un JSON válido con este formato exacto:
       }]
     });
 
-    const text = response.content[0].text.trim();
-    const clean = text.replace(/```json|```/g, '').trim();
-    const result = JSON.parse(clean);
+    const rawText = response?.content?.[0]?.text;
+
+    if (!rawText || rawText.trim() === '' || rawText.trim() === 'undefined') {
+      return res.status(500).json({ ok: false, error: 'La IA no devolvió respuesta válida' });
+    }
+
+    let result;
+    try {
+      const clean = rawText.replace(/```json/gi, '').replace(/```/g, '').trim();
+      try {
+        result = JSON.parse(clean);
+      } catch (e) {
+        const match = clean.match(/\{[\s\S]*\}/);
+        if (match) result = JSON.parse(match[0]);
+        else return res.status(500).json({ ok: false, error: 'No se pudo extraer JSON de la respuesta' });
+      }
+    } catch (err) {
+      return res.status(500).json({ ok: false, error: 'Error parseando respuesta de IA: ' + err.message });
+    }
 
     res.json({ ok: true, data: result });
   } catch (err) {
