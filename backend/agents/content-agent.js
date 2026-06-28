@@ -5,8 +5,18 @@ const { google } = require('googleapis');
 const { createClient } = require('@supabase/supabase-js');
 const Anthropic = require('@anthropic-ai/sdk');
 
-const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+let supabase;
+let anthropic;
+
+function getSupabase() {
+  if (!supabase) supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
+  return supabase;
+}
+
+function getAnthropic() {
+  if (!anthropic) anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+  return anthropic;
+}
 
 // Auth Google Drive
 async function getDriveClient() {
@@ -123,7 +133,7 @@ apta_para_publicar: false si hay logos de competidores, mala calidad extrema o c
       }
     ];
 
-    const response = await anthropic.messages.create({
+    const response = await getAnthropic().messages.create({
       model: 'claude-sonnet-4-6',
       max_tokens: 500,
       messages
@@ -157,7 +167,7 @@ async function scanClientAssets(clientId, clientName, driveFolderId) {
   console.log(`📁 ${files.length} archivos encontrados en Drive`);
 
   // 2. Filtrar los que ya están en Supabase
-  const { data: existing } = await supabase
+  const { data: existing } = await getSupabase()
     .from('asset_library')
     .select('drive_file_id')
     .eq('client_id', clientId);
@@ -191,7 +201,7 @@ async function scanClientAssets(clientId, clientName, driveFolderId) {
       }
 
       // 4. Guardar en Supabase
-      const { error } = await supabase.from('asset_library').upsert({
+      const { error } = await getSupabase().from('asset_library').upsert({
         ...file,
         ...tagData,
         updated_at: new Date().toISOString()
@@ -220,7 +230,7 @@ async function scanClientAssets(clientId, clientName, driveFolderId) {
 // Generar plan semanal con Claude
 async function generateWeeklyPlan(clientId) {
   // 1. Cargar config del cliente
-  const { data: config } = await supabase
+  const { data: config } = await getSupabase()
     .from('content_client_config')
     .select('*')
     .eq('client_id', clientId)
@@ -232,7 +242,7 @@ async function generateWeeklyPlan(clientId) {
   const cutoffDate = new Date();
   cutoffDate.setDate(cutoffDate.getDate() - 28);
 
-  const { data: assets } = await supabase
+  const { data: assets } = await getSupabase()
     .from('asset_library')
     .select('*')
     .eq('client_id', clientId)
@@ -304,7 +314,7 @@ Devuelve SOLO un JSON válido con este formato:
   ]
 }`;
 
-  const response = await anthropic.messages.create({
+  const response = await getAnthropic().messages.create({
     model: 'claude-sonnet-4-6',
     max_tokens: 4000,
     messages: [{ role: 'user', content: prompt }]
@@ -319,7 +329,7 @@ Devuelve SOLO un JSON válido con este formato:
   domingo.setDate(lunes.getDate() + 6);
 
   // Borrar plan anterior de esta semana si existe
-  await supabase
+  await getSupabase()
     .from('content_plan')
     .delete()
     .eq('client_id', clientId)
@@ -344,7 +354,7 @@ Devuelve SOLO un JSON válido con este formato:
     notas: p.notas || null
   }));
 
-  const { data: saved, error } = await supabase
+  const { data: saved, error } = await getSupabase()
     .from('content_plan')
     .insert(piezasParaGuardar)
     .select();
