@@ -1,0 +1,837 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Content Studio — O2MAD Hub</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --negro: #0F0E0C;
+      --arena: #C4A882;
+      --blanco: #F5F0E8;
+      --negro-soft: #1a1916;
+      --arena-dim: rgba(196, 168, 130, 0.18);
+      --rojo: #d9684f;
+      --ambar: #d9a441;
+      --verde: #7fa86b;
+      --teal: #4fc3a1;
+      --sidebar-w: 232px;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+      background: var(--negro); color: var(--blanco);
+      min-height: 100vh; -webkit-font-smoothing: antialiased;
+    }
+    .hidden { display: none !important; }
+    button { cursor: pointer; border: none; border-radius: 8px; font-size: 13px; font-weight: 600; transition: opacity .15s, background .15s; font-family: inherit; }
+    button:hover:not(:disabled) { opacity: .85; }
+    button:disabled { opacity: .35; cursor: not-allowed; }
+    input, textarea, select {
+      background: var(--negro); border: 1px solid var(--arena-dim);
+      border-radius: 8px; color: var(--blanco);
+      font-size: 13px; padding: 9px 12px;
+      width: 100%; font-family: inherit;
+      transition: border-color .15s;
+    }
+    input:focus, textarea:focus, select:focus { outline: none; border-color: var(--arena); }
+    label { display: block; font-size: 10px; color: var(--arena); letter-spacing: 1.2px; text-transform: uppercase; margin-bottom: 5px; }
+
+    /* ══ TOPBAR ══ */
+    .topbar {
+      position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+      height: 54px; display: flex; align-items: center; justify-content: space-between;
+      padding: 0 22px; background: var(--negro-soft); border-bottom: 1px solid var(--arena-dim);
+    }
+    .topbar-left { display: flex; align-items: center; gap: 10px; }
+    .logo { font-size: 17px; letter-spacing: 3px; font-weight: 700; white-space: nowrap; }
+    .logo span { color: var(--arena); }
+    .bc-sep { color: rgba(196,168,130,.35); font-size: 16px; }
+    .bc-label { font-size: 12px; color: var(--arena); letter-spacing: 1px; }
+    .topbar-right { display: flex; gap: 8px; align-items: center; }
+    .btn-primary { background: var(--arena); color: var(--negro); padding: 7px 16px; }
+    .btn-ghost { background: transparent; color: var(--arena); border: 1px solid var(--arena-dim); padding: 7px 14px; }
+
+    /* ══ LAYOUT ══ */
+    .layout { display: flex; padding-top: 54px; min-height: 100vh; }
+
+    /* ══ SIDEBAR ══ */
+    .sidebar {
+      width: var(--sidebar-w); position: fixed;
+      top: 54px; bottom: 0; left: 0; overflow-y: auto;
+      background: var(--negro-soft); border-right: 1px solid var(--arena-dim);
+      display: flex; flex-direction: column;
+    }
+    .sidebar-nav { padding: 14px 10px 6px; }
+    .nav-group-label { font-size: 9px; color: rgba(196,168,130,.5); letter-spacing: 1.5px; text-transform: uppercase; padding: 0 10px; margin-bottom: 6px; }
+    .nav-item {
+      display: flex; align-items: center; gap: 9px;
+      padding: 8px 10px; border-radius: 7px; font-size: 13px;
+      color: rgba(245,240,232,.5); cursor: pointer; margin-bottom: 1px;
+      transition: background .12s, color .12s; user-select: none;
+    }
+    .nav-item:hover { background: var(--arena-dim); color: var(--blanco); }
+    .nav-item.active { background: var(--arena-dim); color: var(--arena); font-weight: 600; }
+    .nav-item .ni { font-size: 14px; width: 20px; text-align: center; }
+    .sidebar-divider { height: 1px; background: var(--arena-dim); margin: 10px 14px; }
+    .clients-section { padding: 4px 10px; flex: 1; overflow-y: auto; }
+    .client-item {
+      padding: 7px 10px; border-radius: 7px; font-size: 12px;
+      color: rgba(245,240,232,.45); cursor: pointer; margin-bottom: 1px;
+      transition: background .12s, color .12s; user-select: none;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .client-item:hover { background: var(--arena-dim); color: var(--blanco); }
+    .client-item.active { background: rgba(196,168,130,.22); color: var(--arena); font-weight: 600; }
+    .client-empty { font-size: 12px; color: rgba(245,240,232,.25); padding: 8px 10px; }
+
+    /* ══ MAIN ══ */
+    .main { margin-left: var(--sidebar-w); flex: 1; padding: 26px 28px; min-width: 0; }
+
+    /* ══ VIEWS ══ */
+    .view { display: none; }
+    .view.active { display: block; }
+
+    .empty-state {
+      display: flex; flex-direction: column; align-items: center;
+      justify-content: center; min-height: 45vh;
+      color: rgba(245,240,232,.25); text-align: center; gap: 10px;
+    }
+    .empty-icon { font-size: 38px; }
+    .empty-state p { font-size: 13px; }
+
+    /* ══ SECTION TITLE ══ */
+    .section-title { font-size: 11px; letter-spacing: 2px; color: var(--arena); text-transform: uppercase; }
+
+    /* ══ KPIs ══ */
+    .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin-bottom: 22px; }
+    .kpi { background: var(--negro-soft); border: 1px solid var(--arena-dim); border-radius: 11px; padding: 14px 16px; }
+    .kpi .kpi-label { font-size: 10px; color: var(--arena); letter-spacing: 1px; text-transform: uppercase; }
+    .kpi .kpi-value { font-size: 28px; font-weight: 700; margin-top: 5px; line-height: 1; }
+
+    /* ══ AI PROGRESS ══ */
+    .ai-progress {
+      background: var(--negro-soft); border: 1px solid var(--arena-dim);
+      border-radius: 11px; padding: 16px 20px; margin-bottom: 22px;
+      display: flex; align-items: center; gap: 14px;
+    }
+    .ai-label { font-size: 12px; color: var(--arena); white-space: nowrap; }
+    .progress-track { flex: 1; background: rgba(196,168,130,.1); border-radius: 20px; height: 5px; overflow: hidden; }
+    .progress-fill {
+      height: 100%; background: var(--arena); border-radius: 20px; width: 0%;
+      transition: width .35s ease;
+      animation: ppulse 1.6s ease-in-out infinite;
+    }
+    @keyframes ppulse { 0%,100% { opacity: 1; } 50% { opacity: .55; } }
+
+    /* ══ PLAN ══ */
+    .week-toolbar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 18px; flex-wrap: wrap; gap: 10px; }
+    .day-block { margin-bottom: 18px; }
+    .day-label {
+      font-size: 10px; letter-spacing: 2px; color: var(--arena); text-transform: uppercase;
+      padding-bottom: 9px; border-bottom: 1px solid var(--arena-dim); margin-bottom: 9px;
+    }
+    .piece-card {
+      background: var(--negro-soft); border: 1px solid var(--arena-dim); border-radius: 10px;
+      padding: 13px 14px; margin-bottom: 7px;
+      display: grid; grid-template-columns: 34px 1fr auto; gap: 10px; align-items: start;
+      transition: border-color .15s;
+    }
+    .piece-card:hover { border-color: rgba(196,168,130,.35); }
+    .piece-icon { font-size: 18px; padding-top: 2px; }
+    .piece-body { min-width: 0; }
+    .piece-title { font-size: 13px; font-weight: 600; margin-bottom: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .piece-copy { font-size: 12px; color: rgba(245,240,232,.45); line-height: 1.45; margin-bottom: 7px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+    .piece-meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .piece-asset-tag { font-size: 10px; color: var(--arena); background: var(--arena-dim); padding: 2px 8px; border-radius: 20px; }
+    .piece-time { font-size: 10px; color: rgba(245,240,232,.35); }
+    .piece-status-wrap { display: flex; align-items: center; gap: 5px; font-size: 10px; color: rgba(245,240,232,.45); }
+    .sdot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+    .sdot.pendiente { background: var(--ambar); }
+    .sdot.aprobado_equipo { background: var(--arena); }
+    .sdot.aprobado_cliente { background: var(--verde); }
+    .sdot.programado { background: var(--teal); }
+    .sdot.publicado { background: rgba(245,240,232,.2); }
+    .piece-actions { display: flex; flex-direction: column; gap: 5px; flex-shrink: 0; }
+    .btn-sm { padding: 5px 11px; font-size: 11px; border-radius: 6px; white-space: nowrap; }
+    .btn-approve { background: rgba(127,168,107,.15); color: var(--verde); border: 1px solid rgba(127,168,107,.25); }
+    .btn-approve:hover:not(:disabled) { background: rgba(127,168,107,.28); opacity: 1; }
+    .btn-sched { background: var(--arena-dim); color: var(--arena); border: 1px solid rgba(196,168,130,.25); }
+    .btn-sched:hover:not(:disabled) { background: rgba(196,168,130,.28); opacity: 1; }
+    .btn-done { background: rgba(79,195,161,.08); color: var(--teal); border: 1px solid rgba(79,195,161,.15); cursor: default; }
+
+    /* ══ ASSETS ══ */
+    .assets-toolbar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 18px; gap: 12px; flex-wrap: wrap; }
+    .filter-group { display: flex; gap: 6px; }
+    .filter-btn {
+      padding: 5px 13px; font-size: 11px; background: transparent;
+      color: rgba(245,240,232,.45); border: 1px solid var(--arena-dim); border-radius: 20px; font-weight: 500;
+    }
+    .filter-btn:hover:not(.active) { color: var(--blanco); border-color: rgba(196,168,130,.35); opacity: 1; }
+    .filter-btn.active { background: var(--arena-dim); color: var(--arena); border-color: rgba(196,168,130,.4); font-weight: 600; }
+    .assets-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 12px; }
+    .asset-card { background: var(--negro-soft); border: 1px solid var(--arena-dim); border-radius: 11px; overflow: hidden; transition: border-color .15s; }
+    .asset-card:hover { border-color: rgba(196,168,130,.35); }
+    .asset-thumb {
+      width: 100%; height: 120px;
+      background: linear-gradient(135deg, rgba(196,168,130,.07) 0%, rgba(196,168,130,.03) 100%);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 30px; color: rgba(196,168,130,.2);
+    }
+    .asset-info { padding: 10px 11px; }
+    .asset-name { font-size: 11px; font-weight: 600; margin-bottom: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--blanco); }
+    .asset-tags { display: flex; flex-wrap: wrap; gap: 3px; margin-bottom: 8px; }
+    .tag-pill { font-size: 9px; padding: 2px 6px; background: var(--arena-dim); color: var(--arena); border-radius: 20px; }
+    .asset-footer { display: flex; align-items: center; justify-content: space-between; }
+    .asset-score { font-size: 11px; font-weight: 600; }
+    .score-hi { color: var(--verde); }
+    .score-md { color: var(--ambar); }
+    .score-lo { color: var(--rojo); }
+    .asset-type-badge { font-size: 9px; background: rgba(196,168,130,.08); color: rgba(245,240,232,.4); padding: 2px 7px; border-radius: 20px; text-transform: uppercase; letter-spacing: .5px; }
+
+    /* ══ CONFIG ══ */
+    .config-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    .config-card { background: var(--negro-soft); border: 1px solid var(--arena-dim); border-radius: 11px; padding: 18px; }
+    .config-card h3 { font-size: 10px; letter-spacing: 1.5px; color: var(--arena); text-transform: uppercase; margin-bottom: 12px; }
+    .cf { margin-bottom: 10px; }
+    .cf-label { font-size: 10px; color: rgba(245,240,232,.35); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 3px; }
+    .cf-value { font-size: 13px; color: var(--blanco); line-height: 1.5; }
+    .config-full { grid-column: 1 / -1; }
+    .config-prompt-box { font-size: 12px; color: rgba(245,240,232,.65); line-height: 1.65; background: var(--negro); padding: 12px 14px; border-radius: 8px; border: 1px solid var(--arena-dim); white-space: pre-wrap; max-height: 180px; overflow-y: auto; }
+    .mix-row { display: flex; gap: 20px; flex-wrap: wrap; }
+    .mix-item { text-align: center; }
+    .mix-n { font-size: 26px; font-weight: 700; color: var(--arena); line-height: 1; }
+    .mix-l { font-size: 10px; color: rgba(245,240,232,.35); text-transform: uppercase; letter-spacing: 1px; margin-top: 3px; }
+    .hashtag-wrap { display: flex; flex-wrap: wrap; gap: 5px; }
+
+    /* ══ MODAL ══ */
+    .modal-backdrop {
+      position: fixed; inset: 0; background: rgba(15,14,12,.88);
+      display: flex; align-items: center; justify-content: center;
+      z-index: 200; padding: 20px;
+    }
+    .modal {
+      background: var(--negro-soft); border: 1px solid var(--arena-dim);
+      border-radius: 14px; width: 100%; max-width: 540px;
+      max-height: 90vh; overflow-y: auto; padding: 26px;
+    }
+    .modal-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 22px; }
+    .modal-title { font-size: 15px; font-weight: 700; }
+    .btn-close { background: transparent; color: rgba(245,240,232,.3); font-size: 18px; padding: 4px 8px; line-height: 1; }
+    .btn-close:hover { color: var(--blanco); opacity: 1; }
+    .form-group { margin-bottom: 14px; }
+    .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .mix-inputs { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+    .mix-input-item { text-align: center; }
+    .mix-input-item label { text-align: center; }
+    .mix-input-item input { text-align: center; padding: 8px 4px; }
+    .modal-footer { display: flex; justify-content: flex-end; gap: 8px; margin-top: 22px; }
+
+    /* ══ TOASTS ══ */
+    #toasts { position: fixed; top: 64px; right: 18px; z-index: 400; display: flex; flex-direction: column; gap: 7px; pointer-events: none; }
+    .toast {
+      background: var(--negro-soft); border: 1px solid var(--arena-dim); border-radius: 9px;
+      padding: 11px 16px; font-size: 12px; max-width: 300px;
+      pointer-events: all; display: flex; align-items: center; gap: 9px;
+      animation: toast-in .18s ease; box-shadow: 0 4px 20px rgba(0,0,0,.4);
+    }
+    .toast.success { border-left: 3px solid var(--verde); }
+    .toast.error   { border-left: 3px solid var(--rojo); }
+    .toast.info    { border-left: 3px solid var(--arena); }
+    @keyframes toast-in { from { opacity: 0; transform: translateX(14px); } to { opacity: 1; transform: none; } }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .spinning { display: inline-block; animation: spin .7s linear infinite; }
+
+    textarea { resize: vertical; }
+  </style>
+</head>
+<body>
+
+<!-- TOASTS -->
+<div id="toasts"></div>
+
+<!-- TOPBAR -->
+<header class="topbar">
+  <div class="topbar-left">
+    <a href="/" style="text-decoration:none"><div class="logo">O2<span>MAD</span> HUB</div></a>
+    <span class="bc-sep">/</span>
+    <span class="bc-label">Content Studio</span>
+  </div>
+  <div class="topbar-right">
+    <button class="btn-ghost" id="btn-new-client">+ Nuevo cliente</button>
+    <button class="btn-primary" id="btn-generate" disabled>✦ Generar semana</button>
+  </div>
+</header>
+
+<!-- LAYOUT -->
+<div class="layout">
+
+  <!-- SIDEBAR -->
+  <aside class="sidebar">
+    <div class="sidebar-nav">
+      <div class="nav-group-label">Vistas</div>
+      <div class="nav-item active" data-view="plan"><span class="ni">📅</span> Plan semanal</div>
+      <div class="nav-item" data-view="assets"><span class="ni">🖼</span> Biblioteca assets</div>
+      <div class="nav-item" data-view="config"><span class="ni">⚙</span> Configuración</div>
+    </div>
+    <div class="sidebar-divider"></div>
+    <div class="clients-section">
+      <div class="nav-group-label" style="margin-bottom:8px">Clientes</div>
+      <div id="client-list"><div class="client-empty">Cargando…</div></div>
+    </div>
+  </aside>
+
+  <!-- MAIN -->
+  <main class="main">
+
+    <!-- EMPTY -->
+    <div id="view-empty" class="view active">
+      <div class="empty-state">
+        <div class="empty-icon">✦</div>
+        <p>Selecciona un cliente para comenzar</p>
+      </div>
+    </div>
+
+    <!-- PLAN SEMANAL -->
+    <div id="view-plan" class="view">
+      <div class="week-toolbar">
+        <div id="plan-week-label" class="section-title">Plan semanal</div>
+        <div style="display:flex;gap:7px">
+          <button class="btn-ghost" id="btn-prev-week" style="font-size:12px">← Anterior</button>
+          <button class="btn-ghost" id="btn-next-week" style="font-size:12px">Siguiente →</button>
+        </div>
+      </div>
+      <div class="kpis" id="plan-kpis"></div>
+      <div class="ai-progress hidden" id="ai-progress">
+        <span class="ai-label">✦ Claude generando plan…</span>
+        <div class="progress-track"><div class="progress-fill" id="progress-fill"></div></div>
+      </div>
+      <div id="plan-content"></div>
+    </div>
+
+    <!-- BIBLIOTECA ASSETS -->
+    <div id="view-assets" class="view">
+      <div class="assets-toolbar">
+        <div class="section-title">Biblioteca de assets</div>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <div class="filter-group">
+            <button class="filter-btn active" data-filter="all">Todos</button>
+            <button class="filter-btn" data-filter="foto">Fotos</button>
+            <button class="filter-btn" data-filter="video">Vídeos</button>
+          </div>
+          <button class="btn-ghost" id="btn-scan" style="font-size:12px">⟳ Escanear Drive</button>
+        </div>
+      </div>
+      <div class="assets-grid" id="assets-grid"></div>
+    </div>
+
+    <!-- CONFIGURACIÓN -->
+    <div id="view-config" class="view">
+      <div class="week-toolbar">
+        <div class="section-title">Configuración del cliente</div>
+        <button class="btn-ghost" id="btn-edit-config" style="font-size:12px">Editar</button>
+      </div>
+      <div class="config-grid" id="config-content"></div>
+    </div>
+
+  </main>
+</div>
+
+<!-- MODAL CLIENTE -->
+<div class="modal-backdrop hidden" id="modal-client">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title" id="modal-title">Nuevo cliente</div>
+      <button class="btn-close" id="modal-close">✕</button>
+    </div>
+    <form id="client-form">
+      <div class="form-row">
+        <div class="form-group">
+          <label for="f-cid">ID Cliente</label>
+          <input id="f-cid" type="text" placeholder="hotel-son-vida" required />
+        </div>
+        <div class="form-group">
+          <label for="f-cname">Nombre</label>
+          <input id="f-cname" type="text" placeholder="Hotel Son Vida" required />
+        </div>
+      </div>
+      <div class="form-group">
+        <label for="f-drive">ID Carpeta Drive</label>
+        <input id="f-drive" type="text" placeholder="1BxNXo_abc123..." required />
+      </div>
+      <div class="form-group">
+        <label for="f-prompt">Prompt maestro</label>
+        <textarea id="f-prompt" rows="5" placeholder="Describe el estilo, tono y personalidad de la marca…" required></textarea>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label for="f-tono">Tono</label>
+          <input id="f-tono" type="text" placeholder="Premium, aspiracional, emocional" />
+        </div>
+        <div class="form-group">
+          <label for="f-hora">Hora óptima</label>
+          <input id="f-hora" type="time" value="19:00" />
+        </div>
+      </div>
+      <div class="form-group">
+        <label for="f-prohib">Prohibiciones</label>
+        <input id="f-prohib" type="text" placeholder="No mencionar precios, evitar comparaciones directas…" />
+      </div>
+      <div class="form-group">
+        <label for="f-hashtags">Hashtags fijos (separados por espacio)</label>
+        <input id="f-hashtags" type="text" placeholder="#mallorca #hotel #luxury" />
+      </div>
+      <div class="form-group">
+        <label>Mix semanal</label>
+        <div class="mix-inputs">
+          <div class="mix-input-item"><label>🎬 Reels</label><input type="number" id="f-reels" min="0" max="7" value="2" /></div>
+          <div class="mix-input-item"><label>📸 Fotos</label><input type="number" id="f-foto" min="0" max="7" value="1" /></div>
+          <div class="mix-input-item"><label>🗂 Carrusel</label><input type="number" id="f-carrusel" min="0" max="7" value="1" /></div>
+          <div class="mix-input-item"><label>📱 Stories</label><input type="number" id="f-story" min="0" max="7" value="3" /></div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn-ghost" id="modal-cancel">Cancelar</button>
+        <button type="submit" class="btn-primary">Guardar cliente</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+  /* ════ UTILS ════ */
+  const $ = id => document.getElementById(id);
+  const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+  const DAYS = ['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo'];
+  const TYPE_ICON = { reel:'🎬', foto:'📸', carrusel:'🗂', story:'📱' };
+  const STATUS_LABEL = {
+    pendiente:'Pendiente', aprobado_equipo:'Aprobado equipo',
+    aprobado_cliente:'Aprobado cliente', programado:'Programado', publicado:'Publicado'
+  };
+
+  /* ════ STATE ════ */
+  let clients = [];
+  let selectedClientId = null;
+  let currentView = 'empty';
+  let planData = [];
+  let assetsData = [];
+  let assetsFilter = 'all';
+  let weekOffset = 0;
+  let isGenerating = false;
+  let progressTimer = null;
+
+  /* ════ API ════ */
+  async function api(method, path, body) {
+    const opts = { method, headers: { 'Content-Type': 'application/json' } };
+    if (body) opts.body = JSON.stringify(body);
+    const res = await fetch(path, opts);
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+    return data;
+  }
+
+  /* ════ TOASTS ════ */
+  function toast(msg, type = 'info') {
+    const el = document.createElement('div');
+    el.className = `toast ${type}`;
+    const icons = { success:'✓', error:'✕', info:'✦' };
+    el.innerHTML = `<span>${icons[type]||'·'}</span><span>${esc(msg)}</span>`;
+    $('toasts').appendChild(el);
+    setTimeout(() => el.remove(), 4200);
+  }
+
+  /* ════ DATE HELPERS ════ */
+  function getMonday(offset = 0) {
+    const d = new Date();
+    const dow = d.getDay();
+    d.setDate(d.getDate() + (dow === 0 ? -6 : 1 - dow) + offset * 7);
+    d.setHours(0,0,0,0);
+    return d;
+  }
+  const fmtISO = d => d.toISOString().split('T')[0];
+  const fmtHuman = str => {
+    if (!str) return '';
+    const d = new Date(str + 'T00:00:00');
+    return d.toLocaleDateString('es-ES', { weekday:'short', day:'numeric', month:'short' });
+  };
+
+  /* ════ NAV ════ */
+  document.querySelectorAll('.nav-item[data-view]').forEach(item => {
+    item.addEventListener('click', () => {
+      if (!selectedClientId) { toast('Selecciona primero un cliente', 'info'); return; }
+      switchView(item.dataset.view);
+    });
+  });
+
+  function switchView(v) {
+    document.querySelectorAll('.nav-item[data-view]').forEach(n => n.classList.remove('active'));
+    document.querySelector(`.nav-item[data-view="${v}"]`)?.classList.add('active');
+    document.querySelectorAll('.view').forEach(el => el.classList.remove('active'));
+    if (v === 'plan')   { $('view-plan').classList.add('active');   loadPlan();    }
+    if (v === 'assets') { $('view-assets').classList.add('active'); loadAssets();  }
+    if (v === 'config') { $('view-config').classList.add('active'); renderConfig();}
+    if (v === 'empty')  { $('view-empty').classList.add('active');  }
+    currentView = v;
+  }
+
+  /* ════ CLIENTS ════ */
+  async function loadClients() {
+    try {
+      const { clients: data } = await api('GET', '/api/content/clients');
+      clients = data || [];
+      renderClientList();
+    } catch (e) {
+      $('client-list').innerHTML = '<div class="client-empty">Error al cargar</div>';
+    }
+  }
+
+  function renderClientList() {
+    if (!clients.length) {
+      $('client-list').innerHTML = '<div class="client-empty">Sin clientes aún</div>';
+      return;
+    }
+    $('client-list').innerHTML = clients.map(c =>
+      `<div class="client-item ${c.client_id === selectedClientId ? 'active' : ''}" data-cid="${esc(c.client_id)}">${esc(c.client_name)}</div>`
+    ).join('');
+    $('client-list').querySelectorAll('.client-item').forEach(el =>
+      el.addEventListener('click', () => selectClient(el.dataset.cid))
+    );
+  }
+
+  function selectClient(cid) {
+    selectedClientId = cid;
+    $('btn-generate').disabled = false;
+    renderClientList();
+    switchView(currentView === 'empty' ? 'plan' : currentView);
+  }
+
+  const getClient = () => clients.find(c => c.client_id === selectedClientId);
+
+  /* ════ PLAN ════ */
+  async function loadPlan() {
+    if (!selectedClientId) return;
+    const lunes = fmtISO(getMonday(weekOffset));
+    $('plan-content').innerHTML = `<div style="color:rgba(245,240,232,.25);font-size:13px;padding:20px 0">Cargando plan…</div>`;
+    try {
+      const { plan } = await api('GET', `/api/content/plan/${selectedClientId}?semana=${lunes}`);
+      planData = plan || [];
+      renderPlan();
+    } catch (e) {
+      $('plan-content').innerHTML = `<div class="empty-state"><p>Error: ${esc(e.message)}</p></div>`;
+    }
+  }
+
+  function renderPlanKpis() {
+    const kpis = [
+      { label: 'Total piezas',  value: planData.length },
+      { label: 'Aprobadas',     value: planData.filter(p => ['aprobado_equipo','aprobado_cliente','programado','publicado'].includes(p.estado)).length },
+      { label: 'Pendientes',    value: planData.filter(p => p.estado === 'pendiente').length },
+      { label: 'Programadas',   value: planData.filter(p => p.estado === 'programado').length },
+    ];
+    $('plan-kpis').innerHTML = kpis.map(k =>
+      `<div class="kpi"><div class="kpi-label">${k.label}</div><div class="kpi-value">${k.value}</div></div>`
+    ).join('');
+  }
+
+  function renderPlan() {
+    const lunes = getMonday(weekOffset);
+    const domingo = new Date(lunes); domingo.setDate(lunes.getDate() + 6);
+    $('plan-week-label').textContent =
+      `Semana del ${lunes.toLocaleDateString('es-ES',{day:'numeric',month:'long'})} al ${domingo.toLocaleDateString('es-ES',{day:'numeric',month:'long',year:'numeric'})}`;
+
+    renderPlanKpis();
+
+    if (!planData.length) {
+      $('plan-content').innerHTML = `
+        <div class="empty-state">
+          <div class="empty-icon">📅</div>
+          <p>No hay plan para esta semana</p>
+          <button class="btn-primary" style="margin-top:12px;padding:9px 20px" onclick="generatePlan()">✦ Generar con IA</button>
+        </div>`;
+      return;
+    }
+
+    const byDay = {};
+    for (let i = 0; i < 7; i++) {
+      const d = new Date(lunes); d.setDate(lunes.getDate() + i);
+      byDay[fmtISO(d)] = { label: DAYS[i], pieces: [] };
+    }
+    for (const p of planData) {
+      if (byDay[p.fecha_publicacion]) byDay[p.fecha_publicacion].pieces.push(p);
+    }
+
+    const html = Object.entries(byDay).map(([date, { label, pieces }]) => {
+      if (!pieces.length) return '';
+      return `<div class="day-block">
+        <div class="day-label">${label} &middot; ${fmtHuman(date)}</div>
+        ${pieces.map(renderPiece).join('')}
+      </div>`;
+    }).join('');
+
+    $('plan-content').innerHTML = html || `<div class="empty-state"><p>Sin piezas asignadas esta semana</p></div>`;
+  }
+
+  function renderPiece(p) {
+    const icon   = TYPE_ICON[p.tipo] || '📄';
+    const status = p.estado || 'pendiente';
+    const slabel = STATUS_LABEL[status] || status;
+    const aname  = p.asset?.file_name || (p.asset_id ? 'Asset asignado' : null);
+    const approved  = ['aprobado_equipo','aprobado_cliente','programado','publicado'].includes(status);
+    const scheduled = ['programado','publicado'].includes(status);
+    return `<div class="piece-card" id="pc-${esc(p.id)}">
+      <div class="piece-icon">${icon}</div>
+      <div class="piece-body">
+        <div class="piece-title">${esc(p.titulo)}</div>
+        <div class="piece-copy">${esc(p.copy_caption)}</div>
+        <div class="piece-meta">
+          ${aname ? `<span class="piece-asset-tag">🖼 ${esc(aname)}</span>` : ''}
+          <span class="piece-time">🕐 ${esc(p.hora_publicacion || '19:00')}</span>
+          <span class="piece-status-wrap"><span class="sdot ${esc(status)}"></span>${esc(slabel)}</span>
+        </div>
+      </div>
+      <div class="piece-actions">
+        ${approved
+          ? `<button class="btn-sm btn-approve" disabled>✓ Aprobada</button>`
+          : `<button class="btn-sm btn-approve" onclick="approvePiece('${esc(p.id)}')">✓ Aprobar</button>`}
+        ${scheduled
+          ? `<button class="btn-sm btn-done" disabled>✓ Programada</button>`
+          : `<button class="btn-sm btn-sched" onclick="schedulePiece('${esc(p.id)}')" ${!approved ? 'disabled' : ''}>↗ Metricool</button>`}
+      </div>
+    </div>`;
+  }
+
+  async function approvePiece(id) {
+    try {
+      await api('PATCH', `/api/content/plan/${id}`, { estado: 'aprobado_equipo' });
+      toast('Pieza aprobada', 'success');
+      await loadPlan();
+    } catch (e) { toast('Error al aprobar: ' + e.message, 'error'); }
+  }
+
+  async function schedulePiece(id) {
+    try {
+      toast('Enviando a Metricool…', 'info');
+      await api('POST', `/api/content/schedule/${id}`);
+      toast('Programado en Metricool', 'success');
+      await loadPlan();
+    } catch (e) { toast('Error: ' + e.message, 'error'); }
+  }
+
+  async function generatePlan() {
+    if (!selectedClientId || isGenerating) return;
+    isGenerating = true;
+    $('btn-generate').disabled = true;
+    $('ai-progress').classList.remove('hidden');
+    let pct = 0;
+    progressTimer = setInterval(() => {
+      pct = Math.min(pct + Math.random() * 7, 88);
+      $('progress-fill').style.width = pct + '%';
+    }, 350);
+    try {
+      await api('POST', `/api/content/plan/generate/${selectedClientId}`);
+      clearInterval(progressTimer);
+      $('progress-fill').style.width = '100%';
+      setTimeout(() => { $('ai-progress').classList.add('hidden'); $('progress-fill').style.width = '0%'; }, 700);
+      toast('Plan generado con éxito', 'success');
+      await loadPlan();
+    } catch (e) {
+      clearInterval(progressTimer);
+      $('ai-progress').classList.add('hidden');
+      $('progress-fill').style.width = '0%';
+      toast('Error generando plan: ' + e.message, 'error');
+    } finally {
+      isGenerating = false;
+      $('btn-generate').disabled = false;
+    }
+  }
+
+  $('btn-generate').addEventListener('click', generatePlan);
+  $('btn-prev-week').addEventListener('click', () => { weekOffset--; loadPlan(); });
+  $('btn-next-week').addEventListener('click', () => { weekOffset++; loadPlan(); });
+
+  /* ════ ASSETS ════ */
+  async function loadAssets() {
+    if (!selectedClientId) return;
+    $('assets-grid').innerHTML = `<div style="color:rgba(245,240,232,.25);font-size:13px;padding:20px 0">Cargando assets…</div>`;
+    try {
+      const url = assetsFilter === 'all'
+        ? `/api/content/assets/${selectedClientId}`
+        : `/api/content/assets/${selectedClientId}?tipo=${assetsFilter}`;
+      const { assets } = await api('GET', url);
+      assetsData = assets || [];
+      renderAssets();
+    } catch (e) {
+      $('assets-grid').innerHTML = `<div style="color:var(--rojo);font-size:13px">Error: ${esc(e.message)}</div>`;
+    }
+  }
+
+  function scoreClass(s) { return s >= 8 ? 'score-hi' : s >= 6 ? 'score-md' : 'score-lo'; }
+
+  function renderAssets() {
+    if (!assetsData.length) {
+      $('assets-grid').innerHTML = `<div class="empty-state" style="grid-column:1/-1">
+        <div class="empty-icon">🖼</div>
+        <p>Sin assets — escanea la carpeta de Drive</p>
+        <button class="btn-ghost" style="margin-top:10px;font-size:12px" onclick="scanDrive()">⟳ Escanear Drive</button>
+      </div>`;
+      return;
+    }
+    $('assets-grid').innerHTML = assetsData.map(a => {
+      const tags = (a.tags || []).slice(0, 4);
+      return `<div class="asset-card">
+        <div class="asset-thumb">${a.file_type === 'video' ? '🎬' : '🖼'}</div>
+        <div class="asset-info">
+          <div class="asset-name" title="${esc(a.file_name)}">${esc(a.file_name)}</div>
+          <div class="asset-tags">${tags.map(t => `<span class="tag-pill">${esc(t)}</span>`).join('')}</div>
+          <div class="asset-footer">
+            <span class="asset-score ${scoreClass(a.score_calidad)}">★ ${a.score_calidad}/10</span>
+            <span class="asset-type-badge">${esc(a.file_type)}</span>
+          </div>
+        </div>
+      </div>`;
+    }).join('');
+  }
+
+  document.querySelectorAll('.filter-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      assetsFilter = btn.dataset.filter;
+      if (selectedClientId) loadAssets();
+    });
+  });
+
+  async function scanDrive() {
+    if (!selectedClientId) return;
+    const btn = $('btn-scan');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinning">⟳</span> Escaneando…';
+    try {
+      const { message } = await api('POST', `/api/content/scan/${selectedClientId}`);
+      toast(message || 'Scan iniciado en segundo plano', 'info');
+      setTimeout(() => { if (selectedClientId && currentView === 'assets') loadAssets(); }, 5000);
+    } catch (e) {
+      toast('Error al escanear: ' + e.message, 'error');
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = '⟳ Escanear Drive';
+    }
+  }
+
+  $('btn-scan').addEventListener('click', scanDrive);
+
+  /* ════ CONFIG ════ */
+  function renderConfig() {
+    const c = getClient();
+    if (!c) {
+      $('config-content').innerHTML = '<div class="empty-state"><p>Sin configuración</p></div>';
+      return;
+    }
+    const mix = c.mix_semanal || {};
+    const hashtags = c.hashtags_fijos || [];
+    $('config-content').innerHTML = `
+      <div class="config-card config-full">
+        <h3>Prompt maestro</h3>
+        <div class="config-prompt-box">${esc(c.prompt_maestro || '—')}</div>
+      </div>
+      <div class="config-card">
+        <h3>Mix semanal</h3>
+        <div class="mix-row">
+          ${[['reels','🎬','Reels'],['foto','📸','Fotos'],['carrusel','🗂','Carrusel'],['story','📱','Stories']].map(([k,i,l]) =>
+            `<div class="mix-item"><div class="mix-n">${mix[k] ?? 0}</div><div class="mix-l">${i} ${l}</div></div>`
+          ).join('')}
+        </div>
+      </div>
+      <div class="config-card">
+        <h3>Hashtags fijos</h3>
+        <div class="hashtag-wrap">
+          ${hashtags.length
+            ? hashtags.map(h => `<span class="tag-pill" style="font-size:11px">${esc(h)}</span>`).join('')
+            : `<span style="color:rgba(245,240,232,.25);font-size:12px">Sin hashtags configurados</span>`}
+        </div>
+      </div>
+      <div class="config-card">
+        <h3>Detalles</h3>
+        <div class="cf"><div class="cf-label">Nombre</div><div class="cf-value">${esc(c.client_name)}</div></div>
+        <div class="cf"><div class="cf-label">Tono</div><div class="cf-value">${esc(c.tono || '—')}</div></div>
+        <div class="cf"><div class="cf-label">Hora óptima</div><div class="cf-value">${esc(c.hora_optima_publicacion || '19:00')}</div></div>
+        <div class="cf"><div class="cf-label">Prohibiciones</div><div class="cf-value">${esc(c.prohibiciones || '—')}</div></div>
+        <div class="cf"><div class="cf-label">Carpeta Drive</div><div class="cf-value" style="font-size:11px;word-break:break-all;color:rgba(245,240,232,.5)">${esc(c.drive_folder_id || '—')}</div></div>
+      </div>
+    `;
+  }
+
+  $('btn-edit-config').addEventListener('click', () => {
+    const c = getClient();
+    if (c) openModal(c);
+  });
+
+  /* ════ MODAL ════ */
+  function openModal(prefill = null) {
+    $('modal-title').textContent = prefill ? 'Editar cliente' : 'Nuevo cliente';
+    $('f-cid').value      = prefill?.client_id || '';
+    $('f-cid').disabled   = !!prefill;
+    $('f-cname').value    = prefill?.client_name || '';
+    $('f-drive').value    = prefill?.drive_folder_id || '';
+    $('f-prompt').value   = prefill?.prompt_maestro || '';
+    $('f-tono').value     = prefill?.tono || '';
+    $('f-hora').value     = prefill?.hora_optima_publicacion || '19:00';
+    $('f-prohib').value   = prefill?.prohibiciones || '';
+    $('f-hashtags').value = (prefill?.hashtags_fijos || []).join(' ');
+    const mix = prefill?.mix_semanal || {};
+    $('f-reels').value    = mix.reels    ?? 2;
+    $('f-foto').value     = mix.foto     ?? 1;
+    $('f-carrusel').value = mix.carrusel ?? 1;
+    $('f-story').value    = mix.story    ?? 3;
+    $('modal-client').classList.remove('hidden');
+  }
+
+  function closeModal() {
+    $('modal-client').classList.add('hidden');
+    $('f-cid').disabled = false;
+    $('client-form').reset();
+  }
+
+  $('btn-new-client').addEventListener('click', () => openModal());
+  $('modal-close').addEventListener('click', closeModal);
+  $('modal-cancel').addEventListener('click', closeModal);
+  $('modal-client').addEventListener('click', e => { if (e.target === $('modal-client')) closeModal(); });
+
+  $('client-form').addEventListener('submit', async e => {
+    e.preventDefault();
+    try {
+      await api('POST', '/api/content/clients', {
+        client_id:                $('f-cid').value.trim(),
+        client_name:              $('f-cname').value.trim(),
+        drive_folder_id:          $('f-drive').value.trim(),
+        prompt_maestro:           $('f-prompt').value.trim(),
+        tono:                     $('f-tono').value.trim(),
+        hora_optima_publicacion:  $('f-hora').value,
+        prohibiciones:            $('f-prohib').value.trim(),
+        hashtags_fijos:           $('f-hashtags').value.trim().split(/\s+/).filter(Boolean),
+        mix_semanal: {
+          reels:    Number($('f-reels').value),
+          foto:     Number($('f-foto').value),
+          carrusel: Number($('f-carrusel').value),
+          story:    Number($('f-story').value),
+        },
+        activo: true,
+      });
+      toast('Cliente guardado', 'success');
+      closeModal();
+      await loadClients();
+    } catch (err) {
+      toast('Error: ' + err.message, 'error');
+    }
+  });
+
+  /* ════ INIT ════ */
+  loadClients();
+</script>
+</body>
+</html>
