@@ -4,7 +4,7 @@ const { createClient } = require('@supabase/supabase-js');
 const { scanClientAssets, generateWeeklyPlan } = require('../agents/content-agent');
 
 function getSupabase() {
-  return createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
+  return createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY);
 }
 
 router.get('/clients', async (req, res) => {
