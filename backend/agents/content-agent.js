@@ -1,0 +1,358 @@
+// backend/agents/content-agent.js
+// Agente Content Studio — escanea Drive por cliente y etiqueta assets con Claude Vision
+
+const { google } = require('googleapis');
+const { createClient } = require('@supabase/supabase-js');
+const Anthropic = require('@anthropic-ai/sdk');
+
+const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
+const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+
+// Auth Google Drive
+async function getDriveClient() {
+  const auth = new google.auth.GoogleAuth({
+    credentials: JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_JSON),
+    scopes: ['https://www.googleapis.com/auth/drive.readonly']
+  });
+  return google.drive({ version: 'v3', auth });
+}
+
+// Listar archivos de una carpeta de Drive recursivamente
+async function listDriveFiles(drive, folderId, clientId, clientName) {
+  const files = [];
+  let pageToken = null;
+
+  do {
+    const res = await drive.files.list({
+      q: `'${folderId}' in parents and trashed = false and (mimeType contains 'image/' or mimeType contains 'video/')`,
+      fields: 'nextPageToken, files(id, name, mimeType, createdTime, webViewLink, webContentLink)',
+      pageSize: 100,
+      pageToken: pageToken || undefined
+    });
+
+    for (const file of res.data.files) {
+      files.push({
+        drive_file_id: file.id,
+        file_name: file.name,
+        file_type: file.mimeType.includes('video') ? 'video' : 'foto',
+        drive_url: file.webViewLink,
+        fecha_sesion: file.createdTime ? file.createdTime.split('T')[0] : null,
+        client_id: clientId,
+        client_name: clientName
+      });
+    }
+
+    pageToken = res.data.nextPageToken;
+  } while (pageToken);
+
+  return files;
+}
+
+// Descargar thumbnail de imagen para análisis
+async function getImageBase64(drive, fileId, mimeType) {
+  try {
+    if (mimeType.includes('video')) {
+      // Para vídeos usamos el thumbnail de Drive
+      const res = await drive.files.get({
+        fileId,
+        fields: 'thumbnailLink'
+      });
+      if (!res.data.thumbnailLink) return null;
+
+      const axios = require('axios');
+      const imgRes = await axios.get(res.data.thumbnailLink, { responseType: 'arraybuffer' });
+      return Buffer.from(imgRes.data).toString('base64');
+    } else {
+      // Para fotos descargamos versión reducida
+      const res = await drive.files.get(
+        { fileId, alt: 'media' },
+        { responseType: 'arraybuffer' }
+      );
+      const buffer = Buffer.from(res.data);
+      // Limitar a 1MB para Claude
+      if (buffer.length > 1000000) {
+        return buffer.slice(0, 1000000).toString('base64');
+      }
+      return buffer.toString('base64');
+    }
+  } catch (err) {
+    console.error(`Error descargando archivo ${fileId}:`, err.message);
+    return null;
+  }
+}
+
+// Etiquetar asset con Claude Vision
+async function tagAssetWithClaude(fileData, imageBase64) {
+  try {
+    const prompt = `Analiza esta imagen/frame de vídeo de un cliente de hostelería o restauración en Mallorca.
+
+Devuelve SOLO un JSON válido con esta estructura exacta:
+{
+  "tags": ["tag1", "tag2", "tag3"],
+  "escena": "descripción breve de 5-8 palabras",
+  "descripcion": "descripción detallada de 1-2 frases",
+  "orientacion": "vertical|horizontal|cuadrado",
+  "score_calidad": 7,
+  "apta_para_publicar": true
+}
+
+Tags disponibles (elige los que apliquen):
+LUGAR: piscina, terraza, playa, habitacion, restaurante, bar, recepcion, jardin, spa, exterior, interior
+MOMENTO: amanecer, manana, mediodia, atardecer, noche
+CONTENIDO: personas, familia, pareja, individual, comida, bebida, coctel, detalle, paisaje, arquitectura
+AMBIENTE: romantico, familiar, lujo, relax, animado, intimo, moderno, rustico
+CALIDAD: luz-natural, luz-artificial, contraluz, primer-plano, plano-general
+
+score_calidad del 1 al 10 (10 = foto perfecta para publicar en Instagram).
+apta_para_publicar: false si hay logos de competidores, mala calidad extrema o contenido inapropiado.`;
+
+    const messages = [
+      {
+        role: 'user',
+        content: [
+          {
+            type: 'image',
+            source: {
+              type: 'base64',
+              media_type: 'image/jpeg',
+              data: imageBase64
+            }
+          },
+          { type: 'text', text: prompt }
+        ]
+      }
+    ];
+
+    const response = await anthropic.messages.create({
+      model: 'claude-sonnet-4-6',
+      max_tokens: 500,
+      messages
+    });
+
+    const text = response.content[0].text.trim();
+    const clean = text.replace(/```json|```/g, '').trim();
+    return JSON.parse(clean);
+
+  } catch (err) {
+    console.error('Error en Claude Vision:', err.message);
+    return {
+      tags: ['sin-etiquetar'],
+      escena: 'No analizado',
+      descripcion: 'Error en análisis automático',
+      orientacion: 'horizontal',
+      score_calidad: 5,
+      apta_para_publicar: true
+    };
+  }
+}
+
+// Proceso principal: escanear cliente
+async function scanClientAssets(clientId, clientName, driveFolderId) {
+  console.log(`\n🔍 Escaneando assets de ${clientName}...`);
+
+  const drive = await getDriveClient();
+
+  // 1. Listar todos los archivos de Drive
+  const files = await listDriveFiles(drive, driveFolderId, clientId, clientName);
+  console.log(`📁 ${files.length} archivos encontrados en Drive`);
+
+  // 2. Filtrar los que ya están en Supabase
+  const { data: existing } = await supabase
+    .from('asset_library')
+    .select('drive_file_id')
+    .eq('client_id', clientId);
+
+  const existingIds = new Set((existing || []).map(e => e.drive_file_id));
+  const newFiles = files.filter(f => !existingIds.has(f.drive_file_id));
+  console.log(`✨ ${newFiles.length} assets nuevos para etiquetar`);
+
+  // 3. Etiquetar cada archivo nuevo con Claude Vision
+  let processed = 0;
+  let errors = 0;
+
+  for (const file of newFiles) {
+    try {
+      console.log(`  🏷️  Etiquetando: ${file.file_name}`);
+
+      const imageBase64 = await getImageBase64(drive, file.drive_file_id,
+        file.file_type === 'video' ? 'video/mp4' : 'image/jpeg');
+
+      let tagData = {
+        tags: ['sin-etiquetar'],
+        escena: 'Pendiente de análisis',
+        descripcion: '',
+        orientacion: 'horizontal',
+        score_calidad: 5,
+        apta_para_publicar: true
+      };
+
+      if (imageBase64) {
+        tagData = await tagAssetWithClaude(file, imageBase64);
+      }
+
+      // 4. Guardar en Supabase
+      const { error } = await supabase.from('asset_library').upsert({
+        ...file,
+        ...tagData,
+        updated_at: new Date().toISOString()
+      }, { onConflict: 'drive_file_id' });
+
+      if (error) {
+        console.error(`  ❌ Error guardando ${file.file_name}:`, error.message);
+        errors++;
+      } else {
+        processed++;
+      }
+
+      // Pausa para no saturar la API
+      await new Promise(r => setTimeout(r, 500));
+
+    } catch (err) {
+      console.error(`  ❌ Error procesando ${file.file_name}:`, err.message);
+      errors++;
+    }
+  }
+
+  console.log(`✅ ${clientName}: ${processed} assets procesados, ${errors} errores`);
+  return { processed, errors, total: newFiles.length };
+}
+
+// Generar plan semanal con Claude
+async function generateWeeklyPlan(clientId) {
+  // 1. Cargar config del cliente
+  const { data: config } = await supabase
+    .from('content_client_config')
+    .select('*')
+    .eq('client_id', clientId)
+    .single();
+
+  if (!config) throw new Error(`No hay configuración para cliente ${clientId}`);
+
+  // 2. Cargar assets disponibles (no usados recientemente)
+  const cutoffDate = new Date();
+  cutoffDate.setDate(cutoffDate.getDate() - 28);
+
+  const { data: assets } = await supabase
+    .from('asset_library')
+    .select('*')
+    .eq('client_id', clientId)
+    .eq('apta_para_publicar', true)
+    .gte('score_calidad', 6)
+    .or(`ultima_vez_usado.is.null,ultima_vez_usado.lt.${cutoffDate.toISOString()}`);
+
+  if (!assets || assets.length === 0) {
+    throw new Error('No hay assets disponibles para este cliente');
+  }
+
+  // 3. Calcular fechas de la semana
+  const hoy = new Date();
+  const lunes = new Date(hoy);
+  lunes.setDate(hoy.getDate() + (1 - hoy.getDay() + 7) % 7);
+
+  // 4. Generar plan con Claude
+  const mix = config.mix_semanal;
+  const totalPiezas = Object.values(mix).reduce((a, b) => a + b, 0);
+
+  const assetsResumen = assets.slice(0, 30).map(a => ({
+    id: a.id,
+    nombre: a.file_name,
+    tipo: a.file_type,
+    tags: a.tags,
+    escena: a.escena,
+    score: a.score_calidad
+  }));
+
+  const prompt = `Eres el director creativo de O2MAD, agencia premium de marketing para hostelería en Mallorca.
+
+CLIENTE: ${config.client_name}
+PROMPT MAESTRO: ${config.prompt_maestro}
+TONO: ${config.tono || 'Premium, aspiracional, emocional'}
+PROHIBICIONES: ${config.prohibiciones || 'Ninguna específica'}
+IDIOMAS: ${config.idiomas.join(', ')}
+HASHTAGS FIJOS: ${config.hashtags_fijos.join(' ')}
+HORA ÓPTIMA: ${config.hora_optima_publicacion}
+
+MIX SEMANAL A GENERAR:
+- Reels: ${mix.reels || 0}
+- Fotos con copy: ${mix.foto || 0}
+- Carruseles: ${mix.carrusel || 0}
+- Stories: ${mix.story || 0}
+TOTAL: ${totalPiezas} piezas
+
+ASSETS DISPONIBLES EN DRIVE:
+${JSON.stringify(assetsResumen, null, 2)}
+
+SEMANA: del ${lunes.toLocaleDateString('es-ES')}
+
+Genera el plan completo. Para cada pieza asigna el asset más adecuado según el tipo de contenido.
+
+Devuelve SOLO un JSON válido con este formato:
+{
+  "piezas": [
+    {
+      "dia": 1,
+      "fecha_publicacion": "2026-06-30",
+      "tipo": "reel|foto|carrusel|story",
+      "asset_id": "uuid-del-asset",
+      "titulo": "Título interno de la pieza",
+      "copy_caption": "Copy completo para el pie de la publicación con emojis si aplica y hashtags al final",
+      "copy_superpuesto": "Frase corta para texto sobre imagen (solo si tipo es foto con overlay o carrusel)",
+      "hora_publicacion": "19:00",
+      "red": "instagram",
+      "notas": "Nota interna para el equipo"
+    }
+  ]
+}`;
+
+  const response = await anthropic.messages.create({
+    model: 'claude-sonnet-4-6',
+    max_tokens: 4000,
+    messages: [{ role: 'user', content: prompt }]
+  });
+
+  const text = response.content[0].text.trim();
+  const clean = text.replace(/```json|```/g, '').trim();
+  const plan = JSON.parse(clean);
+
+  // 5. Guardar plan en Supabase
+  const domingo = new Date(lunes);
+  domingo.setDate(lunes.getDate() + 6);
+
+  // Borrar plan anterior de esta semana si existe
+  await supabase
+    .from('content_plan')
+    .delete()
+    .eq('client_id', clientId)
+    .eq('semana_inicio', lunes.toISOString().split('T')[0])
+    .eq('estado', 'pendiente');
+
+  const piezasParaGuardar = plan.piezas.map(p => ({
+    client_id: clientId,
+    client_name: config.client_name,
+    semana_inicio: lunes.toISOString().split('T')[0],
+    semana_fin: domingo.toISOString().split('T')[0],
+    tipo: p.tipo,
+    asset_id: p.asset_id || null,
+    titulo: p.titulo,
+    copy_caption: p.copy_caption,
+    copy_superpuesto: p.copy_superpuesto || null,
+    hashtags: config.hashtags_fijos,
+    fecha_publicacion: p.fecha_publicacion,
+    hora_publicacion: p.hora_publicacion || config.hora_optima_publicacion,
+    red: p.red || 'instagram',
+    estado: 'pendiente',
+    notas: p.notas || null
+  }));
+
+  const { data: saved, error } = await supabase
+    .from('content_plan')
+    .insert(piezasParaGuardar)
+    .select();
+
+  if (error) throw new Error(`Error guardando plan: ${error.message}`);
+
+  console.log(`✅ Plan generado: ${saved.length} piezas para ${config.client_name}`);
+  return saved;
+}
+
+module.exports = { scanClientAssets, generateWeeklyPlan };
