@@ -196,59 +196,66 @@ async function scanClientAssets(clientId, clientName, driveFolderId) {
     updated_at: new Date().toISOString()
   }, { onConflict: 'client_id' });
 
-  // 3. Etiquetar cada archivo nuevo con Claude Vision
+  // 3. Etiquetar en lotes paralelos de 5
+  const BATCH_SIZE = 5;
   let processed = 0;
   let errors = 0;
 
-  for (const file of newFiles) {
-    try {
-      console.log(`  🏷️  Etiquetando: ${file.file_name}`);
+  for (let i = 0; i < newFiles.length; i += BATCH_SIZE) {
+    const batch = newFiles.slice(i, i + BATCH_SIZE);
 
-      const imageBase64 = await getImageBase64(drive, file.drive_file_id,
-        file.file_type === 'video' ? 'video/mp4' : 'image/jpeg');
+    await getSupabase().from('content_scan_status').upsert({
+      client_id: clientId,
+      status: 'running',
+      total: newFiles.length,
+      processed: processed,
+      current_file: `Procesando lote ${Math.floor(i / BATCH_SIZE) + 1} de ${Math.ceil(newFiles.length / BATCH_SIZE)}...`,
+      updated_at: new Date().toISOString()
+    }, { onConflict: 'client_id' });
 
-      let tagData = {
-        tags: ['sin-etiquetar'],
-        escena: 'Pendiente de análisis',
-        descripcion: '',
-        orientacion: 'horizontal',
-        score_calidad: 5,
-        apta_para_publicar: true
-      };
+    const results = await Promise.allSettled(
+      batch.map(async (file) => {
+        try {
+          const imageBase64 = await getImageBase64(drive, file.drive_file_id,
+            file.file_type === 'video' ? 'video/mp4' : 'image/jpeg');
 
-      if (imageBase64) {
-        tagData = await tagAssetWithClaude(file, imageBase64);
-      }
+          let tagData = {
+            tags: ['sin-etiquetar'],
+            escena: 'Pendiente de análisis',
+            descripcion: '',
+            orientacion: 'horizontal',
+            score_calidad: 5,
+            apta_para_publicar: true
+          };
 
-      // 4. Guardar en Supabase
-      const { error } = await getSupabase().from('asset_library').upsert({
-        ...file,
-        ...tagData,
-        updated_at: new Date().toISOString()
-      }, { onConflict: 'drive_file_id' });
+          if (imageBase64) {
+            tagData = await tagAssetWithClaude(file, imageBase64);
+          }
 
-      if (error) {
-        console.error(`  ❌ Error guardando ${file.file_name}:`, error.message);
-        errors++;
-      } else {
-        processed++;
-      }
+          const { error } = await getSupabase().from('asset_library').upsert({
+            ...file,
+            ...tagData,
+            updated_at: new Date().toISOString()
+          }, { onConflict: 'drive_file_id' });
 
-      await getSupabase().from('content_scan_status').upsert({
-        client_id: clientId,
-        status: 'running',
-        total: newFiles.length,
-        processed: processed,
-        current_file: file.file_name,
-        updated_at: new Date().toISOString()
-      }, { onConflict: 'client_id' });
+          if (error) throw new Error(error.message);
+          return { ok: true, file: file.file_name };
+        } catch (err) {
+          console.error(`  ❌ Error procesando ${file.file_name}:`, err.message);
+          return { ok: false, file: file.file_name, error: err.message };
+        }
+      })
+    );
 
-      // Pausa para no saturar la API
-      await new Promise(r => setTimeout(r, 500));
+    results.forEach(r => {
+      if (r.status === 'fulfilled' && r.value.ok) processed++;
+      else errors++;
+    });
 
-    } catch (err) {
-      console.error(`  ❌ Error procesando ${file.file_name}:`, err.message);
-      errors++;
+    console.log(`  Lote ${Math.floor(i / BATCH_SIZE) + 1} completado — ${processed}/${newFiles.length} procesados`);
+
+    if (i + BATCH_SIZE < newFiles.length) {
+      await new Promise(r => setTimeout(r, 1000));
     }
   }
 
