@@ -115,10 +115,38 @@ METRICOOL_API_KEY           ❌ PENDIENTE — necesario para programar en Metric
 - Columnas Supabase requeridas (ALTER TABLE):
   `logo text`, `font_display text`, `font_body text`, `accent_color text`.
 
-**⏳ Content Creator · Carril B — vídeo/story (PENDIENTE):**
-- Idea: mismas fotos subidas → montaje vídeo (story). Método por decidir:
-  ffmpeg (montaje barato, requiere instalar ffmpeg en Railway) vs vídeo IA (Runway/Veo/
-  Kling, caro ~0,05-0,50 $/seg). Recomendación previa: empezar por ffmpeg.
+**⏳ Content Creator · Carril B — vídeo/story + carrusel (PENDIENTE, decisión tomada tras investigación 19-jul-2026):**
+- Objetivo: mismas fotos subidas en el Creador → (a) vídeo slideshow/story y (b) carrusel.
+- **Carrusel**: casi gratis — es agrupar varias creatividades ya generadas por el Carril A
+  (varias imágenes deslizables). Trivial, no necesita motor de vídeo nuevo.
+- **Vídeo (MVP elegido): ffmpeg auto-alojado en Railway + Editly**
+  (github.com/mifi/editly, MIT, Node.js). Cubre nativamente Ken Burns/zoom, transiciones
+  (direccionales + gl-transitions), overlays de texto animado y mezcla/crossfade de audio,
+  todo por una receta JSON/JSON5 declarativa — **Claude genera esa receta directamente**.
+  Coste marginal (Railway Hobby $5/mes ya contratado; el plan es suscripción + overage por
+  uso real, NO facturación estricta por minuto).
+  - ⚠️ Riesgo técnico a validar con un spike antes de construir el flujo completo: Editly
+    exige `ffmpeg`/`ffprobe` en PATH, es ESM-only, y sus transiciones usan WebGL
+    (headless-gl) — en Linux/Nixpacks puede requerir dependencias de sistema extra. No
+    verificado aún en un contenedor Railway real.
+- **Vía premium futura (si el MVP se queda corto): Creatomate**
+  (creatomate.com, SDK Node oficial, API en todos los planes). Prueba gratis 50 créditos.
+  ~14 créditos/min de vídeo 720p; **carrusel = 1 crédito/imagen** (muy barato ahí también).
+  Alternativa equivalente: Shotstack ($0.20-0.30/min, 10 créditos gratis).
+- **Descartados**:
+  - *CapCut* → NO viable. Su página "AI API" es marketing sin SDK/endpoints/auth reales;
+    no existe API pública de render programático (verificado explícitamente).
+  - *Remotion* (código React) → potente pero requiere licencia comercial si la agencia
+    tiene 4+ empleados (mínimo $100/mes "Automators"); descartado por coste de licencia,
+    no por capacidad técnica.
+  - *Vídeo IA* (Runway/Veo/Kling) → $0.05–0.40/seg, demasiado caro/impredecible como motor
+    principal de slideshows. Reservar solo para animar puntualmente 1-2 fotos "hero" de
+    producto/ambiente si en el futuro se quiere ese efecto premium.
+- ⚠️ **Riesgo legal de música (verificado)**: para música en contenido de CLIENTES (uso
+  comercial/publicitario de marca) hace falta licencia de tier superior — el plan gratuito
+  o "Creator" de Epidemic Sound/Artlist NO cubre publicidad de marca, solo el plan
+  Pro/Business/Enterprise. Nunca usar la biblioteca musical nativa de Instagram para
+  cuentas business, ni pistas "gratis" de origen dudoso (riesgo de mute/retirada del reel).
 - Cosmético pendiente: la pestaña Creador se ve estrecha en viewports pequeños (revisar
   responsive de la grid de formatos y la zona de arrastre).
 
