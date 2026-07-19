@@ -1,11 +1,21 @@
 const express = require('express');
+const multer = require('multer');
 const router = express.Router();
 const { createClient } = require('@supabase/supabase-js');
 const { scanClientAssets, generateWeeklyPlan } = require('../agents/content-agent');
+const { generateCreativeCopy } = require('../agents/creative-agent');
+const { composeCreative } = require('../lib/image');
+
+const uploadImgs = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 15 * 1024 * 1024, files: 6 },
+});
 
 function getSupabase() {
   return createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY);
 }
+
+const IMG_MIME = { 'image/jpeg': 1, 'image/jpg': 1, 'image/png': 1, 'image/webp': 1 };
 
 router.get('/clients', async (req, res) => {
   try {
@@ -258,6 +268,57 @@ Devuelve SOLO un JSON válido con este formato exacto:
     }
 
     res.json({ ok: true, data: result });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// ── Content Creator · Carril A — creatividades foto + texto ──────────────────
+// Sube 1-5 fotos (+ brief opcional + cliente opcional). Por cada foto: Claude Vision
+// escribe el copy y sharp incrusta el texto/branding. Devuelve el PNG en base64
+// (data URL) listo para previsualizar/descargar, más el caption y hashtags.
+router.post('/creative', uploadImgs.array('photos', 6), async (req, res) => {
+  try {
+    const files = req.files || [];
+    if (!files.length) return res.status(400).json({ ok: false, error: 'Sube al menos una foto' });
+
+    const brief = (req.body.brief || '').toString().slice(0, 1000);
+    const format = ['post', 'story', 'square'].includes(req.body.format) ? req.body.format : 'post';
+    const clientId = req.body.clientId || null;
+    const accent = /^#[0-9a-fA-F]{6}$/.test(req.body.accent || '') ? req.body.accent : undefined;
+
+    // Config de cliente (opcional) para personalizar el copy y el branding.
+    let clientConfig = null;
+    if (clientId) {
+      const { data } = await getSupabase()
+        .from('content_client_config').select('*').eq('client_id', clientId).maybeSingle();
+      clientConfig = data || null;
+    }
+    const brand = req.body.brand || clientConfig?.client_name || 'O2MAD';
+
+    // Procesa las fotos en paralelo (cada una: copy Claude + composición).
+    const results = await Promise.all(files.map(async (file) => {
+      const mediaType = IMG_MIME[file.mimetype] ? (file.mimetype === 'image/jpg' ? 'image/jpeg' : file.mimetype) : 'image/jpeg';
+      try {
+        const copy = await generateCreativeCopy({
+          imageBase64: file.buffer.toString('base64'),
+          mediaType,
+          brief,
+          clientConfig,
+        });
+        const out = await composeCreative(file.buffer, copy, { format, brand, accent });
+        return {
+          filename: file.originalname,
+          copy,
+          format: out.format,
+          image: `data:image/png;base64,${out.buffer.toString('base64')}`,
+        };
+      } catch (e) {
+        return { filename: file.originalname, error: e.message };
+      }
+    }));
+
+    res.json({ ok: true, format, brand, results });
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
   }

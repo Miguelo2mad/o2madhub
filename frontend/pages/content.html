@@ -336,6 +336,7 @@
     <!-- TABS -->
     <div class="tabs hidden" id="client-tabs">
       <div class="tab-item active" data-view="plan">Plan semanal</div>
+      <div class="tab-item" data-view="creador">✦ Creador</div>
       <div class="tab-item" data-view="assets">Assets</div>
       <div class="tab-item" data-view="config">Configuración</div>
     </div>
@@ -367,6 +368,43 @@
           <div class="progress-track"><div class="progress-fill" id="progress-fill"></div></div>
         </div>
         <div id="plan-content"></div>
+      </div>
+
+      <!-- CREADOR -->
+      <div id="view-creador" class="view">
+        <div class="week-toolbar">
+          <div class="section-title">✦ Creador de creatividades</div>
+        </div>
+        <p style="font-size:12.5px;color:rgba(245,240,232,.5);margin:-4px 0 16px">
+          Sube 4-5 fotos y Claude escribe el copy y monta la creatividad con el texto y el branding del cliente.
+        </p>
+
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px">
+          <div class="filter-group" id="cr-format">
+            <button class="filter-btn active" data-fmt="post">Post 4:5</button>
+            <button class="filter-btn" data-fmt="story">Story 9:16</button>
+            <button class="filter-btn" data-fmt="square">Cuadrado 1:1</button>
+          </div>
+        </div>
+
+        <textarea id="cr-brief" rows="2" placeholder="Brief opcional: p. ej. «Promo brunch domingos, ambiente familiar»"
+          style="width:100%;background:var(--negro-soft);border:1px solid var(--arena-dim);border-radius:10px;padding:12px;color:var(--crema);font-size:13px;margin-bottom:12px;resize:vertical"></textarea>
+
+        <label id="cr-drop" for="cr-files" style="display:block;border:1.5px dashed var(--arena-dim);border-radius:12px;padding:26px;text-align:center;cursor:pointer;background:var(--negro-soft);margin-bottom:12px">
+          <div style="font-size:26px;margin-bottom:6px">📸</div>
+          <div style="font-size:13px;color:var(--arena)">Arrastra hasta 5 fotos o haz clic para elegir</div>
+          <div id="cr-filecount" style="font-size:11px;color:rgba(245,240,232,.4);margin-top:6px">Ninguna foto seleccionada</div>
+          <input id="cr-files" type="file" accept="image/*" multiple hidden />
+        </label>
+
+        <button class="btn-primary" id="cr-generate" disabled style="width:100%">✦ Generar creatividades</button>
+
+        <div class="ai-progress hidden" id="cr-progress" style="margin-top:14px">
+          <span class="ai-label">✦ Claude creando…</span>
+          <div class="progress-track"><div class="progress-fill" style="width:60%"></div></div>
+        </div>
+
+        <div id="cr-results" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:16px;margin-top:18px"></div>
       </div>
 
       <!-- ASSETS -->
@@ -554,10 +592,82 @@
     document.querySelectorAll('.tab-item').forEach(n => n.classList.remove('active'));
     document.querySelector(`.tab-item[data-view="${v}"]`)?.classList.add('active');
     document.querySelectorAll('.view').forEach(el => el.classList.remove('active'));
-    if (v === 'plan')   { $('view-plan').classList.add('active');   loadPlan();    }
-    if (v === 'assets') { $('view-assets').classList.add('active'); loadAssets();  }
-    if (v === 'config') { $('view-config').classList.add('active'); renderConfig();}
+    if (v === 'plan')    { $('view-plan').classList.add('active');    loadPlan();    }
+    if (v === 'creador') { $('view-creador').classList.add('active');                }
+    if (v === 'assets')  { $('view-assets').classList.add('active');  loadAssets();  }
+    if (v === 'config')  { $('view-config').classList.add('active');  renderConfig();}
     currentView = v;
+  }
+
+  /* ════ CREADOR (Carril A — creatividades) ════ */
+  let crFormat = 'post';
+  let crFiles = [];
+
+  document.querySelectorAll('#cr-format .filter-btn').forEach(b => {
+    b.addEventListener('click', () => {
+      document.querySelectorAll('#cr-format .filter-btn').forEach(x => x.classList.remove('active'));
+      b.classList.add('active');
+      crFormat = b.dataset.fmt;
+    });
+  });
+
+  const crInput = $('cr-files');
+  const crDrop = $('cr-drop');
+  function crSetFiles(list) {
+    crFiles = Array.from(list).filter(f => f.type.startsWith('image/')).slice(0, 5);
+    $('cr-filecount').textContent = crFiles.length
+      ? `${crFiles.length} foto(s) seleccionada(s)` : 'Ninguna foto seleccionada';
+    $('cr-generate').disabled = crFiles.length === 0;
+  }
+  crInput.addEventListener('change', e => crSetFiles(e.target.files));
+  ['dragover','dragenter'].forEach(ev => crDrop.addEventListener(ev, e => { e.preventDefault(); crDrop.style.borderColor = 'var(--arena)'; }));
+  ['dragleave','drop'].forEach(ev => crDrop.addEventListener(ev, e => { e.preventDefault(); crDrop.style.borderColor = 'var(--arena-dim)'; }));
+  crDrop.addEventListener('drop', e => crSetFiles(e.dataTransfer.files));
+
+  $('cr-generate').addEventListener('click', async () => {
+    if (!crFiles.length) return;
+    $('cr-generate').disabled = true;
+    $('cr-progress').classList.remove('hidden');
+    $('cr-results').innerHTML = '';
+    try {
+      const fd = new FormData();
+      crFiles.forEach(f => fd.append('photos', f));
+      fd.append('format', crFormat);
+      fd.append('brief', $('cr-brief').value || '');
+      if (selectedClientId) fd.append('clientId', selectedClientId);
+      const res = await fetch('/api/content/creative', { method: 'POST', body: fd });
+      const data = await res.json();
+      if (!res.ok || !data.ok) throw new Error(data.error || `HTTP ${res.status}`);
+      renderCreatives(data.results || []);
+      toast(`${data.results.length} creatividad(es) generada(s)`, 'success');
+    } catch (e) {
+      toast('Error: ' + e.message, 'error');
+    } finally {
+      $('cr-progress').classList.add('hidden');
+      $('cr-generate').disabled = false;
+    }
+  });
+
+  function renderCreatives(results) {
+    $('cr-results').innerHTML = results.map((r, i) => {
+      if (r.error) return `<div style="background:var(--negro-soft);border:1px solid #7f1d1d;border-radius:12px;padding:14px;font-size:12px;color:#fca5a5">✕ ${esc(r.filename)}: ${esc(r.error)}</div>`;
+      const c = r.copy || {};
+      const tags = (c.hashtags || []).map(h => '#' + h.replace(/^#/, '')).join(' ');
+      const caption = [c.caption || '', tags].filter(Boolean).join('\n\n');
+      return `<div style="background:var(--negro-soft);border:1px solid var(--arena-dim);border-radius:12px;overflow:hidden">
+        <img src="${r.image}" alt="creatividad" style="width:100%;display:block" />
+        <div style="padding:12px">
+          <div style="font-size:12.5px;color:var(--crema);white-space:pre-wrap;margin-bottom:10px">${esc(caption)}</div>
+          <div style="display:flex;gap:8px">
+            <a href="${r.image}" download="creatividad-${i+1}.png" class="btn-ghost" style="font-size:12px;flex:1;text-align:center;text-decoration:none">⬇ Descargar</a>
+            <button class="btn-ghost cr-copy" data-caption="${esc(caption)}" style="font-size:12px;flex:1">⧉ Copiar copy</button>
+          </div>
+        </div>
+      </div>`;
+    }).join('');
+    document.querySelectorAll('.cr-copy').forEach(b => b.addEventListener('click', () => {
+      navigator.clipboard.writeText(b.dataset.caption).then(() => toast('Copy copiado', 'success'));
+    }));
   }
 
   /* ════ CLIENTS ════ */
