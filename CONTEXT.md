@@ -105,6 +105,15 @@ METRICOOL_API_KEY           ❌ PENDIENTE — necesario para programar en Metric
   ignora → texto en "tofu"); por eso se usa fontconfig.
 - Ruta: `POST /api/content/creative` (multipart, 1-5 fotos) → PNG base64 + copy.
 - Verificado end-to-end en producción con cliente Roots (19-jul-2026).
+- **CTA por subida** (campo opcional; vacío = lo decide la IA) + **brief como énfasis**.
+- **Kit de marca por cliente**: logo corporativo, fuente de titulares y de texto
+  (TTF/OTF propias) y color de marca. Guardados en `content_client_config`
+  (`logo`, `font_display`, `font_body`, `accent_color`).
+- El texto se renderiza como TRAZADOS vectoriales con `opentype.js` (no `<text>`):
+  usa la fuente exacta (default o la del cliente), elimina el problema de fuentes en
+  Linux y da métricas precisas. (Se retiró el hack previo de fontconfig.)
+- Columnas Supabase requeridas (ALTER TABLE):
+  `logo text`, `font_display text`, `font_body text`, `accent_color text`.
 
 **⏳ Content Creator · Carril B — vídeo/story (PENDIENTE):**
 - Idea: mismas fotos subidas → montaje vídeo (story). Método por decidir:
