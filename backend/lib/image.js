@@ -12,9 +12,11 @@ const sharp = require('sharp');
 
 const FONTS_DIR = path.join(__dirname, '..', '..', 'assets', 'fonts');
 
+function toArrayBuffer(buf) {
+  return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
+}
 function loadFontFile(file) {
-  const buf = fs.readFileSync(path.join(FONTS_DIR, file));
-  return opentype.parse(buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength));
+  return opentype.parse(toArrayBuffer(fs.readFileSync(path.join(FONTS_DIR, file))));
 }
 
 // Fuentes por defecto O2MAD.
@@ -30,8 +32,7 @@ function parseClientFont(data) {
   if (clientFontCache.has(key)) return clientFontCache.get(key);
   try {
     const m = data.match(/^data:[^;]*;base64,(.+)$/);
-    const buf = Buffer.from(m ? m[1] : data, 'base64');
-    const font = opentype.parse(buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength));
+    const font = opentype.parse(toArrayBuffer(Buffer.from(m ? m[1] : data, 'base64')));
     clientFontCache.set(key, font);
     return font;
   } catch (e) {
@@ -41,41 +42,37 @@ function parseClientFont(data) {
 }
 
 // ── Métricas y trazado de texto ─────────────────────────────────────────────
-function measure(font, text, size, ls = 0) {
-  const chars = [...String(text)];
-  let w = 0;
-  for (const ch of chars) w += (font.charToGlyph(ch).advanceWidth / font.unitsPerEm) * size + ls;
-  return chars.length ? w - ls : 0;
+function measure(font, text, size) {
+  return font.getAdvanceWidth(String(text), size);
 }
 
-// Devuelve un <path> SVG con el texto ya posicionado (soporta letter-spacing y anclaje).
-function textPath(font, text, x, y, size, { ls = 0, anchor = 'start', fill = '#ffffff' } = {}) {
+// Devuelve un <path> SVG con el texto ya posicionado.
+// NOTA: se renderiza toda la cadena con font.getPath (no glyph.getPath por-glifo,
+// que en opentype.js 2.0 corrompe estado y produce NaN). Tampoco se usa la opción
+// letterSpacing de opentype: tiene un bug que genera coordenadas NaN de forma errática
+// (según tamaño/posición) y librsvg aborta el trazado a media palabra.
+function textPath(font, text, x, y, size, { anchor = 'start', fill = '#ffffff' } = {}) {
+  const str = String(text);
   let sx = x;
-  if (anchor !== 'start') { const w = measure(font, text, size, ls); sx = anchor === 'middle' ? x - w / 2 : x - w; }
-  const full = new opentype.Path();
-  let cx = sx;
-  for (const ch of [...String(text)]) {
-    const g = font.charToGlyph(ch);
-    full.extend(g.getPath(cx, y, size));
-    cx += (g.advanceWidth / font.unitsPerEm) * size + ls;
-  }
-  return `<path d="${full.toPathData(2)}" fill="${fill}"/>`;
+  if (anchor !== 'start') { const w = measure(font, str, size); sx = anchor === 'middle' ? x - w / 2 : x - w; }
+  const d = font.getPath(str, sx, y, size).toPathData(2);
+  return `<path d="${d}" fill="${fill}"/>`;
 }
 
 // Envuelve por palabras usando métricas reales; si la línea más larga no cabe, reduce
 // el tamaño para que quepa. Devuelve { lines, size }.
-function wrapFit(font, text, size, usable, maxLines, ls = 0) {
+function wrapFit(font, text, size, usable, maxLines) {
   const words = String(text || '').trim().split(/\s+/);
   const lines = [];
   let line = '';
   for (const w of words) {
     const cand = line ? `${line} ${w}` : w;
-    if (measure(font, cand, size, ls) > usable && line) { lines.push(line); line = w; }
+    if (measure(font, cand, size) > usable && line) { lines.push(line); line = w; }
     else line = cand;
   }
   if (line) lines.push(line);
   const kept = lines.slice(0, maxLines);
-  const maxW = Math.max(1, ...kept.map(l => measure(font, l, size, ls)));
+  const maxW = Math.max(1, ...kept.map(l => measure(font, l, size)));
   const finalSize = maxW > usable ? Math.floor(size * (usable / maxW)) : size;
   return { lines: kept, size: finalSize };
 }
@@ -94,11 +91,10 @@ function buildOverlaySvg({ w, h, titular, subtitulo, brand, cta, accent, fonts }
   const usable = w - pad * 2;
 
   // Titular (fuente display, MAYÚSCULAS).
-  const titLS = Math.round(w * 0.001);
-  const tit = wrapFit(display, (titular || '').toUpperCase(), Math.round(w * 0.088), usable, 3, titLS);
+  const tit = wrapFit(display, (titular || '').toUpperCase(), Math.round(w * 0.088), usable, 3);
   // Subtítulo (fuente body).
   const sub = subtitulo
-    ? wrapFit(body, subtitulo, Math.round(w * 0.040), usable, 2, 0)
+    ? wrapFit(body, subtitulo, Math.round(w * 0.040), usable, 2)
     : { lines: [], size: 0 };
 
   const brandSize = Math.round(w * 0.030);
@@ -114,7 +110,7 @@ function buildOverlaySvg({ w, h, titular, subtitulo, brand, cta, accent, fonts }
   let y = h - pad - blockH + tit.size; // baseline de la primera línea del titular
 
   const titPaths = tit.lines.map((ln, i) =>
-    textPath(display, ln, pad, y + i * titLH, tit.size, { ls: titLS, fill: '#ffffff' })
+    textPath(display, ln, pad, y + i * titLH, tit.size, { fill: '#ffffff' })
   ).join('');
   let cursor = y + (tit.lines.length - 1) * titLH + gapTitSub;
 
@@ -128,16 +124,16 @@ function buildOverlaySvg({ w, h, titular, subtitulo, brand, cta, accent, fonts }
   if (cta) {
     const ctaText = String(cta).toUpperCase();
     const innerPad = Math.round(ctaSize * 0.9);
-    const ctaW = Math.round(measure(bold, ctaText, ctaSize, 1)) + innerPad * 2;
+    const ctaW = Math.round(measure(bold, ctaText, ctaSize)) + innerPad * 2;
     const ctaY = cursor + gapCta;
     const textY = ctaY + Math.round(ctaBoxH * 0.68);
     ctaSvg = `<rect x="${pad}" y="${ctaY}" rx="${Math.round(ctaSize)}" ry="${Math.round(ctaSize)}" width="${ctaW}" height="${ctaBoxH}" fill="${accent}"/>`
-      + textPath(bold, ctaText, pad + ctaW / 2, textY, ctaSize, { ls: 1, anchor: 'middle', fill: '#141414' });
+      + textPath(bold, ctaText, pad + ctaW / 2, textY, ctaSize, { anchor: 'middle', fill: '#141414' });
   }
 
   // Marca de branding (solo si no hay logo; el logo lo compone sharp aparte).
   const brandSvg = brand
-    ? textPath(bold, String(brand).toUpperCase(), pad, pad + brandSize, brandSize, { ls: Math.round(brandSize * 0.12), fill: '#ffffff' })
+    ? textPath(bold, String(brand).toUpperCase(), pad, pad + brandSize, brandSize, { fill: '#ffffff' })
     : '';
 
   return Buffer.from(`<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" xmlns="http://www.w3.org/2000/svg">
