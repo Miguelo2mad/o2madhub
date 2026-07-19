@@ -154,29 +154,49 @@ function buildOverlaySvg({ w, h, titular, subtitulo, brand, cta, accent = '#E9C4
 //   copy        : { titular, subtitulo, cta } (de creative-agent)
 //   opts        : { format: 'post'|'story'|'square', brand, accent }
 // Devuelve { buffer, format, width, height }.
+// Decodifica un logo desde data URI (data:image/...;base64,XXX) o base64 pelado.
+function decodeLogo(logo) {
+  if (!logo || typeof logo !== 'string') return null;
+  const m = logo.match(/^data:image\/[a-zA-Z.+-]+;base64,(.+)$/);
+  const b64 = m ? m[1] : logo;
+  try { return Buffer.from(b64, 'base64'); } catch { return null; }
+}
+
 async function composeCreative(imageBuffer, copy = {}, opts = {}) {
   const format = FORMATS[opts.format] ? opts.format : 'post';
   const { w, h } = FORMATS[format];
+  const pad = Math.round(w * 0.07);
 
   const base = await sharp(imageBuffer)
     .rotate() // respeta EXIF
     .resize(w, h, { fit: 'cover', position: 'attention' }) // recorte inteligente hacia el sujeto
     .toBuffer();
 
+  // Logo del cliente (opcional): si hay logo, lo ponemos en la esquina y omitimos el
+  // texto de marca. Se redimensiona a una altura relativa manteniendo la transparencia.
+  const composites = [];
+  let logoBuf = decodeLogo(opts.logo);
+  if (logoBuf) {
+    try {
+      logoBuf = await sharp(logoBuf)
+        .resize({ height: Math.round(h * 0.06), width: Math.round(w * 0.42), fit: 'inside', withoutEnlargement: true })
+        .png()
+        .toBuffer();
+    } catch { logoBuf = null; }
+  }
+
   const overlay = buildOverlaySvg({
     w, h,
     titular: copy.titular,
     subtitulo: copy.subtitulo,
     cta: copy.cta,
-    brand: opts.brand,
+    brand: logoBuf ? '' : opts.brand, // con logo no repetimos el nombre en texto
     accent: opts.accent || '#E9C46A',
   });
+  composites.push({ input: overlay, top: 0, left: 0 });
+  if (logoBuf) composites.push({ input: logoBuf, top: pad, left: pad });
 
-  const buffer = await sharp(base)
-    .composite([{ input: overlay, top: 0, left: 0 }])
-    .png()
-    .toBuffer();
-
+  const buffer = await sharp(base).composite(composites).png().toBuffer();
   return { buffer, format, width: w, height: h };
 }
 

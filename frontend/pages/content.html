@@ -387,8 +387,11 @@
           </div>
         </div>
 
-        <textarea id="cr-brief" rows="2" placeholder="Brief opcional: p. ej. «Promo brunch domingos, ambiente familiar»"
+        <textarea id="cr-brief" rows="2" placeholder="Brief / énfasis de esta tanda: p. ej. «Promo brunch domingos, ambiente familiar»"
           style="width:100%;background:var(--negro-soft);border:1px solid var(--arena-dim);border-radius:10px;padding:12px;color:var(--crema);font-size:13px;margin-bottom:12px;resize:vertical"></textarea>
+
+        <input id="cr-cta" type="text" maxlength="40" placeholder="CTA fijo (opcional): p. ej. «Reserva tu mesa». Vacío = lo decide la IA"
+          style="width:100%;background:var(--negro-soft);border:1px solid var(--arena-dim);border-radius:10px;padding:11px 12px;color:var(--crema);font-size:13px;margin-bottom:12px" />
 
         <label id="cr-drop" for="cr-files" style="display:block;border:1.5px dashed var(--arena-dim);border-radius:12px;padding:26px;text-align:center;cursor:pointer;background:var(--negro-soft);margin-bottom:12px">
           <div style="font-size:26px;margin-bottom:6px">📸</div>
@@ -503,6 +506,14 @@
       <div class="form-group">
         <label for="f-hashtags">Hashtags fijos (separados por espacio)</label>
         <input id="f-hashtags" type="text" placeholder="#mallorca #hotel #luxury" />
+      </div>
+      <div class="form-group">
+        <label for="f-logo">Logo corporativo (PNG con fondo transparente, opcional)</label>
+        <input id="f-logo" type="file" accept="image/png,image/webp,image/svg+xml" />
+        <div id="f-logo-preview" style="margin-top:8px;display:none;align-items:center;gap:10px">
+          <img id="f-logo-img" alt="logo" style="height:34px;background:#0002;border-radius:6px;padding:4px" />
+          <button type="button" id="f-logo-clear" class="btn-ghost" style="font-size:11px">Quitar logo</button>
+        </div>
       </div>
       <div class="form-group">
         <label>Mix semanal</label>
@@ -634,6 +645,7 @@
       crFiles.forEach(f => fd.append('photos', f));
       fd.append('format', crFormat);
       fd.append('brief', $('cr-brief').value || '');
+      fd.append('cta', $('cr-cta').value || '');
       if (selectedClientId) fd.append('clientId', selectedClientId);
       const res = await fetch('/api/content/creative', { method: 'POST', body: fd });
       const data = await res.json();
@@ -1020,8 +1032,26 @@
   });
 
   /* ════ MODAL ════ */
+  let clientLogoData = null; // data URI del logo del cliente en edición (o null)
+  function setLogoPreview(data) {
+    clientLogoData = data || null;
+    const box = $('f-logo-preview');
+    if (clientLogoData) { $('f-logo-img').src = clientLogoData; box.style.display = 'flex'; }
+    else { $('f-logo-img').removeAttribute('src'); box.style.display = 'none'; $('f-logo').value = ''; }
+  }
+  $('f-logo').addEventListener('change', e => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 1.5 * 1024 * 1024) { toast('Logo demasiado grande (máx 1.5 MB)', 'error'); e.target.value = ''; return; }
+    const reader = new FileReader();
+    reader.onload = () => setLogoPreview(reader.result);
+    reader.readAsDataURL(file);
+  });
+  $('f-logo-clear').addEventListener('click', () => setLogoPreview(null));
+
   function openModal(prefill = null) {
     $('modal-title').textContent = prefill ? 'Editar cliente' : 'Nuevo cliente';
+    setLogoPreview(prefill?.logo || null);
     $('f-cid').value      = prefill?.client_id || '';
     $('f-cid').disabled   = !!prefill;
     $('f-cname').value    = prefill?.client_name || '';
@@ -1063,6 +1093,7 @@
         hora_optima_publicacion: $('f-hora').value,
         prohibiciones:           $('f-prohib').value.trim(),
         hashtags_fijos:          $('f-hashtags').value.trim().split(/\s+/).filter(Boolean),
+        logo:                    clientLogoData,
         mix_semanal: {
           reels:    Number($('f-reels').value),
           foto:     Number($('f-foto').value),

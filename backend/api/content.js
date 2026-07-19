@@ -33,14 +33,25 @@ router.get('/clients', async (req, res) => {
 
 router.post('/clients', async (req, res) => {
   try {
-    const { client_id, client_name, drive_folder_id, prompt_maestro, tono, prohibiciones, idiomas, mix_semanal, hashtags_fijos, hora_optima_publicacion, redes } = req.body;
+    const { client_id, client_name, drive_folder_id, prompt_maestro, tono, prohibiciones, idiomas, mix_semanal, hashtags_fijos, hora_optima_publicacion, redes, logo } = req.body;
     if (!client_id || !client_name || !drive_folder_id || !prompt_maestro) {
       return res.status(400).json({ ok: false, error: 'Faltan campos obligatorios' });
     }
-    const { data, error } = await getSupabase()
+    const row = { client_id, client_name, drive_folder_id, prompt_maestro, tono, prohibiciones, idiomas: idiomas || ['es'], mix_semanal: mix_semanal || { reels: 2, foto: 1, carrusel: 1, story: 3 }, hashtags_fijos: hashtags_fijos || [], hora_optima_publicacion: hora_optima_publicacion || '19:00', redes: redes || ['instagram'], updated_at: new Date().toISOString() };
+    if (logo !== undefined) row.logo = logo || null; // data URI del logo (o null para quitarlo)
+    let { data, error } = await getSupabase()
       .from('content_client_config')
-      .upsert({ client_id, client_name, drive_folder_id, prompt_maestro, tono, prohibiciones, idiomas: idiomas || ['es'], mix_semanal: mix_semanal || { reels: 2, foto: 1, carrusel: 1, story: 3 }, hashtags_fijos: hashtags_fijos || [], hora_optima_publicacion: hora_optima_publicacion || '19:00', redes: redes || ['instagram'], updated_at: new Date().toISOString() }, { onConflict: 'client_id' })
+      .upsert(row, { onConflict: 'client_id' })
       .select().single();
+    // Resiliente: si la columna `logo` todavía no existe en Supabase, guarda sin ella.
+    if (error && /logo/i.test(error.message) && 'logo' in row) {
+      delete row.logo;
+      ({ data, error } = await getSupabase()
+        .from('content_client_config')
+        .upsert(row, { onConflict: 'client_id' })
+        .select().single());
+      if (!error) console.warn('[content] columna `logo` ausente — cliente guardado sin logo. Ejecuta el ALTER TABLE.');
+    }
     if (error) throw error;
     res.json({ ok: true, client: data });
   } catch (err) {
@@ -286,6 +297,8 @@ router.post('/creative', uploadImgs.array('photos', 6), async (req, res) => {
     const format = ['post', 'story', 'square'].includes(req.body.format) ? req.body.format : 'post';
     const clientId = req.body.clientId || null;
     const accent = /^#[0-9a-fA-F]{6}$/.test(req.body.accent || '') ? req.body.accent : undefined;
+    // CTA que fija el usuario en esta subida; si viene vacío, lo decide Claude por foto.
+    const ctaOverride = (req.body.cta || '').toString().trim().slice(0, 40) || null;
 
     // Config de cliente (opcional) para personalizar el copy y el branding.
     let clientConfig = null;
@@ -306,7 +319,10 @@ router.post('/creative', uploadImgs.array('photos', 6), async (req, res) => {
           brief,
           clientConfig,
         });
-        const out = await composeCreative(file.buffer, copy, { format, brand, accent });
+        if (ctaOverride) copy.cta = ctaOverride; // el CTA manual manda sobre el de Claude
+        const out = await composeCreative(file.buffer, copy, {
+          format, brand, accent, logo: clientConfig?.logo || null,
+        });
         return {
           filename: file.originalname,
           copy,
