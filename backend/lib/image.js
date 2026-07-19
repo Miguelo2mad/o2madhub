@@ -1,24 +1,45 @@
 // backend/lib/image.js
 // Composición de creatividades con sharp: coge una foto y le incrusta el titular,
-// subtítulo, un scrim para legibilidad y una marca de branding. Las fuentes van
-// EMBEBIDAS en el SVG (base64) para que el render sea idéntico en local y en Railway,
-// sin depender de las fuentes del sistema/contenedor.
+// subtítulo, un scrim para legibilidad y una marca de branding.
+//
+// FUENTES: se empaquetan como TTF en assets/fonts/ y se registran vía fontconfig
+// ANTES de cargar sharp, para que librsvg (el motor SVG de sharp) las encuentre por
+// nombre de familia. Embeber la fuente en base64 en el SVG NO funciona en el Linux de
+// Railway (librsvg la ignora) — de ahí el render en local pero "tofu" en producción.
 const fs = require('fs');
 const path = require('path');
+const os = require('os');
+
+const FONTS_DIR = path.join(__dirname, '..', '..', 'assets', 'fonts');
+
+// Genera un fonts.conf que apunta SOLO a nuestras fuentes y lo activa por env var.
+// Debe ejecutarse antes de `require('sharp')` (fontconfig se inicializa al primer render).
+(function setupFontconfig() {
+  try {
+    const cacheDir = path.join(os.tmpdir(), 'o2mad-fc-cache');
+    fs.mkdirSync(cacheDir, { recursive: true });
+    const confPath = path.join(cacheDir, 'fonts.conf');
+    fs.writeFileSync(confPath, `<?xml version="1.0"?>
+<!DOCTYPE fontconfig SYSTEM "urn:fontconfig:fonts.dtd">
+<fontconfig>
+  <dir>${FONTS_DIR}</dir>
+  <cachedir>${cacheDir}</cachedir>
+</fontconfig>`);
+    process.env.FONTCONFIG_FILE = confPath;
+    process.env.FONTCONFIG_PATH = cacheDir;
+  } catch (e) {
+    console.error('[image] fontconfig setup falló:', e.message);
+  }
+})();
+
 const sharp = require('sharp');
 
-// ── Fuentes embebidas ───────────────────────────────────────────────────────
-const FONT_FILES = {
-  Anton: '@expo-google-fonts/anton/400Regular/Anton_400Regular.ttf',
-  Poppins: '@expo-google-fonts/poppins/600SemiBold/Poppins_600SemiBold.ttf',
-  PoppinsBold: '@expo-google-fonts/poppins/700Bold/Poppins_700Bold.ttf',
+// Nombres de familia (nameID 1) de los TTF empaquetados en assets/fonts/.
+const FONT = {
+  display: 'Anton',            // Anton_400Regular.ttf   → titulares
+  body: 'Poppins SemiBold',    // Poppins_600SemiBold.ttf → subtítulo
+  bold: 'Poppins',             // Poppins_700Bold.ttf     → marca + CTA
 };
-const fontCache = {};
-function fontDataUri(name) {
-  if (fontCache[name]) return fontCache[name];
-  const buf = fs.readFileSync(path.join(__dirname, '..', '..', 'node_modules', FONT_FILES[name]));
-  return (fontCache[name] = `data:font/ttf;base64,${buf.toString('base64')}`);
-}
 
 // ── Formatos de salida ──────────────────────────────────────────────────────
 const FORMATS = {
@@ -80,12 +101,12 @@ function buildOverlaySvg({ w, h, titular, subtitulo, brand, cta, accent = '#E9C4
   let y = h - pad - blockH + titSize; // baseline de la primera línea de titular
 
   const titSpans = titLines.map((ln, i) =>
-    `<text x="${pad}" y="${y + i * titLH}" font-family="Anton" font-size="${titSize}" fill="#ffffff" letter-spacing="1">${escapeXml(ln)}</text>`
+    `<text x="${pad}" y="${y + i * titLH}" font-family="${FONT.display}" font-size="${titSize}" fill="#ffffff" letter-spacing="1">${escapeXml(ln)}</text>`
   ).join('');
   let cursor = y + (titLines.length - 1) * titLH + gapTitSub;
 
   const subSpans = subLines.map((ln, i) =>
-    `<text x="${pad}" y="${cursor + subSize + i * subLH}" font-family="Poppins" font-size="${subSize}" fill="#f1f1f1">${escapeXml(ln)}</text>`
+    `<text x="${pad}" y="${cursor + subSize + i * subLH}" font-family="${FONT.body}" font-size="${subSize}" fill="#f1f1f1">${escapeXml(ln)}</text>`
   ).join('');
   cursor += subLines.length * subLH;
 
@@ -99,22 +120,17 @@ function buildOverlaySvg({ w, h, titular, subtitulo, brand, cta, accent = '#E9C4
       <rect x="${pad}" y="${ctaY}" rx="${Math.round(ctaSize)}" ry="${Math.round(ctaSize)}"
             width="${ctaW}" height="${Math.round(ctaSize * 1.9)}" fill="${accent}"/>
       <text x="${pad + ctaW / 2}" y="${ctaY + Math.round(ctaSize * 1.28)}" text-anchor="middle"
-            font-family="PoppinsBold" font-size="${ctaSize}" fill="#141414" letter-spacing="1">${escapeXml(ctaText)}</text>`;
+            font-family="${FONT.bold}" font-size="${ctaSize}" fill="#141414" letter-spacing="1">${escapeXml(ctaText)}</text>`;
   }
 
   // Marca de branding arriba a la izquierda.
   const brandSvg = brand
-    ? `<text x="${pad}" y="${pad + brandSize}" font-family="PoppinsBold" font-size="${brandSize}"
+    ? `<text x="${pad}" y="${pad + brandSize}" font-family="${FONT.bold}" font-size="${brandSize}"
            fill="#ffffff" letter-spacing="3">${escapeXml(brand.toUpperCase())}</text>`
     : '';
 
   return Buffer.from(`<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" xmlns="http://www.w3.org/2000/svg">
     <defs>
-      <style>
-        @font-face { font-family: 'Anton'; src: url('${fontDataUri('Anton')}') format('truetype'); }
-        @font-face { font-family: 'Poppins'; src: url('${fontDataUri('Poppins')}') format('truetype'); }
-        @font-face { font-family: 'PoppinsBold'; src: url('${fontDataUri('PoppinsBold')}') format('truetype'); }
-      </style>
       <linearGradient id="scrim" x1="0" y1="0" x2="0" y2="1">
         <stop offset="0.45" stop-color="#000000" stop-opacity="0"/>
         <stop offset="1" stop-color="#000000" stop-opacity="0.72"/>
