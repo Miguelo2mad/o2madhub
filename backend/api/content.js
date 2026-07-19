@@ -33,24 +33,26 @@ router.get('/clients', async (req, res) => {
 
 router.post('/clients', async (req, res) => {
   try {
-    const { client_id, client_name, drive_folder_id, prompt_maestro, tono, prohibiciones, idiomas, mix_semanal, hashtags_fijos, hora_optima_publicacion, redes, logo } = req.body;
+    const { client_id, client_name, drive_folder_id, prompt_maestro, tono, prohibiciones, idiomas, mix_semanal, hashtags_fijos, hora_optima_publicacion, redes, logo, font_display, font_body, accent_color } = req.body;
     if (!client_id || !client_name || !drive_folder_id || !prompt_maestro) {
       return res.status(400).json({ ok: false, error: 'Faltan campos obligatorios' });
     }
     const row = { client_id, client_name, drive_folder_id, prompt_maestro, tono, prohibiciones, idiomas: idiomas || ['es'], mix_semanal: mix_semanal || { reels: 2, foto: 1, carrusel: 1, story: 3 }, hashtags_fijos: hashtags_fijos || [], hora_optima_publicacion: hora_optima_publicacion || '19:00', redes: redes || ['instagram'], updated_at: new Date().toISOString() };
-    if (logo !== undefined) row.logo = logo || null; // data URI del logo (o null para quitarlo)
-    let { data, error } = await getSupabase()
-      .from('content_client_config')
-      .upsert(row, { onConflict: 'client_id' })
-      .select().single();
-    // Resiliente: si la columna `logo` todavía no existe en Supabase, guarda sin ella.
-    if (error && /logo/i.test(error.message) && 'logo' in row) {
-      delete row.logo;
-      ({ data, error } = await getSupabase()
-        .from('content_client_config')
-        .upsert(row, { onConflict: 'client_id' })
-        .select().single());
-      if (!error) console.warn('[content] columna `logo` ausente — cliente guardado sin logo. Ejecuta el ALTER TABLE.');
+    // Campos del kit de marca (columnas opcionales; pueden no existir aún en Supabase).
+    if (logo !== undefined) row.logo = logo || null;                 // data URI del logo
+    if (font_display !== undefined) row.font_display = font_display || null; // TTF/OTF titulares
+    if (font_body !== undefined) row.font_body = font_body || null;         // TTF/OTF texto
+    if (accent_color !== undefined) row.accent_color = accent_color || null; // #RRGGBB
+    const BRAND_KIT = ['logo', 'font_display', 'font_body', 'accent_color'];
+
+    const save = () => getSupabase().from('content_client_config')
+      .upsert(row, { onConflict: 'client_id' }).select().single();
+    let { data, error } = await save();
+    // Resiliente: si alguna columna del kit de marca aún no existe, la quitamos y reintentamos.
+    if (error && BRAND_KIT.some(k => k in row && new RegExp(k, 'i').test(error.message))) {
+      for (const k of BRAND_KIT) delete row[k];
+      ({ data, error } = await save());
+      if (!error) console.warn('[content] columnas del kit de marca ausentes — cliente guardado sin ellas. Ejecuta el ALTER TABLE.');
     }
     if (error) throw error;
     res.json({ ok: true, client: data });
@@ -321,7 +323,11 @@ router.post('/creative', uploadImgs.array('photos', 6), async (req, res) => {
         });
         if (ctaOverride) copy.cta = ctaOverride; // el CTA manual manda sobre el de Claude
         const out = await composeCreative(file.buffer, copy, {
-          format, brand, accent, logo: clientConfig?.logo || null,
+          format, brand,
+          accent: accent || clientConfig?.accent_color || undefined, // override subida > color cliente > default
+          logo: clientConfig?.logo || null,
+          fontDisplay: clientConfig?.font_display || null, // TTF/OTF del cliente para titulares
+          fontBody: clientConfig?.font_body || null,       // TTF/OTF del cliente para texto
         });
         return {
           filename: file.originalname,

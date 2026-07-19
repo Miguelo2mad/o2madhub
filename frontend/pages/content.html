@@ -515,6 +515,29 @@
           <button type="button" id="f-logo-clear" class="btn-ghost" style="font-size:11px">Quitar logo</button>
         </div>
       </div>
+      <div style="border-top:1px solid var(--arena-dim);margin:6px 0 12px;padding-top:10px">
+        <div style="font-size:12px;color:var(--arena);letter-spacing:1px;text-transform:uppercase;margin-bottom:10px">Kit de marca (opcional)</div>
+        <div class="form-row">
+          <div class="form-group">
+            <label for="f-font-display">Fuente titulares (.ttf/.otf)</label>
+            <input id="f-font-display" type="file" accept=".ttf,.otf,font/ttf,font/otf" />
+            <div id="f-font-display-name" style="font-size:11px;color:rgba(245,240,232,.5);margin-top:5px"></div>
+          </div>
+          <div class="form-group">
+            <label for="f-font-body">Fuente texto (.ttf/.otf)</label>
+            <input id="f-font-body" type="file" accept=".ttf,.otf,font/ttf,font/otf" />
+            <div id="f-font-body-name" style="font-size:11px;color:rgba(245,240,232,.5);margin-top:5px"></div>
+          </div>
+        </div>
+        <div class="form-group">
+          <label for="f-accent">Color de marca</label>
+          <div style="display:flex;align-items:center;gap:10px">
+            <input id="f-accent" type="color" value="#E9C46A" style="width:52px;height:38px;background:none;border:1px solid var(--arena-dim);border-radius:8px;cursor:pointer" />
+            <span id="f-accent-hex" style="font-size:12px;color:rgba(245,240,232,.6)">#E9C46A</span>
+            <button type="button" id="f-accent-clear" class="btn-ghost" style="font-size:11px">Por defecto</button>
+          </div>
+        </div>
+      </div>
       <div class="form-group">
         <label>Mix semanal</label>
         <div class="mix-inputs">
@@ -1049,9 +1072,40 @@
   });
   $('f-logo-clear').addEventListener('click', () => setLogoPreview(null));
 
+  // ── Kit de marca: fuentes propias + color ──
+  let clientFontDisplay = null, clientFontBody = null;
+  function bindFont(inputId, nameId, assign) {
+    $(inputId).addEventListener('change', e => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      if (!/\.(ttf|otf)$/i.test(file.name)) { toast('Sube un .ttf o .otf', 'error'); e.target.value = ''; return; }
+      if (file.size > 3 * 1024 * 1024) { toast('Fuente demasiado grande (máx 3 MB)', 'error'); e.target.value = ''; return; }
+      const r = new FileReader();
+      r.onload = () => { assign(r.result); $(nameId).textContent = '✓ ' + file.name; };
+      r.readAsDataURL(file);
+    });
+  }
+  bindFont('f-font-display', 'f-font-display-name', v => clientFontDisplay = v);
+  bindFont('f-font-body', 'f-font-body-name', v => clientFontBody = v);
+
+  function setAccent(hex) {
+    const val = /^#[0-9a-fA-F]{6}$/.test(hex || '') ? hex : '#E9C46A';
+    $('f-accent').value = val;
+    $('f-accent-hex').textContent = hex ? val : '#E9C46A (por defecto)';
+    $('f-accent').dataset.set = hex ? '1' : '';
+  }
+  $('f-accent').addEventListener('input', () => setAccent($('f-accent').value));
+  $('f-accent-clear').addEventListener('click', () => setAccent(null));
+
   function openModal(prefill = null) {
     $('modal-title').textContent = prefill ? 'Editar cliente' : 'Nuevo cliente';
     setLogoPreview(prefill?.logo || null);
+    clientFontDisplay = prefill?.font_display || null;
+    clientFontBody = prefill?.font_body || null;
+    $('f-font-display').value = ''; $('f-font-body').value = '';
+    $('f-font-display-name').textContent = prefill?.font_display ? '✓ fuente guardada' : '';
+    $('f-font-body-name').textContent = prefill?.font_body ? '✓ fuente guardada' : '';
+    setAccent(prefill?.accent_color || null);
     $('f-cid').value      = prefill?.client_id || '';
     $('f-cid').disabled   = !!prefill;
     $('f-cname').value    = prefill?.client_name || '';
@@ -1094,6 +1148,9 @@
         prohibiciones:           $('f-prohib').value.trim(),
         hashtags_fijos:          $('f-hashtags').value.trim().split(/\s+/).filter(Boolean),
         logo:                    clientLogoData,
+        font_display:            clientFontDisplay,
+        font_body:               clientFontBody,
+        accent_color:            $('f-accent').dataset.set ? $('f-accent').value : null,
         mix_semanal: {
           reels:    Number($('f-reels').value),
           foto:     Number($('f-foto').value),
