@@ -13,7 +13,9 @@ const contentRoutes = require('./backend/api/content');
 
 const app = express();
 app.use(cors());
-app.use(express.json());
+// Límite amplio: el kit de marca por cliente embebe logo y fuentes (TTF/OTF) como
+// data URI en el JSON, que superan de largo el 100kb por defecto de express.json.
+app.use(express.json({ limit: '10mb' }));
 app.use(express.static(path.join(__dirname, 'frontend', 'pages')));
 
 const PORT = process.env.PORT || 8080;
