@@ -91,7 +91,29 @@ METRICOOL_API_KEY           ❌ PENDIENTE — necesario para programar en Metric
 - Procesamiento en lotes paralelos de 5 para mayor velocidad
 - Primer cliente creado: **Roots Beach** (client_id: `roots`)
 
-**Bloqueado por:**
+**✅ Content Creator · Carril A — creatividades foto+texto (EN PRODUCCIÓN):**
+- Nuevo flujo LIGERO basado en subida (no escanea Drive → evita el problema de GB).
+- Pestaña **✦ Creador** en `content.html`: sube 1-5 fotos → elige formato (post 4:5 /
+  story 9:16 / cuadrado 1:1) + brief opcional → genera.
+- `backend/agents/creative-agent.js`: Claude Vision lee la foto y escribe copy
+  (titular, subtítulo, caption, hashtags, CTA) personalizado con la config del cliente
+  (prompt_maestro, tono, hashtags_fijos).
+- `backend/lib/image.js`: composición con `sharp` (titular + subtítulo + scrim + marca +
+  CTA). Fuentes TTF vendorizadas en `assets/fonts/` (Anton + Poppins) registradas vía
+  fontconfig (`FONTCONFIG_FILE` en runtime, antes de cargar sharp) → render correcto en
+  Railway. NOTA: embeber la fuente en base64 en el SVG NO funciona en Linux (librsvg la
+  ignora → texto en "tofu"); por eso se usa fontconfig.
+- Ruta: `POST /api/content/creative` (multipart, 1-5 fotos) → PNG base64 + copy.
+- Verificado end-to-end en producción con cliente Roots (19-jul-2026).
+
+**⏳ Content Creator · Carril B — vídeo/story (PENDIENTE):**
+- Idea: mismas fotos subidas → montaje vídeo (story). Método por decidir:
+  ffmpeg (montaje barato, requiere instalar ffmpeg en Railway) vs vídeo IA (Runway/Veo/
+  Kling, caro ~0,05-0,50 $/seg). Recomendación previa: empezar por ffmpeg.
+- Cosmético pendiente: la pestaña Creador se ve estrecha en viewports pequeños (revisar
+  responsive de la grid de formatos y la zona de arrastre).
+
+**Bloqueado por:** (afecta solo al scan de Drive / plan semanal, NO al Carril A)
 - `GOOGLE_SERVICE_ACCOUNT_JSON` no configurada en Railway
 - El `GOOGLE_REFRESH_TOKEN` existente solo tiene scope de Gmail, no de Drive
 - **Solución pendiente mañana:** crear Service Account en Google Cloud Console, compartir carpeta Drive con el email de la service account, añadir JSON en Railway como `GOOGLE_SERVICE_ACCOUNT_JSON`
