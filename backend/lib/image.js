@@ -84,6 +84,17 @@ const FORMATS = {
   square: { w: 1080, h: 1080 },
 };
 
+// Devuelve texto oscuro o claro según la luminancia del color de fondo, para que el
+// texto del CTA se lea bien sobre cualquier color de marca (claro u oscuro).
+function contrastText(hex) {
+  const m = /^#?([0-9a-f]{6})$/i.exec(String(hex || ''));
+  if (!m) return '#141414';
+  const n = parseInt(m[1], 16);
+  const r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255;
+  const lum = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+  return lum > 0.6 ? '#141414' : '#ffffff';
+}
+
 // Construye el SVG del overlay (scrim + textos-trazado + branding).
 function buildOverlaySvg({ w, h, titular, subtitulo, brand, cta, accent, fonts }) {
   const { display, body, bold } = fonts;
@@ -128,7 +139,7 @@ function buildOverlaySvg({ w, h, titular, subtitulo, brand, cta, accent, fonts }
     const ctaY = cursor + gapCta;
     const textY = ctaY + Math.round(ctaBoxH * 0.68);
     ctaSvg = `<rect x="${pad}" y="${ctaY}" rx="${Math.round(ctaSize)}" ry="${Math.round(ctaSize)}" width="${ctaW}" height="${ctaBoxH}" fill="${accent}"/>`
-      + textPath(bold, ctaText, pad + ctaW / 2, textY, ctaSize, { anchor: 'middle', fill: '#141414' });
+      + textPath(bold, ctaText, pad + ctaW / 2, textY, ctaSize, { anchor: 'middle', fill: contrastText(accent) });
   }
 
   // Marca de branding (solo si no hay logo; el logo lo compone sharp aparte).
