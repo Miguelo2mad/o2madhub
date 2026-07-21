@@ -4,7 +4,7 @@ const express = require('express');
 const multer  = require('multer');
 const { supabase } = require('../lib/supabase');
 const { client } = require('../lib/claude');
-const { ensureFolderPath, uploadFile } = require('../lib/google');
+const { ensureFolderPath, uploadFile, deleteFile } = require('../lib/google');
 
 const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
@@ -175,6 +175,37 @@ router.get('/facturas', requireAuth, async (req, res) => {
   const { data, error } = await q;
   if (error) return res.status(500).json({ error: error.message });
   res.json(data);
+});
+
+// DELETE /comarea/facturas/:id — solo gestor/admin
+router.delete('/facturas/:id', requireAuth, requireRole('gestor', 'admin'), async (req, res) => {
+  const { id } = req.params;
+  try {
+    const { data: factura, error: findError } = await supabase
+      .from('comarea_facturas').select('id, drive_file_id, proveedor').eq('id', id).single();
+    if (findError || !factura) return res.status(404).json({ error: 'Factura no encontrada' });
+
+    // Borra primero el archivo de Drive. Si falla (ya no existe, permisos, etc.)
+    // avisamos por consola pero no bloqueamos el borrado en Supabase.
+    let driveDeleted = false;
+    if (factura.drive_file_id) {
+      try {
+        await deleteFile(factura.drive_file_id);
+        driveDeleted = true;
+      } catch (e) {
+        console.warn(`[comarea] no se pudo borrar el archivo de Drive (${factura.drive_file_id}): ${e.message}`);
+      }
+    }
+
+    const { error: delError } = await supabase.from('comarea_facturas').delete().eq('id', id);
+    if (delError) throw new Error(`Supabase: ${delError.message}`);
+
+    console.log(`[comarea] ✗ factura ${id} borrada — ${factura.proveedor} (drive_deleted=${driveDeleted})`);
+    res.json({ success: true, id, drive_deleted: driveDeleted });
+  } catch (e) {
+    console.error('[comarea] delete error:', e.message);
+    res.status(500).json({ error: e.message });
+  }
 });
 
 // GET /comarea/analytics

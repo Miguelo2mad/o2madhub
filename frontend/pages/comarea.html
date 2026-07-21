@@ -218,6 +218,8 @@
     .fi-ref  { font-size: 12px; color: var(--muted); }
     .fi-date { font-size: 12px; color: var(--muted); }
     .fi-drive { font-size: 12px; color: var(--accent); text-decoration: none; }
+    .fi-delete { margin-left: auto; background: transparent; border: none; color: var(--alert); font-size: 12px; cursor: pointer; padding: 2px 4px; line-height: 1; }
+    .fi-delete:disabled { opacity: .4; cursor: default; }
     select.filter-select {
       background: var(--surface); border: 1px solid var(--border);
       border-radius: 10px; color: var(--text); font-size: 14px; padding: 9px 12px;
@@ -553,6 +555,7 @@ function renderFacturas(list, estado = '') {
 
   if (!filtered.length) return '<div class="empty">Sin facturas</div>';
 
+  const canDelete = userRole === 'gestor' || userRole === 'admin';
   return filtered.map(f => {
     const hasAlert = f.desviacion && f.desviacion !== 0;
     const badge = hasAlert
@@ -560,6 +563,8 @@ function renderFacturas(list, estado = '') {
       : '<span class="badge badge-ok">OK</span>';
     const drive = f.drive_url
       ? `<a class="fi-drive" href="${f.drive_url}" target="_blank">Ver PDF →</a>` : '';
+    const del = canDelete
+      ? `<button class="fi-delete" onclick="deleteFactura('${f.id}', this)" title="Borrar factura">🗑</button>` : '';
     return `<div class="factura-item">
       <div class="fi-top">
         <div class="fi-proveedor">${esc(f.proveedor)}</div>
@@ -570,9 +575,31 @@ function renderFacturas(list, estado = '') {
         <span class="fi-ref">${esc(f.numero_factura || '—')}</span>
         <span class="fi-date">${f.fecha_factura ? f.fecha_factura.slice(0,10) : '—'}</span>
         ${drive}
+        ${del}
       </div>
     </div>`;
   }).join('');
+}
+
+async function deleteFactura(id, btn) {
+  const f = facturas.find(x => String(x.id) === String(id));
+  if (!f) return;
+  if (!confirm(`¿Borrar la factura de ${f.proveedor} por ${eur(f.importe_total)}?\n\nSe eliminará también el archivo de Google Drive. Esta acción no se puede deshacer.`)) return;
+
+  if (btn) btn.disabled = true;
+  try {
+    const r = await apiFetch('/facturas/' + id, { method: 'DELETE' });
+    if (!r.ok) {
+      const d = await r.json().catch(() => ({}));
+      throw new Error(d.error || `Error ${r.status}`);
+    }
+    // Quita la factura del estado y de la vista sin recargar toda la página.
+    facturas = facturas.filter(x => String(x.id) !== String(id));
+    if (btn) btn.closest('.factura-item')?.remove();
+  } catch (e) {
+    alert('No se pudo borrar la factura: ' + e.message);
+    if (btn) btn.disabled = false;
+  }
 }
 
 function renderAnalytics(a) {

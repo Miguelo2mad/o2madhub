@@ -182,9 +182,15 @@ async function uploadFile(name, buffer, folderId, mimeType = 'application/pdf') 
   return { ...res.data, existed: false };
 }
 
+// Permanently delete a file from Drive by its id. Throws if the file is missing
+// or the caller lacks permission — the caller decides whether to swallow that.
+async function deleteFile(fileId) {
+  await drive.files.delete({ fileId });
+}
+
 module.exports = {
   auth, gmail, drive,
   listMessages, getMessage, getAttachment,
   createGmailClient,
-  ensureFolder, ensureFolderPath, findFileInFolder, uploadFile,
+  ensureFolder, ensureFolderPath, findFileInFolder, uploadFile, deleteFile,
 };
