@@ -57,6 +57,21 @@ const COMAREA_SCHEMA = {
     iva_porcentaje: { type: ['number', 'null'], description: 'Porcentaje de IVA (ej: 21 para 21%)' },
     concepto:       { type: ['string', 'null'] },
     cif_proveedor:  { type: ['string', 'null'], description: 'CIF/NIF del emisor exactamente como aparece' },
+    lineas: {
+      type: 'array',
+      description: 'Desglose de líneas de producto de la factura. Array vacío [] si no hay una tabla de productos clara (p.ej. servicios).',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          producto:        { type: ['string', 'null'], description: 'Nombre del producto tal como aparece' },
+          cantidad:        { type: ['number', 'null'] },
+          unidad:          { type: ['string', 'null'], description: 'Unidad de medida en minúsculas: kg, l, ud, caja...' },
+          precio_unitario: { type: ['number', 'null'], description: 'Precio por unidad, sin IVA si es posible' },
+        },
+        required: ['producto', 'cantidad', 'unidad', 'precio_unitario'],
+      },
+    },
   },
   required: ['proveedor', 'numero_factura', 'fecha_factura', 'importe_total',
     'importe_base', 'iva_porcentaje', 'concepto', 'cif_proveedor'],
@@ -79,7 +94,9 @@ async function extractComarea(buffer, mimeType) {
       role: 'user',
       content: [
         fileBlock,
-        { type: 'text', text: 'Extrae los datos de esta factura de proveedor. fecha_factura en YYYY-MM-DD. iva_porcentaje como número (ej: 21). Si no encuentras un campo devuelve null.' },
+        { type: 'text', text: 'Extrae los datos de esta factura de proveedor. fecha_factura en YYYY-MM-DD. iva_porcentaje como número (ej: 21). Si no encuentras un campo devuelve null. '
+          + 'Además, en "lineas" desglosa cada línea de producto: producto (nombre tal cual), cantidad, unidad de medida en minúsculas (kg, l, ud, caja...) y precio_unitario. '
+          + 'Si la factura no tiene una tabla de productos clara (por ejemplo es un servicio), devuelve "lineas" como array vacío []. No inventes líneas ni valores.' },
       ],
     }],
   });
@@ -137,6 +154,15 @@ router.post('/facturas/upload', requireAuth, upload.single('factura'), async (re
     const fileName = `${safeName} - ${data.proveedor || 'factura'}.${mimetype === 'application/pdf' ? 'pdf' : 'jpg'}`;
     const uploaded = await uploadFile(fileName, buffer, folderId, mimetype);
 
+    // Validación de cordura del desglose: la suma de líneas debe cuadrar con
+    // importe_base (±2%). Solo marca un flag — nunca bloquea el guardado.
+    const lineas = Array.isArray(data.lineas) ? data.lineas : [];
+    const sumaLineas = lineas.reduce((s, l) =>
+      s + ((l.cantidad != null && l.precio_unitario != null) ? l.cantidad * l.precio_unitario : 0), 0);
+    const base = Number(data.importe_base) || 0;
+    const lineasVerificadas = lineas.length > 0 && base > 0
+      && Math.abs(sumaLineas - base) <= base * 0.02;
+
     const row = {
       proveedor:      data.proveedor,
       numero_factura: data.numero_factura,
@@ -151,14 +177,31 @@ router.post('/facturas/upload', requireAuth, upload.single('factura'), async (re
       mes:            monthIndex + 1,
       anyo:           Number(year),
       subido_por:     req.user.email,
+      lineas_verificadas: lineasVerificadas,
     };
 
     const { data: saved, error: dbError } = await supabase
       .from('comarea_facturas').insert(row).select().single();
     if (dbError) throw new Error(`Supabase: ${dbError.message}`);
 
-    console.log(`[comarea] ✓ ${data.numero_factura} — ${data.proveedor} (${data.importe_total ?? 's/imp'})`);
-    res.json({ ok: true, factura: saved });
+    // Fase 1: guardar el desglose de líneas si Claude lo extrajo. Si falla, la
+    // factura ya está guardada — solo lo registramos, no bloqueamos la subida.
+    const rows = lineas.map(l => ({
+      factura_id:      saved.id,
+      producto:        l.producto ?? null,
+      cantidad:        l.cantidad ?? null,
+      unidad:          l.unidad ? String(l.unidad).toLowerCase().trim() : null,
+      precio_unitario: l.precio_unitario ?? null,
+      importe_linea:   (l.cantidad != null && l.precio_unitario != null)
+        ? Number((l.cantidad * l.precio_unitario).toFixed(2)) : null,
+    }));
+    if (rows.length) {
+      const { error: lineasError } = await supabase.from('comarea_factura_lineas').insert(rows);
+      if (lineasError) console.error('[comarea] guardar líneas:', lineasError.message);
+    }
+
+    console.log(`[comarea] ✓ ${data.numero_factura} — ${data.proveedor} (${data.importe_total ?? 's/imp'}) · ${rows.length} línea(s) · verif=${lineasVerificadas}`);
+    res.json({ ok: true, factura: { ...saved, lineas: rows } });
   } catch (e) {
     console.error('[comarea] upload error:', e.message);
     res.status(500).json({ ok: false, error: e.message });

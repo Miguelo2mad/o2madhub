@@ -220,6 +220,13 @@
     .fi-drive { font-size: 12px; color: var(--accent); text-decoration: none; }
     .fi-delete { margin-left: auto; background: transparent; border: none; color: var(--alert); font-size: 12px; cursor: pointer; padding: 2px 4px; line-height: 1; }
     .fi-delete:disabled { opacity: .4; cursor: default; }
+    .lineas-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    .lineas-table th { text-align: left; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: .5px; font-size: 10px; padding: 6px 8px; border-bottom: 1px solid var(--border); }
+    .lineas-table td { padding: 6px 8px; border-bottom: 1px solid var(--border); }
+    .lineas-table tr:last-child td { border-bottom: none; }
+    .lineas-table td.num { text-align: right; white-space: nowrap; }
+    .lineas-note { font-size: 12px; color: var(--muted); margin: 8px 0; display: flex; align-items: center; gap: 6px; }
+    .lineas-note svg { width: 14px; height: 14px; stroke: var(--muted); fill: none; flex-shrink: 0; }
     select.filter-select {
       background: var(--surface); border: 1px solid var(--border);
       border-radius: 10px; color: var(--text); font-size: 14px; padding: 9px 12px;
@@ -667,6 +674,30 @@ function renderDriveMeses(list) {
   `).join('');
 }
 
+function renderLineas(f) {
+  const lineas = Array.isArray(f.lineas) ? f.lineas : [];
+  if (!lineas.length) return '';   // sin desglose → no mostramos nada
+  const note = f.lineas_verificadas === false
+    ? `<div class="lineas-note"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>Desglose no verificado, revisar manualmente</div>`
+    : '';
+  const filas = lineas.map(l => `<tr>
+    <td>${esc(l.producto || '—')}</td>
+    <td class="num">${l.cantidad != null ? l.cantidad : '—'}</td>
+    <td>${esc(l.unidad || '—')}</td>
+    <td class="num">${l.precio_unitario != null ? eur(l.precio_unitario) : '—'}</td>
+    <td class="num">${l.importe_linea != null ? eur(l.importe_linea) : '—'}</td>
+  </tr>`).join('');
+  return `
+    <div class="section-title">Desglose de líneas</div>
+    ${note}
+    <div class="result-card">
+      <table class="lineas-table">
+        <thead><tr><th>Producto</th><th class="num">Cant.</th><th>Ud.</th><th class="num">Precio ud.</th><th class="num">Importe</th></tr></thead>
+        <tbody>${filas}</tbody>
+      </table>
+    </div>`;
+}
+
 function renderScanResult(f) {
   const hasAlert = f.desviacion && f.desviacion !== 0;
   const alert = hasAlert
@@ -694,6 +725,7 @@ function renderScanResult(f) {
       </div>
       ${drive}
     </div>
+    ${renderLineas(f)}
     <button class="btn-new-scan" id="btn-new-scan">Subir otra factura</button>
   `;
   document.getElementById('scan-result').classList.remove('hidden');
