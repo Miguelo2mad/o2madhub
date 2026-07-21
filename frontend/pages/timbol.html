@@ -1,0 +1,937 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Timbol">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="theme-color" content="#0F0E0C">
+  <title>Timbol</title>
+  <style>
+    :root {
+      --bg:        #0F0E0C;
+      --surface:   #1A1916;
+      --surface2:  #242320;
+      --border:    rgba(196,168,130,.15);
+      --accent:    #C4A882;
+      --accent-dk: #A8906A;
+      --text:      #F5F0E8;
+      --muted:     #8A857C;
+      --ok:        #6BAF7A;
+      --alert:     #D96B52;
+      --ambar:     #D9A441;
+      --nav-h:     60px;
+      --safe-b:    env(safe-area-inset-bottom, 0px);
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+    html, body { height: 100%; overflow: hidden; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+      background: var(--bg); color: var(--text);
+      -webkit-font-smoothing: antialiased;
+    }
+    .hidden { display: none !important; }
+    input, button, select { font-family: inherit; }
+    button { cursor: pointer; border: none; border-radius: 10px; font-size: 15px; font-weight: 600; transition: opacity .15s, transform .1s; }
+    button:active { transform: scale(.97); opacity: .85; }
+
+    /* ─── SPLASH ─────────────────────────────────────── */
+    #splash {
+      position: fixed; inset: 0; z-index: 999;
+      background: var(--bg);
+      display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px;
+    }
+    .splash-logo {
+      width: 80px; height: 80px; border-radius: 22px;
+      background: var(--surface2); border: 1.5px solid var(--accent);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 42px; font-weight: 800; color: var(--accent); letter-spacing: -2px;
+    }
+    .splash-name { font-size: 22px; font-weight: 700; letter-spacing: 4px; text-transform: uppercase; color: var(--text); }
+    .splash-sub  { font-size: 11px; letter-spacing: 2px; text-transform: uppercase; color: var(--muted); }
+    .splash-bar  { width: 60px; height: 2px; background: var(--border); border-radius: 2px; overflow: hidden; margin-top: 8px; }
+    .splash-bar-fill { height: 100%; width: 0; background: var(--accent); border-radius: 2px; animation: splash-load 1.6s ease forwards; }
+    @keyframes splash-load { to { width: 100%; } }
+
+    /* ─── LOGIN ─────────────────────────────────────── */
+    #login {
+      position: fixed; inset: 0; z-index: 50;
+      display: flex; align-items: center; justify-content: center;
+      padding: 24px; background: var(--bg);
+    }
+    .login-card {
+      width: 100%; max-width: 360px;
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 18px; padding: 40px 28px;
+    }
+    .login-logo {
+      display: flex; flex-direction: column; align-items: center; gap: 10px; margin-bottom: 36px;
+    }
+    .login-logo .mark {
+      width: 56px; height: 56px; border-radius: 14px;
+      background: var(--surface2); border: 1px solid var(--accent);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 28px; font-weight: 800; color: var(--accent);
+    }
+    .login-logo h1 { font-size: 20px; font-weight: 700; letter-spacing: 3px; text-transform: uppercase; }
+    .login-logo p  { font-size: 11px; color: var(--muted); letter-spacing: 1.5px; text-transform: uppercase; }
+    .field { margin-bottom: 16px; }
+    .field label { display: block; font-size: 11px; color: var(--accent); letter-spacing: 1.5px; text-transform: uppercase; margin-bottom: 7px; }
+    .field input {
+      width: 100%; padding: 13px 14px;
+      background: var(--surface2); border: 1px solid var(--border);
+      border-radius: 10px; color: var(--text); font-size: 15px;
+    }
+    .field input:focus { outline: none; border-color: var(--accent); }
+    .btn-primary { width: 100%; padding: 14px; background: var(--accent); color: var(--bg); margin-top: 8px; letter-spacing: .5px; }
+    #login-error { font-size: 13px; color: var(--alert); text-align: center; margin-top: 12px; min-height: 18px; }
+
+    /* ─── APP SHELL ──────────────────────────────────── */
+    #app {
+      position: fixed; inset: 0;
+      display: flex; flex-direction: column;
+    }
+    .topbar {
+      flex-shrink: 0;
+      padding: calc(env(safe-area-inset-top, 12px) + 8px) 20px 12px;
+      background: var(--bg); border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .topbar-title { font-size: 17px; font-weight: 700; letter-spacing: 2px; text-transform: uppercase; color: var(--accent); }
+    .topbar-user  { font-size: 12px; color: var(--muted); max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .btn-logout { background: transparent; border: 1px solid var(--border); color: var(--muted); font-size: 12px; padding: 6px 12px; border-radius: 8px; }
+
+    /* tab panels */
+    .tab-content { flex: 1; overflow-y: auto; overflow-x: hidden; -webkit-overflow-scrolling: touch; }
+    .tab-panel { display: none; padding: 20px 16px; padding-bottom: calc(var(--nav-h) + var(--safe-b) + 20px); }
+    .tab-panel.active { display: block; }
+
+    /* bottom nav */
+    .bottom-nav {
+      flex-shrink: 0;
+      position: fixed; bottom: 0; left: 0; right: 0;
+      height: calc(var(--nav-h) + var(--safe-b));
+      background: var(--surface); border-top: 1px solid var(--border);
+      display: flex; align-items: flex-start; justify-content: space-around;
+      padding-top: 6px;
+      padding-bottom: var(--safe-b);
+    }
+    .nav-btn {
+      flex: 1; display: flex; flex-direction: column; align-items: center; gap: 3px;
+      background: transparent; border-radius: 0; padding: 6px 4px 4px;
+      color: var(--muted); font-size: 10px; font-weight: 500; letter-spacing: .4px;
+    }
+    .nav-btn svg { width: 22px; height: 22px; stroke: currentColor; fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+    .nav-btn.active { color: var(--accent); }
+    .nav-btn.active svg { stroke: var(--accent); }
+
+    /* ─── CARDS & COMMON ─────────────────────────────── */
+    .card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 14px; padding: 16px; margin-bottom: 12px;
+    }
+    .card-row { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; }
+    .section-title { font-size: 11px; color: var(--muted); letter-spacing: 1.5px; text-transform: uppercase; margin: 20px 0 10px; }
+    .badge {
+      display: inline-block; padding: 3px 9px; border-radius: 20px; font-size: 11px; font-weight: 600;
+    }
+    .badge-ok    { background: rgba(107,175,122,.15); color: var(--ok); }
+    .badge-alert { background: rgba(217,107, 82,.15); color: var(--alert); }
+    .badge-pend  { background: rgba(217,164, 65,.15); color: var(--ambar); }
+    .divider { height: 1px; background: var(--border); margin: 12px 0; }
+    .empty { text-align: center; padding: 48px 20px; color: var(--muted); font-size: 14px; }
+
+    /* ─── TAB ESCANEAR ───────────────────────────────── */
+    .scan-hero {
+      text-align: center; padding: 32px 16px 24px;
+    }
+    .scan-hero .mark {
+      width: 72px; height: 72px; border-radius: 20px; margin: 0 auto 16px;
+      background: var(--surface2); border: 1px solid var(--accent);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 34px; font-weight: 800; color: var(--accent);
+    }
+    .scan-hero h2 { font-size: 20px; font-weight: 700; margin-bottom: 6px; }
+    .scan-hero p  { font-size: 13px; color: var(--muted); line-height: 1.5; }
+    .scan-actions { display: flex; flex-direction: column; gap: 12px; }
+    .btn-scan {
+      display: flex; align-items: center; gap: 14px;
+      padding: 16px 20px;
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 14px; color: var(--text); text-align: left;
+      width: 100%;
+    }
+    .btn-scan .icon {
+      width: 44px; height: 44px; border-radius: 12px; flex-shrink: 0;
+      background: var(--surface2); display: flex; align-items: center; justify-content: center;
+    }
+    .btn-scan .icon svg { width: 22px; height: 22px; stroke: var(--accent); fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+    .btn-scan .label { font-size: 15px; font-weight: 600; }
+    .btn-scan .sub   { font-size: 12px; color: var(--muted); margin-top: 2px; }
+    .btn-scan .chevron { margin-left: auto; color: var(--muted); }
+    .btn-scan .chevron svg { width: 16px; height: 16px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+
+    /* upload states */
+    #upload-loading {
+      text-align: center; padding: 40px 20px;
+      background: var(--surface); border: 1px solid var(--border); border-radius: 14px;
+    }
+    .spinner {
+      width: 36px; height: 36px; border: 3px solid var(--border);
+      border-top-color: var(--accent); border-radius: 50%;
+      animation: spin .8s linear infinite; margin: 0 auto 14px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* result card */
+    .result-card { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; overflow: hidden; }
+    .result-header { padding: 14px 16px; background: var(--surface2); display: flex; align-items: center; justify-content: space-between; }
+    .result-header .proveedor { font-size: 16px; font-weight: 700; }
+    .result-body { padding: 16px; }
+    .result-row { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 14px; }
+    .result-row:last-child { border-bottom: none; }
+    .result-row .k { color: var(--muted); }
+    .result-row .v { font-weight: 500; text-align: right; max-width: 60%; }
+    .result-drive { display: flex; align-items: center; gap: 8px; padding: 12px 16px; background: rgba(196,168,130,.07); border-top: 1px solid var(--border); font-size: 13px; color: var(--accent); text-decoration: none; }
+    .result-drive svg { width: 16px; height: 16px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0; }
+    .alert-box { background: rgba(217,107,82,.1); border: 1px solid rgba(217,107,82,.3); border-radius: 10px; padding: 12px 14px; margin-bottom: 14px; font-size: 13px; color: var(--alert); display: flex; align-items: center; gap: 8px; }
+    .alert-box svg { width: 16px; height: 16px; stroke: currentColor; fill: none; stroke-width: 2; flex-shrink: 0; }
+    .btn-new-scan { width: 100%; padding: 13px; background: transparent; border: 1px solid var(--accent); color: var(--accent); margin-top: 14px; }
+
+    /* ─── TAB FACTURAS ───────────────────────────────── */
+    .filter-bar { display: flex; gap: 8px; margin-bottom: 16px; overflow-x: auto; padding-bottom: 4px; }
+    .filter-bar::-webkit-scrollbar { display: none; }
+    .filter-chip {
+      flex-shrink: 0; padding: 7px 14px;
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 20px; font-size: 13px; color: var(--muted); font-weight: 500;
+    }
+    .filter-chip.active { background: rgba(196,168,130,.15); border-color: var(--accent); color: var(--accent); }
+    .factura-item { padding: 14px 0; border-bottom: 1px solid var(--border); }
+    .factura-item:last-child { border-bottom: none; }
+    .fi-top { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 4px; }
+    .fi-proveedor { font-size: 15px; font-weight: 600; }
+    .fi-importe { font-size: 16px; font-weight: 700; color: var(--accent); }
+    .fi-meta { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+    .fi-ref  { font-size: 12px; color: var(--muted); }
+    .fi-date { font-size: 12px; color: var(--muted); }
+    .fi-drive { font-size: 12px; color: var(--accent); text-decoration: none; }
+    .fi-delete { margin-left: auto; background: transparent; border: none; color: var(--alert); font-size: 12px; cursor: pointer; padding: 2px 4px; line-height: 1; }
+    .fi-delete:disabled { opacity: .4; cursor: default; }
+    .lineas-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    .lineas-table th { text-align: left; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: .5px; font-size: 10px; padding: 6px 8px; border-bottom: 1px solid var(--border); }
+    .lineas-table td { padding: 6px 8px; border-bottom: 1px solid var(--border); }
+    .lineas-table tr:last-child td { border-bottom: none; }
+    .lineas-table td.num { text-align: right; white-space: nowrap; }
+    .lineas-note { font-size: 12px; color: var(--muted); margin: 8px 0; display: flex; align-items: center; gap: 6px; }
+    .lineas-note svg { width: 14px; height: 14px; stroke: var(--muted); fill: none; flex-shrink: 0; }
+    select.filter-select {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 10px; color: var(--text); font-size: 14px; padding: 9px 12px;
+      flex: 1; min-width: 0;
+    }
+    select.filter-select:focus { outline: none; border-color: var(--accent); }
+
+    /* ─── TAB ANÁLISIS ───────────────────────────────── */
+    .kpi-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 4px; }
+    .kpi-card { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 14px; }
+    .kpi-label { font-size: 11px; color: var(--muted); letter-spacing: 1px; text-transform: uppercase; margin-bottom: 6px; }
+    .kpi-value { font-size: 22px; font-weight: 700; color: var(--text); }
+    .kpi-sub   { font-size: 12px; color: var(--muted); margin-top: 3px; }
+    .kpi-accent { color: var(--accent); }
+
+    /* bar chart */
+    .chart-wrap { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 16px; margin-bottom: 12px; }
+    .chart-title { font-size: 12px; color: var(--muted); letter-spacing: 1px; text-transform: uppercase; margin-bottom: 14px; }
+    .bar-chart { display: flex; align-items: flex-end; gap: 6px; height: 100px; }
+    .bar-col { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px; height: 100%; justify-content: flex-end; }
+    .bar-fill { width: 100%; border-radius: 5px 5px 0 0; background: var(--accent); min-height: 3px; transition: height .4s ease; }
+    .bar-label { font-size: 10px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; text-align: center; }
+
+    /* ranking */
+    .rank-item { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--border); }
+    .rank-item:last-child { border-bottom: none; }
+    .rank-num { font-size: 13px; font-weight: 700; color: var(--muted); width: 20px; flex-shrink: 0; text-align: center; }
+    .rank-name { font-size: 14px; font-weight: 500; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .rank-bar-wrap { width: 80px; height: 5px; background: var(--surface2); border-radius: 3px; flex-shrink: 0; }
+    .rank-bar-fill { height: 100%; border-radius: 3px; background: var(--accent); }
+    .rank-total { font-size: 14px; font-weight: 600; color: var(--accent); flex-shrink: 0; }
+
+    /* ─── TAB GESTOR ─────────────────────────────────── */
+    .mes-item { display: flex; align-items: center; justify-content: space-between; padding: 14px 0; border-bottom: 1px solid var(--border); }
+    .mes-item:last-child { border-bottom: none; }
+    .mes-info .mes-label { font-size: 15px; font-weight: 600; }
+    .mes-info .mes-count { font-size: 12px; color: var(--muted); margin-top: 2px; }
+    .btn-drive { display: inline-flex; align-items: center; gap: 6px; padding: 8px 14px; background: rgba(196,168,130,.1); border: 1px solid var(--accent); border-radius: 10px; color: var(--accent); font-size: 13px; text-decoration: none; font-weight: 600; }
+    .btn-drive svg { width: 14px; height: 14px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+
+    /* ─── CARD USO IA ────────────────────────────────── */
+    .ia-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .ia-stat { background: var(--surface2); border-radius: 10px; padding: 12px; }
+    .ia-stat .label { font-size: 10px; color: var(--muted); letter-spacing: 1px; text-transform: uppercase; margin-bottom: 5px; }
+    .ia-stat .value { font-size: 18px; font-weight: 700; color: var(--accent); }
+    .ia-stat .sub   { font-size: 11px; color: var(--muted); margin-top: 2px; }
+
+    /* hidden file inputs */
+    input[type="file"] { display: none; }
+  </style>
+</head>
+<body>
+
+<!-- SPLASH -->
+<div id="splash">
+  <div class="splash-logo">T</div>
+  <div class="splash-name">Timbol</div>
+  <div class="splash-sub">Gestión de facturas</div>
+  <div class="splash-bar"><div class="splash-bar-fill"></div></div>
+</div>
+
+<!-- LOGIN -->
+<div id="login" class="hidden">
+  <div class="login-card">
+    <div class="login-logo">
+      <div class="mark">T</div>
+      <h1>Timbol</h1>
+      <p>Gestión de facturas</p>
+    </div>
+    <div class="field">
+      <label>Usuario</label>
+      <input type="text" id="login-user" placeholder="restaurante / gestor / admin" autocomplete="username">
+    </div>
+    <div class="field">
+      <label>Contraseña</label>
+      <input type="password" id="l-pass" placeholder="••••••••" autocomplete="current-password">
+    </div>
+    <button class="btn-primary" id="btn-login">Entrar</button>
+    <div id="login-error"></div>
+  </div>
+</div>
+
+<!-- FILE INPUTS (hidden) -->
+<input type="file" id="input-camera"  accept="image/*" capture="environment">
+<input type="file" id="input-gallery" accept="image/*">
+<input type="file" id="input-pdf"     accept="application/pdf">
+
+<!-- APP -->
+<div id="app" class="hidden">
+  <!-- topbar -->
+  <div class="topbar">
+    <div class="topbar-title">Timbol</div>
+    <div style="display:flex;align-items:center;gap:10px">
+      <div class="topbar-user" id="topbar-email"></div>
+      <button class="btn-logout" id="btn-logout">Salir</button>
+    </div>
+  </div>
+
+  <!-- tab content -->
+  <div class="tab-content">
+
+    <!-- TAB ESCANEAR -->
+    <div class="tab-panel active" id="panel-scan">
+      <div id="scan-home">
+        <div class="scan-hero">
+          <div class="mark">T</div>
+          <h2>Subir factura</h2>
+          <p>Fotografía o sube el PDF.<br>La IA extrae todos los datos automáticamente.</p>
+        </div>
+        <div class="scan-actions">
+          <button class="btn-scan" id="btn-camera">
+            <div class="icon">
+              <svg viewBox="0 0 24 24"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+            </div>
+            <div>
+              <div class="label">Cámara</div>
+              <div class="sub">Fotografía la factura</div>
+            </div>
+            <div class="chevron"><svg viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg></div>
+          </button>
+          <button class="btn-scan" id="btn-gallery">
+            <div class="icon">
+              <svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+            </div>
+            <div>
+              <div class="label">Galería</div>
+              <div class="sub">Elige una imagen guardada</div>
+            </div>
+            <div class="chevron"><svg viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg></div>
+          </button>
+          <button class="btn-scan" id="btn-pdf">
+            <div class="icon">
+              <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+            </div>
+            <div>
+              <div class="label">Subir PDF</div>
+              <div class="sub">Selecciona un archivo PDF</div>
+            </div>
+            <div class="chevron"><svg viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg></div>
+          </button>
+        </div>
+      </div>
+
+      <div id="scan-loading" class="hidden">
+        <div id="upload-loading">
+          <div class="spinner"></div>
+          <div style="font-size:15px;font-weight:600;margin-bottom:6px">Procesando factura…</div>
+          <div style="font-size:13px;color:var(--muted)">La IA está extrayendo los datos</div>
+        </div>
+      </div>
+
+      <div id="scan-result" class="hidden"></div>
+    </div>
+
+    <!-- TAB FACTURAS -->
+    <div class="tab-panel" id="panel-facturas">
+      <div class="filter-bar" id="filter-mes-bar">
+        <button class="filter-chip active" data-mes="">Todos</button>
+      </div>
+      <div style="display:flex;gap:8px;margin-bottom:14px">
+        <select class="filter-select" id="filter-estado">
+          <option value="">Todos los estados</option>
+          <option value="ok">OK</option>
+          <option value="alert">Alerta</option>
+        </select>
+      </div>
+      <div id="facturas-list"><div class="empty">Cargando facturas…</div></div>
+    </div>
+
+    <!-- TAB ANÁLISIS -->
+    <div class="tab-panel" id="panel-analytics">
+      <div class="kpi-grid" id="kpi-grid">
+        <div class="kpi-card"><div class="kpi-label">Total mes</div><div class="kpi-value kpi-accent">—</div></div>
+        <div class="kpi-card"><div class="kpi-label">Facturas</div><div class="kpi-value">—</div></div>
+        <div class="kpi-card"><div class="kpi-label">Base imp.</div><div class="kpi-value">—</div></div>
+        <div class="kpi-card"><div class="kpi-label">IVA</div><div class="kpi-value">—</div></div>
+      </div>
+      <p class="section-title">Evolución mensual</p>
+      <div class="chart-wrap">
+        <div class="chart-title">Importe total por mes</div>
+        <div class="bar-chart" id="bar-chart"><div style="color:var(--muted);font-size:13px;width:100%;text-align:center">Cargando…</div></div>
+      </div>
+      <p class="section-title">Ranking proveedores</p>
+      <div class="card" id="ranking-list"><div class="empty">Cargando…</div></div>
+    </div>
+
+    <!-- TAB GESTOR -->
+    <div class="tab-panel" id="panel-gestor">
+      <div id="gestor-ia-wrap" class="hidden">
+        <p class="section-title">Uso IA</p>
+        <div class="card" id="gestor-ia"><div class="empty">Cargando…</div></div>
+      </div>
+      <p class="section-title">Carpetas en Drive por mes</p>
+      <div class="card" id="gestor-list"><div class="empty">Cargando…</div></div>
+    </div>
+
+  </div><!-- /tab-content -->
+
+  <!-- bottom nav -->
+  <nav class="bottom-nav">
+    <button class="nav-btn active" data-tab="scan">
+      <svg viewBox="0 0 24 24"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+      Escanear
+    </button>
+    <button class="nav-btn" data-tab="facturas">
+      <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+      Facturas
+    </button>
+    <button class="nav-btn" data-tab="analytics">
+      <svg viewBox="0 0 24 24"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+      Análisis
+    </button>
+    <button class="nav-btn" data-tab="gestor" id="nav-gestor" style="display:none">
+      <svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M20 21a8 8 0 1 0-16 0"/></svg>
+      Gestor
+    </button>
+  </nav>
+</div><!-- /app -->
+
+<script>
+const API = 'https://o2madhub-production.up.railway.app/timbol';
+
+// ── State ──────────────────────────────────────────────────────────────────
+let token    = localStorage.getItem('timbol_token');
+let userRole = localStorage.getItem('timbol_role');
+let userEmail= localStorage.getItem('timbol_email');
+let currentTab = 'scan';
+let facturas = [];
+let analytics = null;
+
+const eur = (n) => n == null ? '—' : new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' }).format(n);
+const pad = (n) => String(n).padStart(2, '0');
+const MESES = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+
+// ── API helpers ───────────────────────────────────────────────────────────
+async function apiFetch(path, opts = {}) {
+  const headers = { ...(opts.headers || {}) };
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+  const r = await fetch(API + path, { ...opts, headers });
+  if (r.status === 401) { logout(); throw new Error('Sesión expirada'); }
+  return r;
+}
+
+// ── Auth ──────────────────────────────────────────────────────────────────
+async function login(usuario, password) {
+  const r = await fetch(API + '/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ usuario, password }),
+  });
+  const d = await r.json();
+  if (!r.ok) throw new Error(d.error || 'Error al iniciar sesión');
+  return d;
+}
+
+function logout() {
+  localStorage.removeItem('timbol_token');
+  localStorage.removeItem('timbol_role');
+  localStorage.removeItem('timbol_email');
+  token = userRole = userEmail = null;
+  document.getElementById('app').classList.add('hidden');
+  document.getElementById('login').classList.remove('hidden');
+}
+
+// ── Upload ────────────────────────────────────────────────────────────────
+async function uploadFactura(file) {
+  const fd = new FormData();
+  fd.append('factura', file);
+  const r = await apiFetch('/facturas/upload', { method: 'POST', body: fd });
+  const d = await r.json();
+  if (!r.ok) throw new Error(d.error || 'Error al subir la factura');
+  return d.factura;
+}
+
+// ── Data loaders ──────────────────────────────────────────────────────────
+async function loadFacturas(mes = '') {
+  const q = mes ? `?mes=${mes}` : '';
+  const r = await apiFetch('/facturas' + q);
+  return r.json();
+}
+
+async function loadAnalytics() {
+  const r = await apiFetch('/analytics');
+  return r.json();
+}
+
+async function loadDriveMeses() {
+  const r = await apiFetch('/drive/meses');
+  return r.json();
+}
+
+async function loadTokenUsage() {
+  const r = await apiFetch('/tokens');
+  if (!r.ok) return null;
+  return r.json();
+}
+
+function renderTokenUsage(t, totalFacturas) {
+  const costeTotal = t.coste_total_euros || 0;
+  const costeMes   = t.coste_mes_actual  || 0;
+  const llamadas   = t.llamadas_total    || 0;
+  const costeMedio = llamadas > 0 ? costeTotal / llamadas : 0;
+
+  document.getElementById('gestor-ia').innerHTML = `
+    <div class="ia-grid">
+      <div class="ia-stat">
+        <div class="label">Coste total</div>
+        <div class="value">${costeTotal.toFixed(4)} €</div>
+        <div class="sub">${llamadas} llamadas</div>
+      </div>
+      <div class="ia-stat">
+        <div class="label">Coste este mes</div>
+        <div class="value">${costeMes.toFixed(4)} €</div>
+      </div>
+      <div class="ia-stat">
+        <div class="label">Facturas proc.</div>
+        <div class="value">${llamadas}</div>
+      </div>
+      <div class="ia-stat">
+        <div class="label">Coste medio</div>
+        <div class="value">${costeMedio.toFixed(4)} €</div>
+        <div class="sub">por factura</div>
+      </div>
+    </div>
+  `;
+}
+
+// ── Render helpers ────────────────────────────────────────────────────────
+function renderFacturas(list, estado = '') {
+  const filtered = estado === 'ok'    ? list.filter(f => !f.desviacion || f.desviacion === 0)
+                 : estado === 'alert' ? list.filter(f => f.desviacion && f.desviacion !== 0)
+                 : list;
+
+  if (!filtered.length) return '<div class="empty">Sin facturas</div>';
+
+  const canDelete = userRole === 'gestor' || userRole === 'admin';
+  return filtered.map(f => {
+    const hasAlert = f.desviacion && f.desviacion !== 0;
+    const badge = hasAlert
+      ? '<span class="badge badge-alert">Alerta</span>'
+      : '<span class="badge badge-ok">OK</span>';
+    const drive = f.drive_url
+      ? `<a class="fi-drive" href="${f.drive_url}" target="_blank">Ver PDF →</a>` : '';
+    const del = canDelete
+      ? `<button class="fi-delete" onclick="deleteFactura('${f.id}', this)" title="Borrar factura">🗑</button>` : '';
+    return `<div class="factura-item">
+      <div class="fi-top">
+        <div class="fi-proveedor">${esc(f.proveedor)}</div>
+        <div class="fi-importe">${eur(f.importe_total)}</div>
+      </div>
+      <div class="fi-meta">
+        ${badge}
+        <span class="fi-ref">${esc(f.numero_factura || '—')}</span>
+        <span class="fi-date">${f.fecha_factura ? f.fecha_factura.slice(0,10) : '—'}</span>
+        ${drive}
+        ${del}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+async function deleteFactura(id, btn) {
+  const f = facturas.find(x => String(x.id) === String(id));
+  if (!f) return;
+  if (!confirm(`¿Borrar la factura de ${f.proveedor} por ${eur(f.importe_total)}?\n\nSe eliminará también el archivo de Google Drive. Esta acción no se puede deshacer.`)) return;
+
+  if (btn) btn.disabled = true;
+  try {
+    const r = await apiFetch('/facturas/' + id, { method: 'DELETE' });
+    if (!r.ok) {
+      const d = await r.json().catch(() => ({}));
+      throw new Error(d.error || `Error ${r.status}`);
+    }
+    // Quita la factura del estado y de la vista sin recargar toda la página.
+    facturas = facturas.filter(x => String(x.id) !== String(id));
+    if (btn) btn.closest('.factura-item')?.remove();
+  } catch (e) {
+    alert('No se pudo borrar la factura: ' + e.message);
+    if (btn) btn.disabled = false;
+  }
+}
+
+function renderAnalytics(a) {
+  // KPIs — current month
+  const now = new Date();
+  const mesActual = a.por_mes.find(m => m.mes === now.getMonth() + 1 && m.anyo === now.getFullYear());
+  const totalAnyo = a.total_importe;
+
+  document.getElementById('kpi-grid').innerHTML = `
+    <div class="kpi-card">
+      <div class="kpi-label">Total mes</div>
+      <div class="kpi-value kpi-accent">${eur(mesActual?.total ?? 0)}</div>
+      <div class="kpi-sub">${MESES[now.getMonth()]} ${now.getFullYear()}</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">Facturas mes</div>
+      <div class="kpi-value">${mesActual?.count ?? 0}</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">Total año</div>
+      <div class="kpi-value">${eur(totalAnyo)}</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">Proveedores</div>
+      <div class="kpi-value">${a.por_proveedor.length}</div>
+    </div>
+  `;
+
+  // Bar chart
+  const meses = a.por_mes.slice(-8);
+  const max = Math.max(...meses.map(m => m.total), 1);
+  const bars = meses.map(m => {
+    const pct = Math.round((m.total / max) * 100);
+    return `<div class="bar-col">
+      <div class="bar-fill" style="height:${pct}%"></div>
+      <div class="bar-label">${MESES[m.mes - 1]}</div>
+    </div>`;
+  }).join('');
+  document.getElementById('bar-chart').innerHTML = meses.length ? bars : '<div style="color:var(--muted);font-size:13px;width:100%;text-align:center">Sin datos</div>';
+
+  // Ranking
+  const top = a.por_proveedor.slice(0, 8);
+  const maxT = top[0]?.total || 1;
+  const rows = top.map((p, i) => {
+    const pct = Math.round((p.total / maxT) * 100);
+    return `<div class="rank-item">
+      <div class="rank-num">${i + 1}</div>
+      <div class="rank-name">${esc(p.proveedor)}</div>
+      <div class="rank-bar-wrap"><div class="rank-bar-fill" style="width:${pct}%"></div></div>
+      <div class="rank-total">${eur(p.total)}</div>
+    </div>`;
+  }).join('');
+  document.getElementById('ranking-list').innerHTML = top.length ? rows : '<div class="empty">Sin datos</div>';
+}
+
+function renderDriveMeses(list) {
+  if (!list.length) { document.getElementById('gestor-list').innerHTML = '<div class="empty">Sin meses registrados</div>'; return; }
+  document.getElementById('gestor-list').innerHTML = list.map(m => `
+    <div class="mes-item">
+      <div class="mes-info">
+        <div class="mes-label">${m.label} ${m.anyo}</div>
+        <div class="mes-count">${m.facturas} factura${m.facturas !== 1 ? 's' : ''}</div>
+      </div>
+    </div>
+  `).join('');
+}
+
+function renderLineas(f) {
+  const lineas = Array.isArray(f.lineas) ? f.lineas : [];
+  if (!lineas.length) return '';   // sin desglose → no mostramos nada
+  const note = f.lineas_verificadas === false
+    ? `<div class="lineas-note"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>Desglose no verificado, revisar manualmente</div>`
+    : '';
+  const filas = lineas.map(l => `<tr>
+    <td>${esc(l.producto || '—')}</td>
+    <td class="num">${l.cantidad != null ? l.cantidad : '—'}</td>
+    <td>${esc(l.unidad || '—')}</td>
+    <td class="num">${l.precio_unitario != null ? eur(l.precio_unitario) : '—'}</td>
+    <td class="num">${l.importe_linea != null ? eur(l.importe_linea) : '—'}</td>
+  </tr>`).join('');
+  return `
+    <div class="section-title">Desglose de líneas</div>
+    ${note}
+    <div class="result-card">
+      <table class="lineas-table">
+        <thead><tr><th>Producto</th><th class="num">Cant.</th><th>Ud.</th><th class="num">Precio ud.</th><th class="num">Importe</th></tr></thead>
+        <tbody>${filas}</tbody>
+      </table>
+    </div>`;
+}
+
+function renderScanResult(f) {
+  const hasAlert = f.desviacion && f.desviacion !== 0;
+  const alert = hasAlert
+    ? `<div class="alert-box"><svg viewBox="0 0 24 24"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>Desviación de precio detectada: ${eur(f.desviacion)}</div>`
+    : '';
+  const drive = f.drive_url
+    ? `<a class="result-drive" href="${f.drive_url}" target="_blank"><svg viewBox="0 0 24 24"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>Ver PDF en Drive</a>` : '';
+
+  document.getElementById('scan-result').innerHTML = `
+    ${alert}
+    <div class="result-card">
+      <div class="result-header">
+        <div class="proveedor">${esc(f.proveedor || '—')}</div>
+        <span class="badge ${hasAlert ? 'badge-alert' : 'badge-ok'}">${hasAlert ? 'Alerta' : 'OK'}</span>
+      </div>
+      <div class="result-body">
+        <div class="result-row"><span class="k">Nº Factura</span><span class="v">${esc(f.numero_factura || '—')}</span></div>
+        <div class="result-row"><span class="k">Fecha</span><span class="v">${f.fecha_factura ? f.fecha_factura.slice(0,10) : '—'}</span></div>
+        <div class="result-row"><span class="k">Importe total</span><span class="v">${eur(f.importe_total)}</span></div>
+        <div class="result-row"><span class="k">Base imponible</span><span class="v">${eur(f.importe_base)}</span></div>
+        <div class="result-row"><span class="k">IVA</span><span class="v">${f.iva_porcentaje != null ? f.iva_porcentaje + '%' : '—'}</span></div>
+        <div class="result-row"><span class="k">Concepto</span><span class="v">${esc(f.concepto || '—')}</span></div>
+        <div class="result-row"><span class="k">CIF proveedor</span><span class="v">${esc(f.cif_proveedor || '—')}</span></div>
+        <div class="result-row"><span class="k">Subido por</span><span class="v">${esc(f.subido_por || '—')}</span></div>
+      </div>
+      ${drive}
+    </div>
+    ${renderLineas(f)}
+    <button class="btn-new-scan" id="btn-new-scan">Subir otra factura</button>
+  `;
+  document.getElementById('scan-result').classList.remove('hidden');
+  document.getElementById('btn-new-scan').addEventListener('click', resetScan);
+}
+
+function esc(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+function resetScan() {
+  document.getElementById('scan-home').classList.remove('hidden');
+  document.getElementById('scan-loading').classList.add('hidden');
+  document.getElementById('scan-result').classList.add('hidden');
+  document.getElementById('scan-result').innerHTML = '';
+}
+
+// ── Tab switching ─────────────────────────────────────────────────────────
+function switchTab(tab) {
+  currentTab = tab;
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById(`panel-${tab}`).classList.add('active');
+  document.querySelector(`.nav-btn[data-tab="${tab}"]`).classList.add('active');
+
+  if (tab === 'facturas') refreshFacturas();
+  if (tab === 'analytics') refreshAnalytics();
+  if (tab === 'gestor') refreshGestor();
+}
+
+// ── Data refresh ──────────────────────────────────────────────────────────
+async function refreshFacturas(mes = '') {
+  try {
+    facturas = await loadFacturas(mes);
+    buildMesFilterBar(facturas);
+    const estado = document.getElementById('filter-estado').value;
+    document.getElementById('facturas-list').innerHTML = renderFacturas(facturas, estado);
+  } catch(e) {
+    document.getElementById('facturas-list').innerHTML = `<div class="empty">${esc(e.message)}</div>`;
+  }
+}
+
+function buildMesFilterBar(list) {
+  const mesesSet = new Set(list.map(f => f.mes ? `${f.anyo}-${pad(f.mes)}` : null).filter(Boolean));
+  const sorted = [...mesesSet].sort().reverse();
+  const bar = document.getElementById('filter-mes-bar');
+  bar.innerHTML = `<button class="filter-chip active" data-mes="">Todos</button>`;
+  sorted.forEach(key => {
+    const [anyo, mes] = key.split('-');
+    const btn = document.createElement('button');
+    btn.className = 'filter-chip';
+    btn.dataset.mes = mes;
+    btn.textContent = `${MESES[parseInt(mes)-1]} ${anyo}`;
+    bar.appendChild(btn);
+  });
+  bar.querySelectorAll('.filter-chip').forEach(b => {
+    b.addEventListener('click', () => {
+      bar.querySelectorAll('.filter-chip').forEach(c => c.classList.remove('active'));
+      b.classList.add('active');
+      const estado = document.getElementById('filter-estado').value;
+      const filtered = b.dataset.mes ? facturas.filter(f => f.mes === parseInt(b.dataset.mes)) : facturas;
+      document.getElementById('facturas-list').innerHTML = renderFacturas(filtered, estado);
+    });
+  });
+}
+
+async function refreshAnalytics() {
+  try {
+    analytics = await loadAnalytics();
+    renderAnalytics(analytics);
+  } catch(e) {
+    document.getElementById('bar-chart').innerHTML = `<div style="color:var(--muted);font-size:13px">${esc(e.message)}</div>`;
+  }
+}
+
+async function refreshGestor() {
+  try {
+    const list = await loadDriveMeses();
+    renderDriveMeses(list);
+  } catch(e) {
+    document.getElementById('gestor-list').innerHTML = `<div class="empty">${esc(e.message)}</div>`;
+  }
+  if (userRole === 'admin') {
+    document.getElementById('gestor-ia-wrap').classList.remove('hidden');
+    try {
+      const t = await loadTokenUsage();
+      if (t) renderTokenUsage(t);
+    } catch(e) {
+      document.getElementById('gestor-ia').innerHTML = `<div class="empty">${esc(e.message)}</div>`;
+    }
+  }
+}
+
+// ── File upload handler ───────────────────────────────────────────────────
+async function handleFile(file) {
+  if (!file) return;
+  document.getElementById('scan-home').classList.add('hidden');
+  document.getElementById('scan-loading').classList.remove('hidden');
+  document.getElementById('scan-result').classList.add('hidden');
+  try {
+    const factura = await uploadFactura(file);
+    document.getElementById('scan-loading').classList.add('hidden');
+    renderScanResult(factura);
+  } catch(e) {
+    document.getElementById('scan-loading').classList.add('hidden');
+    document.getElementById('scan-home').classList.remove('hidden');
+    alert(e.message);
+  }
+}
+
+// ── Boot ──────────────────────────────────────────────────────────────────
+function showApp() {
+  document.getElementById('app').classList.remove('hidden');
+  document.getElementById('topbar-email').textContent = userEmail || '';
+  const isGestor = ['gestor', 'admin'].includes(userRole);
+  document.getElementById('nav-gestor').style.display = isGestor ? '' : 'none';
+}
+
+function boot() {
+  // Splash → auto-hide after 1.8s
+  setTimeout(() => {
+    document.getElementById('splash').classList.add('hidden');
+    if (token) {
+      showApp();
+    } else {
+      document.getElementById('login').classList.remove('hidden');
+    }
+  }, 1800);
+
+  // Login
+  document.getElementById('btn-login').addEventListener('click', async () => {
+    const usuario = document.getElementById('login-user').value.trim();
+    const pass    = document.getElementById('l-pass').value;
+    const errEl   = document.getElementById('login-error');
+    errEl.textContent = '';
+    if (!usuario || !pass) { errEl.textContent = 'Completa todos los campos'; return; }
+    document.getElementById('btn-login').textContent = 'Entrando…';
+    document.getElementById('btn-login').disabled = true;
+    try {
+      const d = await login(usuario, pass);
+      token = d.token; userEmail = d.usuario;
+      userRole = d.role || 'gestor';
+
+      localStorage.setItem('timbol_token', token);
+      localStorage.setItem('timbol_email', userEmail);
+      localStorage.setItem('timbol_role', userRole);
+
+      document.getElementById('login').classList.add('hidden');
+      showApp();
+    } catch(e) {
+      errEl.textContent = e.message;
+    } finally {
+      document.getElementById('btn-login').textContent = 'Entrar';
+      document.getElementById('btn-login').disabled = false;
+    }
+  });
+
+  // Enter key on login
+  ['login-user','l-pass'].forEach(id => {
+    document.getElementById(id).addEventListener('keydown', e => {
+      if (e.key === 'Enter') document.getElementById('btn-login').click();
+    });
+  });
+
+  // Logout
+  document.getElementById('btn-logout').addEventListener('click', () => {
+    if (confirm('¿Cerrar sesión?')) logout();
+  });
+
+  // Bottom nav
+  document.querySelectorAll('.nav-btn[data-tab]').forEach(b => {
+    b.addEventListener('click', () => switchTab(b.dataset.tab));
+  });
+
+  // File inputs
+  document.getElementById('btn-camera').addEventListener('click',  () => document.getElementById('input-camera').click());
+  document.getElementById('btn-gallery').addEventListener('click', () => document.getElementById('input-gallery').click());
+  document.getElementById('btn-pdf').addEventListener('click',     () => document.getElementById('input-pdf').click());
+
+  ['input-camera','input-gallery','input-pdf'].forEach(id => {
+    document.getElementById(id).addEventListener('change', e => {
+      const file = e.target.files?.[0];
+      e.target.value = '';
+      if (file) handleFile(file);
+    });
+  });
+
+  // Estado filter
+  document.getElementById('filter-estado').addEventListener('change', () => {
+    const activeChip = document.querySelector('.filter-chip.active');
+    const mes = activeChip?.dataset.mes ? parseInt(activeChip.dataset.mes) : null;
+    const filtered = mes ? facturas.filter(f => f.mes === mes) : facturas;
+    document.getElementById('facturas-list').innerHTML = renderFacturas(filtered, document.getElementById('filter-estado').value);
+  });
+
+  // Si ya hay sesión, detectar rol consultando /tokens (admin-only)
+  if (token) {
+    apiFetch('/tokens').then(r => {
+      userRole = r.ok ? 'admin' : 'gestor';
+      localStorage.setItem('timbol_role', userRole);
+      document.getElementById('nav-gestor').style.display = ['gestor','admin'].includes(userRole) ? '' : 'none';
+    }).catch(() => {});
+  }
+}
+
+document.addEventListener('DOMContentLoaded', boot);
+</script>
+</body>
+</html>
