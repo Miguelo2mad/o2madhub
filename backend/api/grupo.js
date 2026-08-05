@@ -147,6 +147,7 @@ router.post('/facturas/upload', requireAuth, upload.single('factura'), async (re
       drive_file_id:   uploaded.id,
       drive_folder:    pathNames.join('/'),
       source_account:  'manual-upload',
+      comentario:      req.body.comentario || null,
     };
 
     const { data: saved, error: dbError } = await supabase
@@ -165,7 +166,7 @@ router.post('/facturas/upload', requireAuth, upload.single('factura'), async (re
 router.get('/facturas', requireAuth, async (req, res) => {
   const { data, error } = await supabase
     .from('facturas')
-    .select('id, fecha_factura, proveedor, referencia, concepto, importe, sociedad_codigo, drive_url')
+    .select('id, fecha_factura, proveedor, referencia, concepto, importe, sociedad_codigo, drive_url, comentario')
     .eq('source_account', 'manual-upload')
     .order('created_at', { ascending: false })
     .limit(30);

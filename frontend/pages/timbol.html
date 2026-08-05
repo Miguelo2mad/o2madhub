@@ -79,13 +79,14 @@
     .login-logo p  { font-size: 11px; color: var(--muted); letter-spacing: 1.5px; text-transform: uppercase; }
     .field { margin-bottom: 16px; }
     .field label { display: block; font-size: 11px; color: var(--accent); letter-spacing: 1.5px; text-transform: uppercase; margin-bottom: 7px; }
-    .field input, .field select {
+    .field input, .field select, .field textarea {
       width: 100%; padding: 13px 14px;
       background: var(--surface2); border: 1px solid var(--border);
       border-radius: 10px; color: var(--text); font-size: 15px;
     }
     .field select { appearance: none; -webkit-appearance: none; cursor: pointer; }
-    .field input:focus, .field select:focus { outline: none; border-color: var(--accent); }
+    .field textarea { resize: vertical; min-height: 60px; font-family: inherit; }
+    .field input:focus, .field select:focus, .field textarea:focus { outline: none; border-color: var(--accent); }
     .btn-primary { width: 100%; padding: 14px; background: var(--accent); color: var(--bg); margin-top: 8px; letter-spacing: .5px; }
     #login-error { font-size: 13px; color: var(--alert); text-align: center; margin-top: 12px; min-height: 18px; }
 
@@ -221,6 +222,7 @@
     .fi-drive { font-size: 12px; color: var(--accent); text-decoration: none; }
     .fi-delete { margin-left: auto; background: transparent; border: none; color: var(--alert); font-size: 12px; cursor: pointer; padding: 2px 4px; line-height: 1; }
     .fi-delete:disabled { opacity: .4; cursor: default; }
+    .fi-comment { font-size: 12px; color: var(--muted); font-style: italic; margin-top: 6px; }
     .lineas-table { width: 100%; border-collapse: collapse; font-size: 12px; }
     .lineas-table th { text-align: left; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: .5px; font-size: 10px; padding: 6px 8px; border-bottom: 1px solid var(--border); }
     .lineas-table td { padding: 6px 8px; border-bottom: 1px solid var(--border); }
@@ -343,6 +345,10 @@
           <p>Fotografía o sube el PDF.<br>La IA extrae todos los datos automáticamente.</p>
         </div>
         <div id="scan-warning" class="hidden"></div>
+        <div class="field">
+          <label>Comentario (opcional)</label>
+          <textarea id="scan-comentario" placeholder="Ej: cena de equipo, evento del 12 de julio…"></textarea>
+        </div>
         <div class="scan-actions">
           <button class="btn-scan" id="btn-camera">
             <div class="icon">
@@ -506,6 +512,8 @@ function logout() {
 async function uploadFactura(file) {
   const fd = new FormData();
   fd.append('factura', file);
+  const comentario = document.getElementById('scan-comentario').value.trim();
+  if (comentario) fd.append('comentario', comentario);
   const r = await apiFetch('/facturas/upload', { method: 'POST', body: fd });
   const d = await r.json();
   if (!r.ok) {
@@ -604,6 +612,7 @@ function renderFacturas(list, estado = '') {
         ${drive}
         ${del}
       </div>
+      ${f.comentario ? `<div class="fi-comment">${esc(f.comentario)}</div>` : ''}
     </div>`;
   }).join('');
 }
@@ -784,6 +793,7 @@ function renderScanResult(f) {
         <div class="result-row"><span class="k">Concepto</span><span class="v">${esc(f.concepto || '—')}</span></div>
         <div class="result-row"><span class="k">CIF proveedor</span><span class="v">${esc(f.cif_proveedor || '—')}</span></div>
         <div class="result-row"><span class="k">Subido por</span><span class="v">${esc(f.subido_por || '—')}</span></div>
+        ${f.comentario ? `<div class="result-row"><span class="k">Comentario</span><span class="v">${esc(f.comentario)}</span></div>` : ''}
       </div>
       ${drive}
     </div>
@@ -899,6 +909,7 @@ async function handleFile(file) {
   try {
     const factura = await uploadFactura(file);
     document.getElementById('scan-loading').classList.add('hidden');
+    document.getElementById('scan-comentario').value = '';
     renderScanResult(factura);
   } catch(e) {
     document.getElementById('scan-loading').classList.add('hidden');

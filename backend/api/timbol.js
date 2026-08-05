@@ -198,6 +198,7 @@ router.post('/facturas/upload', requireAuth, upload.single('factura'), async (re
       anyo:           Number(year),
       subido_por:     req.user.email,
       lineas_verificadas: lineasVerificadas,
+      comentario:     req.body.comentario || null,
     };
 
     const { data: saved, error: dbError } = await supabase
