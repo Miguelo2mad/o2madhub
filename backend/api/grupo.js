@@ -166,12 +166,69 @@ router.post('/facturas/upload', requireAuth, upload.single('factura'), async (re
 router.get('/facturas', requireAuth, async (req, res) => {
   const { data, error } = await supabase
     .from('facturas')
-    .select('id, fecha_factura, proveedor, referencia, concepto, importe, sociedad_codigo, drive_url, comentario')
+    .select('id, fecha_factura, created_at, proveedor, referencia, concepto, importe, sociedad_codigo, drive_url, comentario')
     .eq('source_account', 'manual-upload')
-    .order('created_at', { ascending: false })
-    .limit(30);
+    .order('created_at', { ascending: false });
   if (error) return res.status(500).json({ error: error.message });
   res.json(data.map(f => ({ ...f, sociedad_nombre: SOCIEDADES[f.sociedad_codigo] || f.sociedad_codigo })));
+});
+
+// GET /grupo/analytics — KPIs, evolución mensual, ranking y comparativa por
+// sociedad. Solo sobre lo subido desde este módulo (source_account=manual-upload).
+router.get('/analytics', requireAuth, async (req, res) => {
+  const { data, error } = await supabase
+    .from('facturas')
+    .select('fecha_factura, created_at, importe, sociedad_codigo')
+    .eq('source_account', 'manual-upload');
+  if (error) return res.status(500).json({ error: error.message });
+
+  const byMes = {};
+  const bySociedad = {};
+  const bySociedadMes = {};
+
+  for (const f of data) {
+    const d = new Date(f.fecha_factura || f.created_at);
+    if (isNaN(d.getTime())) continue;
+    const mes = d.getMonth() + 1, anyo = d.getFullYear();
+    const key = `${anyo}-${String(mes).padStart(2, '0')}`;
+    const importe = Number(f.importe) || 0;
+
+    if (!byMes[key]) byMes[key] = { mes, anyo, total: 0, count: 0 };
+    byMes[key].total += importe;
+    byMes[key].count += 1;
+
+    const code = f.sociedad_codigo;
+    if (!bySociedad[code]) bySociedad[code] = { total: 0, count: 0 };
+    bySociedad[code].total += importe;
+    bySociedad[code].count += 1;
+
+    const smKey = `${code}||${key}`;
+    bySociedadMes[smKey] = (bySociedadMes[smKey] || 0) + importe;
+  }
+
+  // Comparativa por sociedad: mes en curso vs mes anterior (calendario real).
+  const now = new Date();
+  const curKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  const prevDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const prevKey = `${prevDate.getFullYear()}-${String(prevDate.getMonth() + 1).padStart(2, '0')}`;
+
+  const comparativaSociedades = SOCIEDADES_VALIDAS.map(code => {
+    const mesActual   = bySociedadMes[`${code}||${curKey}`]  || 0;
+    const mesAnterior = bySociedadMes[`${code}||${prevKey}`] || 0;
+    const variacionEur = mesActual - mesAnterior;
+    const variacionPct = mesAnterior > 0 ? (variacionEur / mesAnterior) * 100 : (mesActual > 0 ? null : 0);
+    return { code, nombre: SOCIEDADES[code], mes_actual: mesActual, mes_anterior: mesAnterior, variacion_eur: variacionEur, variacion_pct: variacionPct };
+  }).sort((a, b) => b.mes_actual - a.mes_actual);
+
+  res.json({
+    total_facturas: data.length,
+    total_importe:  data.reduce((s, f) => s + (Number(f.importe) || 0), 0),
+    por_mes: Object.values(byMes).sort((a, b) => a.anyo - b.anyo || a.mes - b.mes),
+    por_sociedad: SOCIEDADES_VALIDAS
+      .map(code => ({ code, nombre: SOCIEDADES[code], total: bySociedad[code]?.total || 0, count: bySociedad[code]?.count || 0 }))
+      .sort((a, b) => b.total - a.total),
+    comparativa_sociedades: comparativaSociedades,
+  });
 });
 
 // DELETE /grupo/facturas/:id — deshacer una subida (Supabase + Drive)
