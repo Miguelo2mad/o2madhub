@@ -10,6 +10,7 @@ const { runFacturaAgent } = require('./backend/agents/factura-agent');
 const { sendDailySummary } = require('./backend/api/notifications');
 const comareaRouter = require('./backend/api/comarea');
 const timbolRouter = require('./backend/api/timbol');
+const grupoRouter = require('./backend/api/grupo');
 const contentRoutes = require('./backend/api/content');
 
 const app = express();
@@ -46,6 +47,7 @@ async function runDaily({ notify = true } = {}) {
 
 app.use('/comarea', comareaRouter);
 app.use('/timbol', timbolRouter);
+app.use('/grupo', grupoRouter);
 app.use('/api/content', contentRoutes);
 
 // Hub dashboard (Supabase Auth + realtime). Served at / and /hub.
@@ -53,6 +55,7 @@ const HUB_PAGE = path.join(__dirname, 'frontend', 'pages', 'index.html');
 app.get(['/', '/hub'], (_req, res) => res.sendFile(HUB_PAGE));
 app.get('/content', (_req, res) => res.sendFile(path.join(__dirname, 'frontend', 'pages', 'content.html')));
 app.get('/timbol-app', (_req, res) => res.sendFile(path.join(__dirname, 'frontend', 'pages', 'timbol.html')));
+app.get('/grupo-app', (_req, res) => res.sendFile(path.join(__dirname, 'frontend', 'pages', 'grupo.html')));
 
 app.get('/health', (_req, res) => res.json({ ok: true, ts: new Date().toISOString() }));
 

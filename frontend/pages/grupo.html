@@ -1,0 +1,531 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Grupo O2MAD">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="theme-color" content="#0F0E0C">
+  <title>Grupo O2MAD</title>
+  <style>
+    :root {
+      --bg:        #0F0E0C;
+      --surface:   #1A1916;
+      --surface2:  #242320;
+      --border:    rgba(196,168,130,.15);
+      --accent:    #C4A882;
+      --accent-dk: #A8906A;
+      --text:      #F5F0E8;
+      --muted:     #8A857C;
+      --ok:        #6BAF7A;
+      --alert:     #D96B52;
+      --ambar:     #D9A441;
+      --safe-b:    env(safe-area-inset-bottom, 0px);
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+    html, body { height: 100%; overflow: hidden; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+      background: var(--bg); color: var(--text);
+      -webkit-font-smoothing: antialiased;
+    }
+    .hidden { display: none !important; }
+    input, button, select { font-family: inherit; }
+    button { cursor: pointer; border: none; border-radius: 10px; font-size: 15px; font-weight: 600; transition: opacity .15s, transform .1s; }
+    button:active { transform: scale(.97); opacity: .85; }
+
+    /* ─── SPLASH ─────────────────────────────────────── */
+    #splash {
+      position: fixed; inset: 0; z-index: 999;
+      background: var(--bg);
+      display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px;
+    }
+    .splash-logo {
+      width: 80px; height: 80px; border-radius: 22px;
+      background: var(--surface2); border: 1.5px solid var(--accent);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 34px; font-weight: 800; color: var(--accent); letter-spacing: -1px;
+    }
+    .splash-name { font-size: 20px; font-weight: 700; letter-spacing: 3px; text-transform: uppercase; color: var(--text); }
+    .splash-sub  { font-size: 11px; letter-spacing: 2px; text-transform: uppercase; color: var(--muted); }
+    .splash-bar  { width: 60px; height: 2px; background: var(--border); border-radius: 2px; overflow: hidden; margin-top: 8px; }
+    .splash-bar-fill { height: 100%; width: 0; background: var(--accent); border-radius: 2px; animation: splash-load 1.6s ease forwards; }
+    @keyframes splash-load { to { width: 100%; } }
+
+    /* ─── LOGIN ─────────────────────────────────────── */
+    #login {
+      position: fixed; inset: 0; z-index: 50;
+      display: flex; align-items: center; justify-content: center;
+      padding: 24px; background: var(--bg);
+    }
+    .login-card {
+      width: 100%; max-width: 360px;
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 18px; padding: 40px 28px;
+    }
+    .login-logo {
+      display: flex; flex-direction: column; align-items: center; gap: 10px; margin-bottom: 36px;
+    }
+    .login-logo .mark {
+      width: 56px; height: 56px; border-radius: 14px;
+      background: var(--surface2); border: 1px solid var(--accent);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 24px; font-weight: 800; color: var(--accent);
+    }
+    .login-logo h1 { font-size: 18px; font-weight: 700; letter-spacing: 2px; text-transform: uppercase; }
+    .login-logo p  { font-size: 11px; color: var(--muted); letter-spacing: 1.5px; text-transform: uppercase; }
+    .field { margin-bottom: 16px; }
+    .field label { display: block; font-size: 11px; color: var(--accent); letter-spacing: 1.5px; text-transform: uppercase; margin-bottom: 7px; }
+    .field input {
+      width: 100%; padding: 13px 14px;
+      background: var(--surface2); border: 1px solid var(--border);
+      border-radius: 10px; color: var(--text); font-size: 15px;
+    }
+    .field input:focus { outline: none; border-color: var(--accent); }
+    .btn-primary { width: 100%; padding: 14px; background: var(--accent); color: var(--bg); margin-top: 8px; letter-spacing: .5px; }
+    #login-error { font-size: 13px; color: var(--alert); text-align: center; margin-top: 12px; min-height: 18px; }
+
+    /* ─── APP SHELL ──────────────────────────────────── */
+    #app {
+      position: fixed; inset: 0;
+      display: flex; flex-direction: column;
+    }
+    .topbar {
+      flex-shrink: 0;
+      padding: calc(env(safe-area-inset-top, 12px) + 8px) 20px 12px;
+      background: var(--bg); border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .topbar-title { font-size: 16px; font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase; color: var(--accent); }
+    .btn-logout { background: transparent; border: 1px solid var(--border); color: var(--muted); font-size: 12px; padding: 6px 12px; border-radius: 8px; }
+
+    .content { flex: 1; overflow-y: auto; overflow-x: hidden; -webkit-overflow-scrolling: touch; padding: 20px 16px calc(var(--safe-b) + 24px); }
+
+    /* ─── CARDS & COMMON ─────────────────────────────── */
+    .card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 14px; padding: 16px; margin-bottom: 12px;
+    }
+    .section-title { font-size: 11px; color: var(--muted); letter-spacing: 1.5px; text-transform: uppercase; margin: 20px 0 10px; }
+    .section-title:first-child { margin-top: 0; }
+    .badge { display: inline-block; padding: 3px 9px; border-radius: 20px; font-size: 11px; font-weight: 600; }
+    .badge-ok    { background: rgba(107,175,122,.15); color: var(--ok); }
+    .badge-alert { background: rgba(217,107, 82,.15); color: var(--alert); }
+    .badge-pend  { background: rgba(217,164, 65,.15); color: var(--ambar); }
+    .empty { text-align: center; padding: 32px 20px; color: var(--muted); font-size: 14px; }
+    .alert-box { background: rgba(217,107,82,.1); border: 1px solid rgba(217,107,82,.3); border-radius: 10px; padding: 12px 14px; margin-bottom: 14px; font-size: 13px; color: var(--alert); display: flex; align-items: center; gap: 8px; }
+    .alert-box svg { width: 16px; height: 16px; stroke: currentColor; fill: none; stroke-width: 2; flex-shrink: 0; }
+
+    /* ─── SELECTOR DE SOCIEDAD ────────────────────────── */
+    .sociedad-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .sociedad-chip {
+      padding: 14px 10px; text-align: center;
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 12px; color: var(--muted); font-size: 13px; font-weight: 600;
+    }
+    .sociedad-chip.active { background: rgba(196,168,130,.15); border-color: var(--accent); color: var(--accent); }
+
+    /* ─── SUBIR ───────────────────────────────────────── */
+    .scan-actions { display: flex; flex-direction: column; gap: 12px; }
+    .btn-scan {
+      display: flex; align-items: center; gap: 14px;
+      padding: 16px 20px;
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 14px; color: var(--text); text-align: left;
+      width: 100%;
+    }
+    .btn-scan:disabled { opacity: .4; }
+    .btn-scan .icon {
+      width: 44px; height: 44px; border-radius: 12px; flex-shrink: 0;
+      background: var(--surface2); display: flex; align-items: center; justify-content: center;
+    }
+    .btn-scan .icon svg { width: 22px; height: 22px; stroke: var(--accent); fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+    .btn-scan .label { font-size: 15px; font-weight: 600; }
+    .btn-scan .sub   { font-size: 12px; color: var(--muted); margin-top: 2px; }
+    .btn-scan .chevron { margin-left: auto; color: var(--muted); }
+    .btn-scan .chevron svg { width: 16px; height: 16px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+
+    #upload-loading {
+      text-align: center; padding: 40px 20px;
+      background: var(--surface); border: 1px solid var(--border); border-radius: 14px;
+    }
+    .spinner {
+      width: 36px; height: 36px; border: 3px solid var(--border);
+      border-top-color: var(--accent); border-radius: 50%;
+      animation: spin .8s linear infinite; margin: 0 auto 14px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .result-card { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; overflow: hidden; }
+    .result-header { padding: 14px 16px; background: var(--surface2); display: flex; align-items: center; justify-content: space-between; }
+    .result-header .proveedor { font-size: 16px; font-weight: 700; }
+    .result-body { padding: 16px; }
+    .result-row { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 14px; }
+    .result-row:last-child { border-bottom: none; }
+    .result-row .k { color: var(--muted); }
+    .result-row .v { font-weight: 500; text-align: right; max-width: 60%; }
+    .result-drive { display: flex; align-items: center; gap: 8px; padding: 12px 16px; background: rgba(196,168,130,.07); border-top: 1px solid var(--border); font-size: 13px; color: var(--accent); text-decoration: none; }
+    .result-drive svg { width: 16px; height: 16px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0; }
+    .btn-new-scan { width: 100%; padding: 13px; background: transparent; border: 1px solid var(--accent); color: var(--accent); margin-top: 14px; }
+
+    /* ─── SUBIDAS RECIENTES ───────────────────────────── */
+    .factura-item { padding: 14px 0; border-bottom: 1px solid var(--border); }
+    .factura-item:last-child { border-bottom: none; }
+    .fi-top { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 4px; gap: 8px; }
+    .fi-proveedor { font-size: 15px; font-weight: 600; }
+    .fi-importe { font-size: 16px; font-weight: 700; color: var(--accent); white-space: nowrap; }
+    .fi-meta { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+    .fi-date { font-size: 12px; color: var(--muted); }
+    .fi-drive { font-size: 12px; color: var(--accent); text-decoration: none; }
+    .fi-delete { margin-left: auto; background: transparent; border: none; color: var(--alert); font-size: 12px; cursor: pointer; padding: 2px 4px; line-height: 1; }
+    .fi-delete:disabled { opacity: .4; cursor: default; }
+
+    input[type="file"] { display: none; }
+  </style>
+</head>
+<body>
+
+<!-- SPLASH -->
+<div id="splash">
+  <div class="splash-logo">O2</div>
+  <div class="splash-name">Grupo O2MAD</div>
+  <div class="splash-sub">Facturas internas</div>
+  <div class="splash-bar"><div class="splash-bar-fill"></div></div>
+</div>
+
+<!-- LOGIN -->
+<div id="login" class="hidden">
+  <div class="login-card">
+    <div class="login-logo">
+      <div class="mark">O2</div>
+      <h1>Grupo O2MAD</h1>
+      <p>Facturas internas</p>
+    </div>
+    <div class="field">
+      <label>Contraseña</label>
+      <input type="password" id="l-pass" placeholder="••••••••" autocomplete="current-password">
+    </div>
+    <button class="btn-primary" id="btn-login">Entrar</button>
+    <div id="login-error"></div>
+  </div>
+</div>
+
+<!-- FILE INPUTS (hidden) -->
+<input type="file" id="input-camera"  accept="image/*" capture="environment">
+<input type="file" id="input-gallery" accept="image/*">
+<input type="file" id="input-pdf"     accept="application/pdf">
+
+<!-- APP -->
+<div id="app" class="hidden">
+  <div class="topbar">
+    <div class="topbar-title">Grupo O2MAD</div>
+    <button class="btn-logout" id="btn-logout">Salir</button>
+  </div>
+
+  <div class="content">
+    <p class="section-title">Sociedad</p>
+    <div class="sociedad-grid" id="sociedad-grid">
+      <div class="empty">Cargando…</div>
+    </div>
+
+    <p class="section-title">Subir factura o ticket</p>
+    <div id="scan-warning" class="hidden"></div>
+    <div id="scan-home">
+      <div class="scan-actions">
+        <button class="btn-scan" id="btn-camera">
+          <div class="icon">
+            <svg viewBox="0 0 24 24"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+          </div>
+          <div>
+            <div class="label">Cámara</div>
+            <div class="sub">Fotografía el ticket/factura</div>
+          </div>
+          <div class="chevron"><svg viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg></div>
+        </button>
+        <button class="btn-scan" id="btn-gallery">
+          <div class="icon">
+            <svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+          </div>
+          <div>
+            <div class="label">Galería</div>
+            <div class="sub">Elige una imagen guardada</div>
+          </div>
+          <div class="chevron"><svg viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg></div>
+        </button>
+        <button class="btn-scan" id="btn-pdf">
+          <div class="icon">
+            <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+          </div>
+          <div>
+            <div class="label">Subir PDF</div>
+            <div class="sub">Selecciona un archivo PDF</div>
+          </div>
+          <div class="chevron"><svg viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg></div>
+        </button>
+      </div>
+    </div>
+
+    <div id="scan-loading" class="hidden">
+      <div id="upload-loading">
+        <div class="spinner"></div>
+        <div style="font-size:15px;font-weight:600;margin-bottom:6px">Procesando…</div>
+        <div style="font-size:13px;color:var(--muted)">La IA está extrayendo los datos</div>
+      </div>
+    </div>
+
+    <div id="scan-result" class="hidden"></div>
+
+    <p class="section-title">Subidas recientes</p>
+    <div class="card" id="recientes-list"><div class="empty">Cargando…</div></div>
+  </div>
+</div>
+
+<script>
+const API = '/grupo';
+let token     = localStorage.getItem('grupo_token');
+let sociedad  = null;
+let sociedades = [];
+
+const eur = (n) => n == null ? '—' : new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' }).format(n);
+const SOCIEDAD_CORTO = { d: 'O2MAD', s: 'O2 Branding', g: 'Gulliver', a: 'Apperstreet' };
+function esc(s) { const d = document.createElement('div'); d.textContent = s ?? ''; return d.innerHTML; }
+
+// ── API helpers ───────────────────────────────────────────────────────────
+async function apiFetch(path, opts = {}) {
+  const headers = { ...(opts.headers || {}) };
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+  const r = await fetch(API + path, { ...opts, headers });
+  if (r.status === 401) { logout(); throw new Error('Sesión expirada'); }
+  return r;
+}
+
+async function login(password) {
+  const r = await fetch(API + '/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ usuario: 'admin', password }),
+  });
+  const d = await r.json();
+  if (!r.ok) throw new Error(d.error || 'Error al iniciar sesión');
+  return d;
+}
+
+function logout() {
+  token = null;
+  localStorage.removeItem('grupo_token');
+  document.getElementById('app').classList.add('hidden');
+  document.getElementById('login').classList.remove('hidden');
+}
+
+async function loadSociedades() {
+  const r = await apiFetch('/sociedades');
+  return r.json();
+}
+
+async function uploadFactura(file) {
+  if (!sociedad) { const e = new Error('Selecciona primero a qué sociedad pertenece'); e.noSociedad = true; throw e; }
+  const fd = new FormData();
+  fd.append('factura', file);
+  fd.append('sociedad', sociedad);
+  const r = await apiFetch('/facturas/upload', { method: 'POST', body: fd });
+  const d = await r.json();
+  if (!r.ok) {
+    const err = new Error(d.error || 'Error al subir la factura');
+    err.duplicate = r.status === 409;
+    throw err;
+  }
+  return d.factura;
+}
+
+async function loadRecientes() {
+  const r = await apiFetch('/facturas');
+  return r.json();
+}
+
+async function deleteFactura(id) {
+  const r = await apiFetch('/facturas/' + id, { method: 'DELETE' });
+  const d = await r.json();
+  if (!r.ok) throw new Error(d.error || 'Error al borrar');
+  return d;
+}
+
+// ── Render ────────────────────────────────────────────────────────────────
+function renderSociedades() {
+  const grid = document.getElementById('sociedad-grid');
+  grid.innerHTML = sociedades.map(s => `
+    <button class="sociedad-chip${s.code === sociedad ? ' active' : ''}" data-code="${s.code}">${esc(SOCIEDAD_CORTO[s.code] || s.nombre)}</button>
+  `).join('');
+  grid.querySelectorAll('.sociedad-chip').forEach(btn => {
+    btn.addEventListener('click', () => {
+      sociedad = btn.dataset.code;
+      renderSociedades();
+    });
+  });
+}
+
+function renderScanResult(f) {
+  const drive = f.drive_url
+    ? `<a class="result-drive" href="${f.drive_url}" target="_blank"><svg viewBox="0 0 24 24"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>Ver PDF en Drive</a>` : '';
+
+  document.getElementById('scan-result').innerHTML = `
+    <div class="result-card">
+      <div class="result-header">
+        <div class="proveedor">${esc(f.proveedor)}</div>
+        <span class="badge badge-ok">${esc(f.sociedad_nombre)}</span>
+      </div>
+      <div class="result-body">
+        <div class="result-row"><div class="k">Referencia</div><div class="v">${esc(f.referencia)}</div></div>
+        <div class="result-row"><div class="k">Fecha</div><div class="v">${f.fecha_factura || '—'}</div></div>
+        <div class="result-row"><div class="k">Importe</div><div class="v">${eur(f.importe)}</div></div>
+        <div class="result-row"><div class="k">Concepto</div><div class="v">${esc(f.concepto || '—')}</div></div>
+      </div>
+      ${drive}
+    </div>
+    <button class="btn-new-scan" id="btn-new-scan">Subir otra</button>
+  `;
+  document.getElementById('scan-result').classList.remove('hidden');
+  document.getElementById('btn-new-scan').addEventListener('click', () => {
+    document.getElementById('scan-result').classList.add('hidden');
+    document.getElementById('scan-result').innerHTML = '';
+    document.getElementById('scan-home').classList.remove('hidden');
+  });
+  refreshRecientes();
+}
+
+function renderRecientes(list) {
+  const el = document.getElementById('recientes-list');
+  if (!list.length) { el.innerHTML = '<div class="empty">Todavía no has subido nada</div>'; return; }
+  el.innerHTML = list.map(f => `
+    <div class="factura-item" data-id="${f.id}">
+      <div class="fi-top">
+        <div class="fi-proveedor">${esc(f.proveedor)}</div>
+        <div class="fi-importe">${eur(f.importe)}</div>
+      </div>
+      <div class="fi-meta">
+        <span class="badge badge-pend">${esc(SOCIEDAD_CORTO[f.sociedad_codigo] || f.sociedad_nombre)}</span>
+        <span class="fi-date">${f.fecha_factura || '—'}</span>
+        ${f.drive_url ? `<a class="fi-drive" href="${f.drive_url}" target="_blank">Ver PDF</a>` : ''}
+        <button class="fi-delete" data-id="${f.id}">Borrar</button>
+      </div>
+    </div>
+  `).join('');
+  el.querySelectorAll('.fi-delete').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      if (!confirm('¿Borrar esta factura? Se eliminará también de Drive.')) return;
+      btn.disabled = true;
+      btn.textContent = 'Borrando…';
+      try {
+        await deleteFactura(btn.dataset.id);
+        refreshRecientes();
+      } catch (e) {
+        alert(e.message);
+        btn.disabled = false;
+        btn.textContent = 'Borrar';
+      }
+    });
+  });
+}
+
+async function refreshRecientes() {
+  try {
+    renderRecientes(await loadRecientes());
+  } catch (e) {
+    document.getElementById('recientes-list').innerHTML = `<div class="empty">${esc(e.message)}</div>`;
+  }
+}
+
+// ── File upload handler ───────────────────────────────────────────────────
+async function handleFile(file) {
+  if (!file) return;
+  const warnEl = document.getElementById('scan-warning');
+  warnEl.classList.add('hidden');
+  warnEl.innerHTML = '';
+  document.getElementById('scan-home').classList.add('hidden');
+  document.getElementById('scan-loading').classList.remove('hidden');
+  document.getElementById('scan-result').classList.add('hidden');
+  try {
+    const factura = await uploadFactura(file);
+    document.getElementById('scan-loading').classList.add('hidden');
+    renderScanResult(factura);
+  } catch (e) {
+    document.getElementById('scan-loading').classList.add('hidden');
+    document.getElementById('scan-home').classList.remove('hidden');
+    if (e.duplicate || e.noSociedad) {
+      warnEl.innerHTML = `<div class="alert-box"><svg viewBox="0 0 24 24"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>${e.message}</div>`;
+      warnEl.classList.remove('hidden');
+    } else {
+      alert(e.message);
+    }
+  }
+}
+
+// ── Boot ──────────────────────────────────────────────────────────────────
+async function showApp() {
+  document.getElementById('app').classList.remove('hidden');
+  try {
+    sociedades = await loadSociedades();
+    renderSociedades();
+  } catch (e) {
+    document.getElementById('sociedad-grid').innerHTML = `<div class="empty">${esc(e.message)}</div>`;
+  }
+  refreshRecientes();
+}
+
+function boot() {
+  setTimeout(() => {
+    document.getElementById('splash').classList.add('hidden');
+    if (token) {
+      showApp();
+    } else {
+      document.getElementById('login').classList.remove('hidden');
+    }
+  }, 1400);
+
+  document.getElementById('btn-login').addEventListener('click', async () => {
+    const pass  = document.getElementById('l-pass').value;
+    const errEl = document.getElementById('login-error');
+    errEl.textContent = '';
+    if (!pass) { errEl.textContent = 'Introduce la contraseña'; return; }
+    document.getElementById('btn-login').textContent = 'Entrando…';
+    document.getElementById('btn-login').disabled = true;
+    try {
+      const d = await login(pass);
+      token = d.token;
+      localStorage.setItem('grupo_token', token);
+      document.getElementById('login').classList.add('hidden');
+      showApp();
+    } catch (e) {
+      errEl.textContent = e.message;
+    } finally {
+      document.getElementById('btn-login').textContent = 'Entrar';
+      document.getElementById('btn-login').disabled = false;
+    }
+  });
+
+  document.getElementById('l-pass').addEventListener('keydown', e => {
+    if (e.key === 'Enter') document.getElementById('btn-login').click();
+  });
+
+  document.getElementById('btn-logout').addEventListener('click', () => {
+    if (confirm('¿Cerrar sesión?')) logout();
+  });
+
+  document.getElementById('btn-camera').addEventListener('click',  () => document.getElementById('input-camera').click());
+  document.getElementById('btn-gallery').addEventListener('click', () => document.getElementById('input-gallery').click());
+  document.getElementById('btn-pdf').addEventListener('click',     () => document.getElementById('input-pdf').click());
+
+  ['input-camera', 'input-gallery', 'input-pdf'].forEach(id => {
+    document.getElementById(id).addEventListener('change', e => {
+      const file = e.target.files?.[0];
+      e.target.value = '';
+      if (file) handleFile(file);
+    });
+  });
+}
+
+document.addEventListener('DOMContentLoaded', boot);
+</script>
+</body>
+</html>
