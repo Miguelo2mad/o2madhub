@@ -138,6 +138,25 @@ router.post('/facturas/upload', requireAuth, upload.single('factura'), async (re
     const { data, usage } = await extractComarea(buffer, mimetype);
     trackTokens('upload_factura', usage, req.user.email);
 
+    // Evita duplicados (p. ej. reintentos de subida del mismo PDF): si ya existe
+    // una factura con mismo proveedor+número+importe+fecha, no se vuelve a guardar.
+    if (data.proveedor && data.numero_factura) {
+      const { data: existing } = await supabase
+        .from('comarea_facturas').select('id')
+        .eq('proveedor', data.proveedor)
+        .eq('numero_factura', data.numero_factura)
+        .eq('importe_total', data.importe_total)
+        .eq('fecha_factura', data.fecha_factura)
+        .maybeSingle();
+      if (existing) {
+        return res.status(409).json({
+          ok: false,
+          error: `Ya existe esta factura (${data.numero_factura} — ${data.proveedor}), no se ha vuelto a guardar.`,
+          duplicate_id: existing.id,
+        });
+      }
+    }
+
     const d = data.fecha_factura ? new Date(data.fecha_factura) : new Date();
     const year = String(d.getFullYear());
     const monthIndex = d.getMonth();
@@ -261,6 +280,7 @@ router.get('/analytics', requireAuth, async (req, res) => {
 
   const byMes = {};
   const byProveedor = {};
+  const byProveedorMes = {};
 
   for (const f of data) {
     const key = `${f.anyo}-${String(f.mes).padStart(2, '0')}`;
@@ -272,7 +292,32 @@ router.get('/analytics', requireAuth, async (req, res) => {
     if (!byProveedor[f.proveedor]) byProveedor[f.proveedor] = { total: 0, count: 0 };
     byProveedor[f.proveedor].total += Number(f.importe_total) || 0;
     byProveedor[f.proveedor].count += 1;
+
+    const pmKey = `${f.proveedor}||${key}`;
+    byProveedorMes[pmKey] = (byProveedorMes[pmKey] || 0) + (Number(f.importe_total) || 0);
   }
+
+  // Comparativa por proveedor: mes en curso vs mes anterior (calendario real,
+  // independiente del filtro ?anyo, para que enero se compare con diciembre).
+  const now = new Date();
+  const curKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  const prevDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const prevKey = `${prevDate.getFullYear()}-${String(prevDate.getMonth() + 1).padStart(2, '0')}`;
+
+  const proveedoresActivos = new Set(
+    Object.keys(byProveedorMes)
+      .filter(k => k.endsWith(`||${curKey}`) || k.endsWith(`||${prevKey}`))
+      .map(k => k.split('||')[0])
+  );
+
+  const comparativaProveedores = [...proveedoresActivos].map(proveedor => {
+    const mesActual   = byProveedorMes[`${proveedor}||${curKey}`]  || 0;
+    const mesAnterior = byProveedorMes[`${proveedor}||${prevKey}`] || 0;
+    const variacionEur = mesActual - mesAnterior;
+    // null = proveedor nuevo este mes, sin mes anterior con el que comparar
+    const variacionPct = mesAnterior > 0 ? (variacionEur / mesAnterior) * 100 : null;
+    return { proveedor, mes_actual: mesActual, mes_anterior: mesAnterior, variacion_eur: variacionEur, variacion_pct: variacionPct };
+  }).sort((a, b) => b.variacion_eur - a.variacion_eur);
 
   res.json({
     total_facturas: data.length,
@@ -281,7 +326,60 @@ router.get('/analytics', requireAuth, async (req, res) => {
     por_proveedor: Object.entries(byProveedor)
       .map(([proveedor, v]) => ({ proveedor, ...v }))
       .sort((a, b) => b.total - a.total),
+    comparativa_proveedores: comparativaProveedores,
   });
+});
+
+// GET /comarea/analytics/precios — subidas de precio por producto vs la compra
+// anterior (Fase 2 del desglose de líneas: Fase 1 solo extraía y validaba).
+router.get('/analytics/precios', requireAuth, async (req, res) => {
+  const { data, error } = await supabase
+    .from('comarea_factura_lineas')
+    .select('producto, unidad, precio_unitario, factura:factura_id(fecha_factura, proveedor)')
+    .not('precio_unitario', 'is', null)
+    .not('producto', 'is', null);
+  if (error) return res.status(500).json({ error: error.message });
+
+  const norm = (s) => String(s).toLowerCase().trim().replace(/\s+/g, ' ');
+
+  const byProducto = {};
+  for (const l of data) {
+    if (!l.factura) continue;
+    const key = `${norm(l.producto)}||${l.unidad || ''}`;
+    (byProducto[key] ||= []).push({
+      producto: l.producto,
+      unidad: l.unidad,
+      precio: Number(l.precio_unitario),
+      fecha: l.factura.fecha_factura,
+      proveedor: l.factura.proveedor,
+    });
+  }
+
+  const subidas = [];
+  for (const compras of Object.values(byProducto)) {
+    if (compras.length < 2) continue;
+    compras.sort((a, b) => new Date(a.fecha) - new Date(b.fecha));
+    const actual   = compras[compras.length - 1];
+    const anterior = compras[compras.length - 2];
+    if (!(anterior.precio > 0)) continue;
+    const variacionPct = ((actual.precio - anterior.precio) / anterior.precio) * 100;
+    if (variacionPct > 3) { // ignora ruido de redondeo; solo subidas relevantes
+      subidas.push({
+        producto: actual.producto,
+        unidad: actual.unidad,
+        precio_anterior: anterior.precio,
+        fecha_anterior: anterior.fecha,
+        proveedor_anterior: anterior.proveedor,
+        precio_actual: actual.precio,
+        fecha_actual: actual.fecha,
+        proveedor_actual: actual.proveedor,
+        variacion_pct: variacionPct,
+      });
+    }
+  }
+
+  subidas.sort((a, b) => b.variacion_pct - a.variacion_pct);
+  res.json({ subidas });
 });
 
 // GET /comarea/tokens — solo admin

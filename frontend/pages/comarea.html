@@ -342,6 +342,7 @@
           <h2>Subir factura</h2>
           <p>Fotografía o sube el PDF.<br>La IA extrae todos los datos automáticamente.</p>
         </div>
+        <div id="scan-warning" class="hidden"></div>
         <div class="scan-actions">
           <button class="btn-scan" id="btn-camera">
             <div class="icon">
@@ -417,6 +418,10 @@
       </div>
       <p class="section-title">Ranking proveedores</p>
       <div class="card" id="ranking-list"><div class="empty">Cargando…</div></div>
+      <p class="section-title">Comparativa vs mes anterior</p>
+      <div class="card" id="comparativa-list"><div class="empty">Cargando…</div></div>
+      <p class="section-title">Subidas de precio detectadas</p>
+      <div class="card" id="precios-list"><div class="empty">Cargando…</div></div>
     </div>
 
     <!-- TAB GESTOR -->
@@ -503,7 +508,11 @@ async function uploadFactura(file) {
   fd.append('factura', file);
   const r = await apiFetch('/facturas/upload', { method: 'POST', body: fd });
   const d = await r.json();
-  if (!r.ok) throw new Error(d.error || 'Error al subir la factura');
+  if (!r.ok) {
+    const err = new Error(d.error || 'Error al subir la factura');
+    err.duplicate = r.status === 409;
+    throw err;
+  }
   return d.factura;
 }
 
@@ -516,6 +525,11 @@ async function loadFacturas(mes = '') {
 
 async function loadAnalytics() {
   const r = await apiFetch('/analytics');
+  return r.json();
+}
+
+async function loadPrecios() {
+  const r = await apiFetch('/analytics/precios');
   return r.json();
 }
 
@@ -666,6 +680,48 @@ function renderAnalytics(a) {
     </div>`;
   }).join('');
   document.getElementById('ranking-list').innerHTML = top.length ? rows : '<div class="empty">Sin datos</div>';
+
+  renderComparativaProveedores(a.comparativa_proveedores || []);
+}
+
+function renderComparativaProveedores(list) {
+  const el = document.getElementById('comparativa-list');
+  if (!list.length) { el.innerHTML = '<div class="empty">Sin datos suficientes todavía</div>'; return; }
+  const top = list.slice(0, 8);
+  el.innerHTML = top.map(p => {
+    let badge, sub;
+    if (p.variacion_pct == null) {
+      badge = `<span class="badge badge-pend">Nuevo</span>`;
+      sub = `${eur(p.mes_actual)} este mes · sin compras el mes anterior`;
+    } else {
+      const signo = p.variacion_pct > 0 ? '+' : '';
+      const cls = p.variacion_pct > 15 ? 'badge-alert' : (p.variacion_pct <= 0 ? 'badge-ok' : 'badge-pend');
+      badge = `<span class="badge ${cls}">${signo}${Math.round(p.variacion_pct)}%</span>`;
+      sub = `${eur(p.mes_actual)} este mes · ${eur(p.mes_anterior)} mes anterior`;
+    }
+    return `<div class="mes-item">
+      <div class="mes-info">
+        <div class="mes-label">${esc(p.proveedor)}</div>
+        <div class="mes-count">${sub}</div>
+      </div>
+      ${badge}
+    </div>`;
+  }).join('');
+}
+
+function renderSubidasPrecio(list) {
+  const el = document.getElementById('precios-list');
+  if (!list || !list.length) { el.innerHTML = '<div class="empty">Sin subidas de precio detectadas</div>'; return; }
+  const top = list.slice(0, 10);
+  el.innerHTML = top.map(s => `
+    <div class="mes-item">
+      <div class="mes-info">
+        <div class="mes-label">${esc(s.producto)}${s.unidad ? ` (${esc(s.unidad)})` : ''}</div>
+        <div class="mes-count">${eur(s.precio_anterior)} → ${eur(s.precio_actual)} · ${esc(s.proveedor_actual)}</div>
+      </div>
+      <span class="badge badge-alert">+${Math.round(s.variacion_pct)}%</span>
+    </div>
+  `).join('');
 }
 
 function renderDriveMeses(list) {
@@ -805,6 +861,12 @@ async function refreshAnalytics() {
   } catch(e) {
     document.getElementById('bar-chart').innerHTML = `<div style="color:var(--muted);font-size:13px">${esc(e.message)}</div>`;
   }
+  try {
+    const { subidas } = await loadPrecios();
+    renderSubidasPrecio(subidas);
+  } catch(e) {
+    document.getElementById('precios-list').innerHTML = `<div class="empty">${esc(e.message)}</div>`;
+  }
 }
 
 async function refreshGestor() {
@@ -828,6 +890,9 @@ async function refreshGestor() {
 // ── File upload handler ───────────────────────────────────────────────────
 async function handleFile(file) {
   if (!file) return;
+  const warnEl = document.getElementById('scan-warning');
+  warnEl.classList.add('hidden');
+  warnEl.innerHTML = '';
   document.getElementById('scan-home').classList.add('hidden');
   document.getElementById('scan-loading').classList.remove('hidden');
   document.getElementById('scan-result').classList.add('hidden');
@@ -838,7 +903,12 @@ async function handleFile(file) {
   } catch(e) {
     document.getElementById('scan-loading').classList.add('hidden');
     document.getElementById('scan-home').classList.remove('hidden');
-    alert(e.message);
+    if (e.duplicate) {
+      warnEl.innerHTML = `<div class="alert-box"><svg viewBox="0 0 24 24"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>${e.message}</div>`;
+      warnEl.classList.remove('hidden');
+    } else {
+      alert(e.message);
+    }
   }
 }
 
