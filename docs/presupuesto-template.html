@@ -1,0 +1,784 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Presupuesto {{NUMERO}} — Funnels Hotel</title>
+  <style>
+    /* ── Reset & base ── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { font-size: 15px; }
+    body {
+      font-family: 'Georgia', 'Times New Roman', serif;
+      background: #f4f1ec;
+      color: #1a1a1a;
+      -webkit-font-smoothing: antialiased;
+    }
+    .sans { font-family: -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif; }
+
+    /* ── Página ── */
+    .page {
+      width: 210mm;
+      min-height: 297mm;
+      background: #ffffff;
+      margin: 0 auto 32px;
+      padding: 0;
+      box-shadow: 0 4px 32px rgba(0,0,0,.12);
+      position: relative;
+      overflow: hidden;
+    }
+
+    /* ── Colores Funnels Hotel ── */
+    :root {
+      --navy:  #1B3A5C;
+      --gold:  #C9A96E;
+      --gold2: #A8834A;
+      --light: #F7F3EE;
+      --muted: #7A7268;
+      --line:  #E8E2D9;
+    }
+
+    /* ── Header decorativo (banda superior) ── */
+    .page-header {
+      background: var(--navy);
+      padding: 28px 40px 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .brand-logo {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+    .brand-mark {
+      width: 52px; height: 52px;
+      background: var(--gold);
+      border-radius: 4px;
+      display: flex; align-items: center; justify-content: center;
+      font-family: 'Georgia', serif;
+      font-size: 22px; font-weight: bold;
+      color: var(--navy);
+      letter-spacing: -1px;
+      flex-shrink: 0;
+    }
+    .brand-text { color: white; }
+    .brand-text .name { font-size: 18px; font-weight: 600; letter-spacing: 3px; text-transform: uppercase; }
+    .brand-text .sub  { font-size: 10px; color: rgba(255,255,255,.55); letter-spacing: 2px; text-transform: uppercase; margin-top: 2px; }
+    .doc-badge {
+      text-align: right; color: white;
+    }
+    .doc-badge .label { font-size: 10px; color: rgba(255,255,255,.5); letter-spacing: 2px; text-transform: uppercase; margin-bottom: 4px; }
+    .doc-badge .num   { font-size: 20px; font-weight: 700; letter-spacing: 1px; color: var(--gold); }
+
+    /* ── Banda dorada bajo header ── */
+    .gold-stripe { height: 4px; background: linear-gradient(90deg, var(--gold) 0%, var(--gold2) 100%); }
+
+    /* ── Contenido interior ── */
+    .page-body { padding: 36px 40px 40px; }
+
+    /* ── Bloque estado ── */
+    .estado-badge {
+      display: inline-block;
+      padding: 4px 14px;
+      border-radius: 20px;
+      font-family: -apple-system, sans-serif;
+      font-size: 11px; font-weight: 600; letter-spacing: 1.5px; text-transform: uppercase;
+      background: #f0f0f0; color: #555;
+      margin-bottom: 24px;
+    }
+    .estado-badge.Borrador { background: #FFF8E1; color: #B8860B; }
+    .estado-badge.Enviado  { background: #E3F2FD; color: #1565C0; }
+    .estado-badge.Visto    { background: #E8F5E9; color: #2E7D32; }
+    .estado-badge.Firmado  { background: #EDE7F6; color: #4527A0; }
+
+    /* ── Sección título ── */
+    .section-title {
+      font-family: -apple-system, sans-serif;
+      font-size: 10px; font-weight: 600;
+      color: var(--gold2);
+      letter-spacing: 2px; text-transform: uppercase;
+      margin-bottom: 10px;
+      padding-bottom: 6px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    /* ── Grid info ── */
+    .info-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 28px;
+      margin-bottom: 28px;
+    }
+    .info-block {}
+    .info-block .label {
+      font-family: -apple-system, sans-serif;
+      font-size: 10px; font-weight: 600;
+      color: var(--muted);
+      letter-spacing: 1.5px; text-transform: uppercase;
+      margin-bottom: 3px;
+    }
+    .info-block .value { font-size: 14px; line-height: 1.5; color: #1a1a1a; }
+    .info-block .value strong { font-size: 16px; color: var(--navy); }
+
+    /* ── Tabla de conceptos ── */
+    table.conceptos {
+      width: 100%;
+      border-collapse: collapse;
+      margin-bottom: 20px;
+      font-family: -apple-system, sans-serif;
+      font-size: 13px;
+    }
+    table.conceptos thead tr {
+      background: var(--navy);
+      color: white;
+    }
+    table.conceptos thead th {
+      padding: 11px 14px;
+      text-align: left;
+      font-weight: 600;
+      font-size: 10px;
+      letter-spacing: 1.2px;
+      text-transform: uppercase;
+    }
+    table.conceptos thead th.num { text-align: right; }
+    table.conceptos tbody tr { border-bottom: 1px solid var(--line); }
+    table.conceptos tbody tr:nth-child(even) { background: var(--light); }
+    table.conceptos tbody td { padding: 12px 14px; vertical-align: top; line-height: 1.45; }
+    table.conceptos tbody td.num { text-align: right; white-space: nowrap; }
+    table.conceptos tbody td.imp { font-weight: 600; color: var(--navy); }
+    table.conceptos tbody td.desc { color: var(--muted); font-size: 12px; }
+
+    /* ── Totales ── */
+    .totales-wrap {
+      display: flex;
+      justify-content: flex-end;
+      margin-bottom: 36px;
+    }
+    .totales {
+      width: 320px;
+      font-family: -apple-system, sans-serif;
+    }
+    .totales-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      padding: 7px 0;
+      font-size: 13px;
+      border-bottom: 1px solid var(--line);
+      color: #444;
+    }
+    .totales-row .lbl { color: var(--muted); }
+    .totales-row.total-final {
+      background: var(--navy);
+      color: white;
+      padding: 14px 16px;
+      border-radius: 6px;
+      border: none;
+      margin-top: 4px;
+      font-size: 15px; font-weight: 700;
+    }
+    .totales-row.total-final .lbl { color: rgba(255,255,255,.7); font-weight: 400; }
+
+    /* ── Alcance del proyecto ── */
+    .alcance-box {
+      background: var(--light);
+      border-left: 3px solid var(--gold);
+      padding: 16px 20px;
+      border-radius: 0 6px 6px 0;
+      font-size: 13.5px;
+      line-height: 1.7;
+      color: #333;
+      margin-bottom: 28px;
+    }
+
+    /* ── Footer página ── */
+    .page-footer {
+      background: var(--navy);
+      padding: 14px 40px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .page-footer span {
+      font-family: -apple-system, sans-serif;
+      font-size: 10px;
+      color: rgba(255,255,255,.45);
+      letter-spacing: .8px;
+    }
+    .page-footer .gold { color: var(--gold); }
+
+    /* ── Página 3: Pago ── */
+    .pago-section { margin-bottom: 32px; }
+    .pago-title {
+      font-family: -apple-system, sans-serif;
+      font-size: 13px; font-weight: 700;
+      color: var(--navy);
+      margin-bottom: 12px;
+      display: flex; align-items: center; gap: 8px;
+    }
+    .pago-title::before {
+      content: '';
+      display: inline-block;
+      width: 18px; height: 2px;
+      background: var(--gold);
+    }
+
+    /* IBAN / BIC boxes */
+    .iban-wrap { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; margin-bottom: 10px; }
+    .iban-box {
+      width: 28px; height: 32px;
+      border: 1.5px solid #ccc;
+      border-radius: 3px;
+      text-align: center;
+      font-family: 'Courier New', monospace;
+      font-size: 14px; font-weight: 600;
+      color: var(--navy);
+      background: var(--light);
+      outline: none;
+      transition: border-color .15s;
+      caret-color: var(--gold);
+    }
+    .iban-box:focus { border-color: var(--gold); }
+    .iban-sep { width: 8px; }
+    .iban-label { font-family: -apple-system, sans-serif; font-size: 11px; color: var(--muted); margin-bottom: 6px; letter-spacing: .5px; }
+
+    .stripe-option {
+      border: 1.5px solid var(--line);
+      border-radius: 10px;
+      padding: 20px 24px;
+      text-align: center;
+      font-family: -apple-system, sans-serif;
+    }
+    .stripe-option .stripe-logo {
+      font-size: 24px; font-weight: 800;
+      color: #635BFF; letter-spacing: -1px;
+      margin-bottom: 8px;
+    }
+    .stripe-option p { font-size: 12px; color: var(--muted); }
+    .stripe-option .stripe-note { font-size: 11px; color: #aaa; margin-top: 6px; }
+
+    /* ── Firma ── */
+    #firma-section {
+      margin-top: 28px;
+      padding: 24px;
+      border: 1.5px solid var(--line);
+      border-radius: 10px;
+      background: var(--light);
+    }
+    #firma-section h3 {
+      font-family: -apple-system, sans-serif;
+      font-size: 14px; font-weight: 700;
+      color: var(--navy);
+      margin-bottom: 16px;
+    }
+    .firma-fields {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 12px;
+      margin-bottom: 16px;
+    }
+    .firma-fields input {
+      width: 100%; padding: 10px 13px;
+      border: 1.5px solid #ddd; border-radius: 7px;
+      font-family: -apple-system, sans-serif; font-size: 14px;
+      color: var(--navy); background: white;
+      outline: none;
+    }
+    .firma-fields input:focus { border-color: var(--gold); }
+    #sig-canvas {
+      width: 100%; height: 160px;
+      border: 1.5px solid #ddd; border-radius: 7px;
+      background: white;
+      display: block;
+      cursor: crosshair;
+      touch-action: none;
+      margin-bottom: 8px;
+    }
+    .canvas-hint {
+      font-family: -apple-system, sans-serif;
+      font-size: 11px; color: var(--muted);
+      margin-bottom: 12px;
+    }
+    .firma-actions { display: flex; gap: 10px; }
+    .btn-clear {
+      padding: 10px 18px;
+      border: 1.5px solid #ddd; border-radius: 8px;
+      background: white; color: var(--muted);
+      font-family: -apple-system, sans-serif;
+      font-size: 13px; font-weight: 500;
+      cursor: pointer; transition: border-color .15s;
+    }
+    .btn-clear:hover { border-color: var(--gold); }
+    .btn-firmar {
+      flex: 1;
+      padding: 12px;
+      background: var(--navy); color: white;
+      border: none; border-radius: 8px;
+      font-family: -apple-system, sans-serif;
+      font-size: 14px; font-weight: 600;
+      cursor: pointer; transition: background .15s;
+    }
+    .btn-firmar:hover { background: #254a73; }
+    .btn-firmar:disabled { background: #aaa; cursor: not-allowed; }
+
+    .firma-ok {
+      text-align: center;
+      padding: 24px;
+      font-family: -apple-system, sans-serif;
+    }
+    .firma-ok .check { font-size: 40px; margin-bottom: 12px; }
+    .firma-ok h3 { font-size: 17px; font-weight: 700; color: var(--navy); margin-bottom: 6px; }
+    .firma-ok p  { font-size: 13px; color: var(--muted); }
+
+    /* ── Aviso presupuesto ya firmado ── */
+    .firmado-aviso {
+      background: #EDE7F6; border-left: 3px solid #4527A0;
+      padding: 14px 18px; border-radius: 0 8px 8px 0;
+      font-family: -apple-system, sans-serif; font-size: 13px;
+      color: #4527A0; margin-bottom: 16px;
+    }
+
+    @media print {
+      body { background: white; }
+      .page { box-shadow: none; margin: 0; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- ════════════════════════════════════════════════════════
+     PÁGINA 1 — PORTADA Y DATOS DEL PROYECTO
+     ════════════════════════════════════════════════════════ -->
+<div class="page">
+  <div class="page-header">
+    <div class="brand-logo">
+      <div class="brand-mark">FH</div>
+      <div class="brand-text">
+        <div class="name">Funnels Hotel</div>
+        <div class="sub">Marketing &amp; Revenue Solutions</div>
+      </div>
+    </div>
+    <div class="doc-badge">
+      <div class="label">Presupuesto</div>
+      <div class="num">{{NUMERO}}</div>
+    </div>
+  </div>
+  <div class="gold-stripe"></div>
+
+  <div class="page-body">
+    <div class="estado-badge {{ESTADO}}">{{ESTADO}}</div>
+
+    <div class="info-grid" style="margin-bottom:32px">
+      <div>
+        <div class="section-title">Cliente</div>
+        <div class="info-block" style="margin-bottom:12px">
+          <div class="label">Empresa</div>
+          <div class="value"><strong>{{CLIENTE_NOMBRE}}</strong></div>
+        </div>
+        <div class="info-block" style="margin-bottom:10px">
+          <div class="label">CIF</div>
+          <div class="value">{{CLIENTE_CIF}}</div>
+        </div>
+        <div class="info-block" style="margin-bottom:10px">
+          <div class="label">Dirección</div>
+          <div class="value">{{CLIENTE_DIRECCION}}</div>
+        </div>
+        <div class="info-block" style="margin-bottom:10px">
+          <div class="label">Contacto</div>
+          <div class="value">{{CLIENTE_CONTACTO}}</div>
+        </div>
+        <div class="info-block" style="margin-bottom:10px">
+          <div class="label">Email</div>
+          <div class="value">{{CLIENTE_EMAIL}}</div>
+        </div>
+        <div class="info-block">
+          <div class="label">Teléfono</div>
+          <div class="value">{{CLIENTE_TELEFONO}}</div>
+        </div>
+      </div>
+
+      <div>
+        <div class="section-title">Detalles del presupuesto</div>
+        <div class="info-block" style="margin-bottom:12px">
+          <div class="label">Responsable</div>
+          <div class="value"><strong>{{RESPONSABLE}}</strong></div>
+        </div>
+        <div class="info-block" style="margin-bottom:10px">
+          <div class="label">Fecha de emisión</div>
+          <div class="value">{{FECHA_EMISION}}</div>
+        </div>
+        <div class="info-block" style="margin-bottom:10px">
+          <div class="label">Válido hasta</div>
+          <div class="value">{{FECHA_VALIDEZ}}</div>
+        </div>
+        <div class="info-block">
+          <div class="label">Inicio estimado</div>
+          <div class="value">{{FECHA_INICIO_ESTIMADA}}</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="section-title">Alcance del proyecto</div>
+    <div class="alcance-box">{{ALCANCE_PROYECTO}}</div>
+
+    <div class="section-title">Resumen económico</div>
+    <div class="totales-wrap">
+      <div class="totales">
+        <div class="totales-row">
+          <span class="lbl">Subtotal</span>
+          <span>{{SUBTOTAL}}</span>
+        </div>
+        <div class="totales-row">
+          <span class="lbl">Descuento ({{DESCUENTO_PCT}}%)</span>
+          <span>−{{DESCUENTO_IMPORTE}}</span>
+        </div>
+        <div class="totales-row">
+          <span class="lbl">Base imponible</span>
+          <span>{{BASE_IMPONIBLE}}</span>
+        </div>
+        <div class="totales-row">
+          <span class="lbl">IVA 21%</span>
+          <span>{{IVA_IMPORTE}}</span>
+        </div>
+        <div class="totales-row total-final">
+          <span class="lbl">TOTAL</span>
+          <span>{{TOTAL}}</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="page-footer">
+    <span>{{NUMERO}} · Funnels Hotel Marketing &amp; Revenue Solutions</span>
+    <span class="gold">Pág. 1 / 3</span>
+  </div>
+</div>
+
+
+<!-- ════════════════════════════════════════════════════════
+     PÁGINA 2 — DETALLE DE CONCEPTOS
+     ════════════════════════════════════════════════════════ -->
+<div class="page">
+  <div class="page-header">
+    <div class="brand-logo">
+      <div class="brand-mark">FH</div>
+      <div class="brand-text">
+        <div class="name">Funnels Hotel</div>
+        <div class="sub">Detalle de servicios</div>
+      </div>
+    </div>
+    <div class="doc-badge">
+      <div class="label">Presupuesto</div>
+      <div class="num">{{NUMERO}}</div>
+    </div>
+  </div>
+  <div class="gold-stripe"></div>
+
+  <div class="page-body">
+    <div class="section-title" style="margin-bottom:16px">Desglose de conceptos</div>
+
+    <table class="conceptos">
+      <thead>
+        <tr>
+          <th style="width:22%">Concepto</th>
+          <th>Descripción</th>
+          <th class="num" style="width:7%">Uds.</th>
+          <th class="num" style="width:14%">Precio unit.</th>
+          <th class="num" style="width:14%">Importe</th>
+        </tr>
+      </thead>
+      <tbody>
+        {{CONCEPTOS_ROWS}}
+      </tbody>
+    </table>
+
+    <div class="totales-wrap">
+      <div class="totales">
+        <div class="totales-row">
+          <span class="lbl">Subtotal</span>
+          <span>{{SUBTOTAL}}</span>
+        </div>
+        <div class="totales-row">
+          <span class="lbl">Descuento ({{DESCUENTO_PCT}}%)</span>
+          <span>−{{DESCUENTO_IMPORTE}}</span>
+        </div>
+        <div class="totales-row">
+          <span class="lbl">Base imponible</span>
+          <span>{{BASE_IMPONIBLE}}</span>
+        </div>
+        <div class="totales-row">
+          <span class="lbl">IVA 21%</span>
+          <span>{{IVA_IMPORTE}}</span>
+        </div>
+        <div class="totales-row total-final">
+          <span class="lbl">TOTAL</span>
+          <span>{{TOTAL}}</span>
+        </div>
+      </div>
+    </div>
+
+    <div style="background:var(--light); border-radius:8px; padding:16px 20px; font-family:-apple-system,sans-serif; font-size:12px; color:var(--muted); line-height:1.6; margin-top:8px;">
+      <strong style="color:var(--navy)">Condiciones generales:</strong> Este presupuesto tiene una validez de 30 días desde la fecha de emisión.
+      Los precios incluyen IVA al 21%. Los plazos de entrega comenzarán a contar desde la fecha de firma y primer pago.
+      Funnels Hotel SL · CIF B12345678 · info@funnelshotel.com · funnelshotel.com
+    </div>
+  </div>
+
+  <div class="page-footer">
+    <span>{{NUMERO}} · Funnels Hotel Marketing &amp; Revenue Solutions</span>
+    <span class="gold">Pág. 2 / 3</span>
+  </div>
+</div>
+
+
+<!-- ════════════════════════════════════════════════════════
+     PÁGINA 3 — MÉTODO DE PAGO Y FIRMA
+     ════════════════════════════════════════════════════════ -->
+<div class="page">
+  <div class="page-header">
+    <div class="brand-logo">
+      <div class="brand-mark">FH</div>
+      <div class="brand-text">
+        <div class="name">Funnels Hotel</div>
+        <div class="sub">Método de pago y firma</div>
+      </div>
+    </div>
+    <div class="doc-badge">
+      <div class="label">Presupuesto</div>
+      <div class="num">{{NUMERO}}</div>
+    </div>
+  </div>
+  <div class="gold-stripe"></div>
+
+  <div class="page-body">
+
+    <!-- Opción A: SEPA -->
+    <div class="pago-section">
+      <div class="section-title">Método de pago</div>
+      <div class="pago-title">Opción A — Domiciliación SEPA</div>
+
+      <div class="iban-label">IBAN (24 caracteres)</div>
+      <div class="iban-wrap" id="iban-wrap"></div>
+
+      <div class="iban-label" style="margin-top:14px">BIC / SWIFT (8-11 caracteres)</div>
+      <div class="iban-wrap" id="bic-wrap"></div>
+
+      <p style="font-family:-apple-system,sans-serif;font-size:11px;color:var(--muted);margin-top:10px;line-height:1.6">
+        Al introducir sus datos bancarios y firmar este presupuesto acepta la domiciliación bancaria
+        SEPA para el cobro de los servicios contratados según los plazos acordados.
+      </p>
+    </div>
+
+    <!-- Opción B: Stripe -->
+    <div class="pago-section">
+      <div class="pago-title">Opción B — Pago con tarjeta (Stripe)</div>
+      <div class="stripe-option">
+        <div class="stripe-logo">stripe</div>
+        <p>Recibirá un enlace de pago seguro por email una vez firmado el presupuesto.</p>
+        <p class="stripe-note">Tarjetas Visa, Mastercard y American Express aceptadas · Pago 100% seguro</p>
+      </div>
+    </div>
+
+    <!-- Firma digital -->
+    <div id="firma-section">
+      <h3>Firma digital del presupuesto</h3>
+
+      <div id="firmado-aviso" class="firmado-aviso" style="display:none">
+        Este presupuesto ya ha sido firmado. Si necesitas modificarlo contacta con {{RESPONSABLE_EMAIL}}.
+      </div>
+
+      <div id="firma-form">
+        <div class="firma-fields">
+          <input type="text" id="sig-nombre" placeholder="Nombre y apellidos" autocomplete="name">
+          <input type="text" id="sig-dni"    placeholder="DNI / NIE" autocomplete="off">
+        </div>
+        <canvas id="sig-canvas" width="900" height="200"></canvas>
+        <p class="canvas-hint">Dibuje su firma en el recuadro superior</p>
+        <div class="firma-actions">
+          <button class="btn-clear" id="btn-clear">Borrar</button>
+          <button class="btn-firmar" id="btn-firmar">Firmar presupuesto</button>
+        </div>
+      </div>
+
+      <div id="firma-ok" class="firma-ok" style="display:none">
+        <div class="check">✅</div>
+        <h3>Presupuesto firmado</h3>
+        <p>Gracias. Hemos recibido su firma y nos pondremos en contacto en breve.</p>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="page-footer">
+    <span>{{NUMERO}} · Funnels Hotel Marketing &amp; Revenue Solutions</span>
+    <span class="gold">Pág. 3 / 3</span>
+  </div>
+</div>
+
+
+<script>
+(function () {
+  const SLUG   = '{{SLUG}}';
+  const ESTADO = '{{ESTADO}}';
+
+  // ── IBAN: ES + 22 dígitos = 24 cajas ──────────────────────────────────────
+  // Grupos: ES(2) + 2 check + 4 + 4 + 4 + 4 + 4 + 4 → sep cada 4 tras los 4 primeros
+  const ibanWrap = document.getElementById('iban-wrap');
+  const ibanLengths = [2, 2, 4, 4, 4, 4, 4, 4]; // total 28? No — ES IBAN = 24 chars: ES(2) + 2 check + 10 digits entidad+sucursal+control + 10 cuenta
+  // IBAN español = ES + 2 check + 4 banco + 4 sucursal + 2 DC + 10 cuenta = 24
+  const ibanGroups = [2, 2, 4, 4, 2, 10]; // ES, check, banco, sucursal, DC, cuenta
+  const ibanBoxes = [];
+  ibanGroups.forEach((len, gi) => {
+    if (gi > 0) {
+      const sep = document.createElement('div');
+      sep.className = 'iban-sep';
+      ibanWrap.appendChild(sep);
+    }
+    for (let i = 0; i < len; i++) {
+      const inp = document.createElement('input');
+      inp.type = 'text';
+      inp.maxLength = 1;
+      inp.className = 'iban-box';
+      inp.setAttribute('inputmode', 'text');
+      ibanBoxes.push(inp);
+      ibanWrap.appendChild(inp);
+    }
+  });
+
+  ibanBoxes.forEach((box, idx) => {
+    box.addEventListener('input', e => {
+      const v = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
+      box.value = v ? v[v.length - 1] : '';
+      if (box.value && idx < ibanBoxes.length - 1) ibanBoxes[idx + 1].focus();
+    });
+    box.addEventListener('keydown', e => {
+      if (e.key === 'Backspace' && !box.value && idx > 0) ibanBoxes[idx - 1].focus();
+    });
+  });
+
+  // ── BIC: 8-11 chars, mostramos 11 cajas ───────────────────────────────────
+  const bicWrap   = document.getElementById('bic-wrap');
+  const bicBoxes  = [];
+  const bicGroups = [4, 2, 2, 3]; // BBBB SS CC BBB
+  bicGroups.forEach((len, gi) => {
+    if (gi > 0) {
+      const sep = document.createElement('div');
+      sep.className = 'iban-sep';
+      bicWrap.appendChild(sep);
+    }
+    for (let i = 0; i < len; i++) {
+      const inp = document.createElement('input');
+      inp.type = 'text';
+      inp.maxLength = 1;
+      inp.className = 'iban-box';
+      inp.setAttribute('inputmode', 'text');
+      bicBoxes.push(inp);
+      bicWrap.appendChild(inp);
+    }
+  });
+
+  bicBoxes.forEach((box, idx) => {
+    box.addEventListener('input', e => {
+      const v = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
+      box.value = v ? v[v.length - 1] : '';
+      if (box.value && idx < bicBoxes.length - 1) bicBoxes[idx + 1].focus();
+    });
+    box.addEventListener('keydown', e => {
+      if (e.key === 'Backspace' && !box.value && idx > 0) bicBoxes[idx - 1].focus();
+    });
+  });
+
+  // ── Firma canvas ───────────────────────────────────────────────────────────
+  const canvas   = document.getElementById('sig-canvas');
+  const ctx      = canvas.getContext('2d');
+  const btnClear = document.getElementById('btn-clear');
+  const btnFirma = document.getElementById('btn-firmar');
+  const firmaForm = document.getElementById('firma-form');
+  const firmaOk   = document.getElementById('firma-ok');
+  const firmadoAviso = document.getElementById('firmado-aviso');
+
+  if (ESTADO === 'Firmado') {
+    firmaForm.style.display = 'none';
+    firmadoAviso.style.display = 'block';
+  }
+
+  let drawing = false;
+  let hasDrawn = false;
+
+  ctx.strokeStyle = '#1B3A5C';
+  ctx.lineWidth = 2.5;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+
+  function getPos(e) {
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width  / rect.width;
+    const scaleY = canvas.height / rect.height;
+    const src = e.touches ? e.touches[0] : e;
+    return {
+      x: (src.clientX - rect.left) * scaleX,
+      y: (src.clientY - rect.top)  * scaleY,
+    };
+  }
+
+  canvas.addEventListener('mousedown',  e => { drawing = true; ctx.beginPath(); const p = getPos(e); ctx.moveTo(p.x, p.y); });
+  canvas.addEventListener('mousemove',  e => { if (!drawing) return; hasDrawn = true; const p = getPos(e); ctx.lineTo(p.x, p.y); ctx.stroke(); });
+  canvas.addEventListener('mouseup',    () => { drawing = false; });
+  canvas.addEventListener('mouseleave', () => { drawing = false; });
+  canvas.addEventListener('touchstart', e => { e.preventDefault(); drawing = true; ctx.beginPath(); const p = getPos(e); ctx.moveTo(p.x, p.y); }, { passive: false });
+  canvas.addEventListener('touchmove',  e => { e.preventDefault(); if (!drawing) return; hasDrawn = true; const p = getPos(e); ctx.lineTo(p.x, p.y); ctx.stroke(); }, { passive: false });
+  canvas.addEventListener('touchend',   () => { drawing = false; });
+
+  btnClear.addEventListener('click', () => {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    hasDrawn = false;
+  });
+
+  btnFirma.addEventListener('click', async () => {
+    const nombre = document.getElementById('sig-nombre').value.trim();
+    const dni    = document.getElementById('sig-dni').value.trim();
+
+    if (!nombre || !dni) {
+      alert('Por favor, introduce tu nombre y DNI/NIE antes de firmar.');
+      return;
+    }
+    if (!hasDrawn) {
+      alert('Por favor, dibuja tu firma en el recuadro antes de confirmar.');
+      return;
+    }
+
+    btnFirma.disabled = true;
+    btnFirma.textContent = 'Enviando…';
+
+    const firma_png = canvas.toDataURL('image/png');
+
+    try {
+      const resp = await fetch(`/presupuestos/p/${SLUG}/firmar`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ nombre, dni, firma_png }),
+      });
+
+      if (resp.status === 409) {
+        firmadoAviso.style.display = 'block';
+        firmaForm.style.display = 'none';
+        return;
+      }
+
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({}));
+        throw new Error(err.error || `Error ${resp.status}`);
+      }
+
+      firmaForm.style.display = 'none';
+      firmaOk.style.display = 'block';
+
+    } catch (e) {
+      alert('No se pudo enviar la firma: ' + e.message);
+      btnFirma.disabled = false;
+      btnFirma.textContent = 'Firmar presupuesto';
+    }
+  });
+})();
+</script>
+</body>
+</html>

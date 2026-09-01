@@ -1,0 +1,582 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Presupuestos">
+  <meta name="theme-color" content="#0F0E0C">
+  <title>Presupuestos</title>
+  <style>
+    :root {
+      --bg:       #0F0E0C;
+      --surface:  #1A1916;
+      --surface2: #242320;
+      --border:   rgba(196,168,130,.15);
+      --accent:   #C4A882;
+      --accent-dk:#A8906A;
+      --text:     #F5F0E8;
+      --muted:    #8A857C;
+      --ok:       #6BAF7A;
+      --alert:    #D96B52;
+      --ambar:    #D9A441;
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+    html, body { height: 100%; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+      background: var(--bg); color: var(--text);
+      -webkit-font-smoothing: antialiased;
+    }
+    .hidden { display: none !important; }
+    input, button, select, textarea { font-family: inherit; }
+    button { cursor: pointer; border: none; border-radius: 10px; font-size: 15px; font-weight: 600; transition: opacity .15s, transform .1s; }
+    button:active { transform: scale(.97); opacity: .85; }
+
+    /* ─── LOGIN ─── */
+    #login {
+      position: fixed; inset: 0; z-index: 50;
+      display: flex; align-items: center; justify-content: center;
+      padding: 24px; background: var(--bg);
+    }
+    .login-card {
+      width: 100%; max-width: 360px;
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 18px; padding: 40px 28px;
+    }
+    .login-logo {
+      display: flex; flex-direction: column; align-items: center; gap: 10px; margin-bottom: 36px;
+    }
+    .login-logo .mark {
+      width: 56px; height: 56px; border-radius: 14px;
+      background: var(--surface2); border: 1px solid var(--accent);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 22px; font-weight: 800; color: var(--accent);
+    }
+    .login-logo h1 { font-size: 20px; font-weight: 700; letter-spacing: 3px; text-transform: uppercase; }
+    .login-logo p  { font-size: 11px; color: var(--muted); letter-spacing: 1.5px; text-transform: uppercase; }
+    .field { margin-bottom: 16px; }
+    .field label { display: block; font-size: 11px; color: var(--accent); letter-spacing: 1.5px; text-transform: uppercase; margin-bottom: 7px; }
+    .field input, .field select, .field textarea {
+      width: 100%; padding: 13px 14px;
+      background: var(--surface2); border: 1px solid var(--border);
+      border-radius: 10px; color: var(--text); font-size: 15px;
+    }
+    .field input:focus, .field select:focus, .field textarea:focus { outline: none; border-color: var(--accent); }
+    .field select { appearance: none; -webkit-appearance: none; cursor: pointer; }
+    .field textarea { resize: vertical; min-height: 90px; line-height: 1.5; }
+    .btn-primary { width: 100%; padding: 14px; background: var(--accent); color: var(--bg); margin-top: 8px; letter-spacing: .5px; }
+    #login-error { font-size: 13px; color: var(--alert); text-align: center; margin-top: 12px; min-height: 18px; }
+
+    /* ─── APP ─── */
+    #app {
+      min-height: 100vh;
+      display: flex; flex-direction: column;
+    }
+    .topbar {
+      padding: calc(env(safe-area-inset-top, 12px) + 8px) 20px 12px;
+      background: var(--bg); border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; justify-content: space-between;
+      position: sticky; top: 0; z-index: 10;
+    }
+    .topbar-title { font-size: 17px; font-weight: 700; letter-spacing: 2px; text-transform: uppercase; color: var(--accent); }
+    .btn-logout { background: transparent; border: 1px solid var(--border); color: var(--muted); font-size: 12px; padding: 6px 12px; border-radius: 8px; }
+
+    .main-content {
+      flex: 1;
+      max-width: 760px;
+      width: 100%;
+      margin: 0 auto;
+      padding: 28px 20px 60px;
+    }
+
+    /* ─── Secciones del form ─── */
+    .form-section {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 22px 20px;
+      margin-bottom: 16px;
+    }
+    .form-section-title {
+      font-size: 10px; font-weight: 600; letter-spacing: 2px; text-transform: uppercase;
+      color: var(--accent); margin-bottom: 18px;
+      padding-bottom: 10px; border-bottom: 1px solid var(--border);
+    }
+    .field-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0 14px;
+    }
+    .field-full { grid-column: 1 / -1; }
+
+    .field input[disabled], .field select[disabled] {
+      opacity: .4; cursor: not-allowed;
+    }
+
+    /* ─── Conceptos ─── */
+    .concepto-row {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 14px;
+      margin-bottom: 10px;
+    }
+    .concepto-row .row-header {
+      display: flex; justify-content: space-between; align-items: center;
+      margin-bottom: 10px;
+    }
+    .concepto-row .row-num {
+      font-size: 11px; font-weight: 600; color: var(--muted);
+      letter-spacing: 1px; text-transform: uppercase;
+    }
+    .btn-remove {
+      background: transparent; border: 1px solid rgba(217,107,82,.4);
+      color: var(--alert); font-size: 12px; padding: 4px 10px;
+      border-radius: 6px; font-weight: 500;
+    }
+    .concepto-row .row-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .concepto-row .row-fields .field-full { grid-column: 1 / -1; }
+    .concepto-row .field { margin-bottom: 0; }
+
+    .btn-add {
+      width: 100%;
+      background: transparent;
+      border: 1.5px dashed rgba(196,168,130,.3);
+      color: var(--muted); padding: 13px;
+      border-radius: 10px; font-size: 14px; font-weight: 500;
+      transition: border-color .15s, color .15s;
+    }
+    .btn-add:hover { border-color: var(--accent); color: var(--accent); }
+
+    /* ─── Preview de totales ─── */
+    .totales-preview {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 18px 20px;
+      margin-bottom: 16px;
+    }
+    .totales-preview-title {
+      font-size: 10px; font-weight: 600; letter-spacing: 2px; text-transform: uppercase;
+      color: var(--accent); margin-bottom: 14px;
+    }
+    .total-row {
+      display: flex; justify-content: space-between;
+      padding: 7px 0; border-bottom: 1px solid var(--border);
+      font-size: 14px;
+    }
+    .total-row .lbl { color: var(--muted); }
+    .total-row.final {
+      background: var(--accent); color: var(--bg);
+      border-radius: 8px; padding: 13px 14px;
+      border: none; margin-top: 6px;
+      font-size: 16px; font-weight: 700;
+    }
+    .total-row.final .lbl { color: rgba(15,14,12,.65); font-weight: 500; }
+
+    /* ─── Submit ─── */
+    .btn-submit {
+      width: 100%; padding: 16px;
+      background: var(--accent); color: var(--bg);
+      font-size: 16px; font-weight: 700; letter-spacing: .5px;
+      border-radius: 12px; margin-top: 8px;
+    }
+    .btn-submit:disabled { opacity: .5; cursor: not-allowed; }
+
+    /* ─── Resultado ─── */
+    #resultado {
+      background: var(--surface);
+      border: 1.5px solid rgba(107,175,122,.4);
+      border-radius: 14px;
+      padding: 24px 20px;
+      margin-bottom: 16px;
+    }
+    #resultado .res-label {
+      font-size: 10px; font-weight: 600; letter-spacing: 2px; text-transform: uppercase;
+      color: var(--ok); margin-bottom: 12px;
+    }
+    #resultado .res-numero {
+      font-size: 18px; font-weight: 700; color: var(--text); margin-bottom: 4px;
+    }
+    #resultado .res-url {
+      font-size: 13px; color: var(--muted); word-break: break-all;
+      margin-bottom: 16px; line-height: 1.5;
+    }
+    .res-actions { display: flex; gap: 10px; }
+    .btn-copy {
+      flex: 1; padding: 11px;
+      background: var(--surface2); color: var(--text);
+      font-size: 14px; font-weight: 600; border-radius: 9px;
+      border: 1px solid var(--border);
+    }
+    .btn-open {
+      flex: 1; padding: 11px;
+      background: var(--accent); color: var(--bg);
+      font-size: 14px; font-weight: 600; border-radius: 9px;
+    }
+
+    @media (max-width: 600px) {
+      .field-grid { grid-template-columns: 1fr; }
+      .concepto-row .row-fields { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- LOGIN -->
+<div id="login">
+  <div class="login-card">
+    <div class="login-logo">
+      <div class="mark">PR</div>
+      <h1>Presupuestos</h1>
+      <p>O2MAD Hub</p>
+    </div>
+    <div class="field">
+      <label>Contraseña</label>
+      <input type="password" id="pass-input" placeholder="••••••••" autocomplete="current-password">
+    </div>
+    <button class="btn-primary" id="btn-login">Entrar</button>
+    <div id="login-error"></div>
+  </div>
+</div>
+
+<!-- APP -->
+<div id="app" class="hidden">
+  <div class="topbar">
+    <span class="topbar-title">Presupuestos</span>
+    <button class="btn-logout" id="btn-logout">Salir</button>
+  </div>
+
+  <div class="main-content">
+
+    <!-- Resultado (oculto hasta POST exitoso) -->
+    <div id="resultado" class="hidden">
+      <div class="res-label">Presupuesto creado</div>
+      <div class="res-numero" id="res-numero"></div>
+      <div class="res-url" id="res-url"></div>
+      <div class="res-actions">
+        <button class="btn-copy" id="btn-copy">Copiar enlace</button>
+        <button class="btn-open" id="btn-open">Ver presupuesto</button>
+      </div>
+    </div>
+
+    <form id="form-presupuesto" autocomplete="off">
+
+      <!-- Marca -->
+      <div class="form-section">
+        <div class="form-section-title">Marca</div>
+        <div class="field">
+          <label>Plantilla</label>
+          <select id="marca">
+            <option value="funnelshotel">Funnels Hotel</option>
+            <option value="o2mad" disabled>O2MAD (próximamente)</option>
+            <option value="oclinic" disabled>O2Clinic (próximamente)</option>
+            <option value="loprohibido" disabled>Lo Prohibido (próximamente)</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- Cliente -->
+      <div class="form-section">
+        <div class="form-section-title">Datos del cliente</div>
+        <div class="field-grid">
+          <div class="field field-full">
+            <label>Nombre / Empresa *</label>
+            <input type="text" id="cliente_nombre" required placeholder="Nombre del cliente o empresa">
+          </div>
+          <div class="field">
+            <label>CIF / NIF</label>
+            <input type="text" id="cliente_cif" placeholder="B12345678">
+          </div>
+          <div class="field">
+            <label>Contacto</label>
+            <input type="text" id="cliente_contacto" placeholder="Nombre contacto">
+          </div>
+          <div class="field field-full">
+            <label>Dirección</label>
+            <input type="text" id="cliente_direccion" placeholder="Calle, número, ciudad">
+          </div>
+          <div class="field">
+            <label>Email</label>
+            <input type="email" id="cliente_email" placeholder="cliente@empresa.com">
+          </div>
+          <div class="field">
+            <label>Teléfono</label>
+            <input type="tel" id="cliente_telefono" placeholder="+34 600 000 000">
+          </div>
+        </div>
+      </div>
+
+      <!-- Detalles -->
+      <div class="form-section">
+        <div class="form-section-title">Detalles del presupuesto</div>
+        <div class="field-grid">
+          <div class="field">
+            <label>Responsable</label>
+            <input type="text" id="responsable" value="Marc Oliver" required>
+          </div>
+          <div class="field">
+            <label>Validez (días)</label>
+            <input type="number" id="validez_dias" value="30" min="1" max="365">
+          </div>
+          <div class="field">
+            <label>Fecha inicio estimada</label>
+            <input type="date" id="fecha_inicio_estimada">
+          </div>
+          <div class="field">
+            <label>Descuento (%)</label>
+            <input type="number" id="descuento_pct" value="0" min="0" max="100" step="0.5">
+          </div>
+          <div class="field field-full">
+            <label>Alcance del proyecto</label>
+            <textarea id="alcance_proyecto" rows="4" placeholder="Descripción general del servicio o proyecto…"></textarea>
+          </div>
+        </div>
+      </div>
+
+      <!-- Conceptos -->
+      <div class="form-section">
+        <div class="form-section-title">Conceptos</div>
+        <div id="conceptos-list"></div>
+        <button type="button" class="btn-add" id="btn-add-concepto">+ Añadir concepto</button>
+      </div>
+
+      <!-- Preview totales -->
+      <div class="totales-preview">
+        <div class="totales-preview-title">Resumen económico (preview)</div>
+        <div class="total-row"><span class="lbl">Subtotal</span><span id="prev-subtotal">0,00 €</span></div>
+        <div class="total-row"><span class="lbl" id="prev-desc-lbl">Descuento (0%)</span><span id="prev-descuento">0,00 €</span></div>
+        <div class="total-row"><span class="lbl">Base imponible</span><span id="prev-base">0,00 €</span></div>
+        <div class="total-row"><span class="lbl">IVA 21%</span><span id="prev-iva">0,00 €</span></div>
+        <div class="total-row final"><span class="lbl">TOTAL</span><span id="prev-total">0,00 €</span></div>
+      </div>
+
+      <button type="submit" class="btn-submit" id="btn-submit">Generar presupuesto</button>
+    </form>
+  </div>
+</div>
+
+<script>
+(function () {
+  const TOKEN_KEY = 'presupuestos_token';
+  const BASE_URL  = '';
+
+  // ── Autenticación ──────────────────────────────────────────────────────────
+  function getToken() { return localStorage.getItem(TOKEN_KEY); }
+  function setToken(t) { localStorage.setItem(TOKEN_KEY, t); }
+  function clearToken() { localStorage.removeItem(TOKEN_KEY); }
+
+  function authHeaders() {
+    return { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + getToken() };
+  }
+
+  function showLogin()  { document.getElementById('login').classList.remove('hidden'); document.getElementById('app').classList.add('hidden'); }
+  function showApp()    { document.getElementById('login').classList.add('hidden'); document.getElementById('app').classList.remove('hidden'); }
+
+  // Verificar token al arrancar
+  if (getToken()) showApp(); else showLogin();
+
+  // Login: token = btoa('presupuestos:PASSWORD:timestamp'). Backend valida parts[1] === PRESUPUESTOS_PASS.
+  document.getElementById('btn-login').addEventListener('click', async () => {
+    const pass = document.getElementById('pass-input').value;
+    if (!pass) return;
+    const errEl = document.getElementById('login-error');
+    errEl.textContent = '';
+
+    const token = btoa('presupuestos:' + pass + ':' + Date.now());
+    try {
+      const r = await fetch(BASE_URL + '/api/presupuestos', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+        body: JSON.stringify({}),
+      });
+      if (r.status === 401) {
+        errEl.textContent = 'Contraseña incorrecta';
+        return;
+      }
+      // 400 = auth OK pero falta cliente_nombre → contraseña correcta
+    } catch (e) {
+      errEl.textContent = 'Error de conexión';
+      return;
+    }
+
+    setToken(token);
+    showApp();
+  });
+
+  document.getElementById('pass-input').addEventListener('keydown', e => {
+    if (e.key === 'Enter') document.getElementById('btn-login').click();
+  });
+
+  document.getElementById('btn-logout').addEventListener('click', () => {
+    clearToken();
+    showLogin();
+  });
+
+  // ── Conceptos ──────────────────────────────────────────────────────────────
+  let conceptoCount = 0;
+
+  function addConcepto() {
+    conceptoCount++;
+    const idx = conceptoCount;
+    const list = document.getElementById('conceptos-list');
+    const div  = document.createElement('div');
+    div.className = 'concepto-row';
+    div.dataset.idx = idx;
+    div.innerHTML = `
+      <div class="row-header">
+        <span class="row-num">Concepto ${idx}</span>
+        <button type="button" class="btn-remove" data-idx="${idx}">Quitar</button>
+      </div>
+      <div class="row-fields">
+        <div class="field field-full">
+          <label>Nombre *</label>
+          <input type="text" class="c-nombre" placeholder="Nombre del servicio" required>
+        </div>
+        <div class="field field-full">
+          <label>Descripción</label>
+          <input type="text" class="c-desc" placeholder="Descripción breve (opcional)">
+        </div>
+        <div class="field">
+          <label>Cantidad</label>
+          <input type="number" class="c-cantidad" value="1" min="1" step="1">
+        </div>
+        <div class="field">
+          <label>Precio unitario (€, sin IVA)</label>
+          <input type="number" class="c-precio" value="" min="0" step="0.01" placeholder="0,00">
+        </div>
+      </div>`;
+    list.appendChild(div);
+
+    div.querySelector('.btn-remove').addEventListener('click', () => {
+      if (document.querySelectorAll('.concepto-row').length <= 1) return;
+      div.remove();
+      updateTotales();
+    });
+
+    div.querySelectorAll('input').forEach(i => i.addEventListener('input', updateTotales));
+  }
+
+  document.getElementById('btn-add-concepto').addEventListener('click', () => {
+    addConcepto();
+    updateTotales();
+  });
+
+  addConcepto();
+
+  // ── Preview totales ────────────────────────────────────────────────────────
+  function fmt(n) {
+    return n.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €';
+  }
+
+  function updateTotales() {
+    const rows       = document.querySelectorAll('.concepto-row');
+    const descuento  = parseFloat(document.getElementById('descuento_pct').value) || 0;
+    let subtotal     = 0;
+
+    rows.forEach(r => {
+      const qty   = parseFloat(r.querySelector('.c-cantidad').value) || 0;
+      const price = parseFloat(r.querySelector('.c-precio').value)   || 0;
+      subtotal   += qty * price;
+    });
+
+    const descuentoImporte = subtotal * descuento / 100;
+    const base             = subtotal - descuentoImporte;
+    const iva              = base * 0.21;
+    const total            = base + iva;
+
+    document.getElementById('prev-subtotal').textContent  = fmt(subtotal);
+    document.getElementById('prev-desc-lbl').textContent  = `Descuento (${descuento}%)`;
+    document.getElementById('prev-descuento').textContent = fmt(descuentoImporte);
+    document.getElementById('prev-base').textContent      = fmt(base);
+    document.getElementById('prev-iva').textContent       = fmt(iva);
+    document.getElementById('prev-total').textContent     = fmt(total);
+  }
+
+  document.getElementById('descuento_pct').addEventListener('input', updateTotales);
+
+  // ── Submit ─────────────────────────────────────────────────────────────────
+  document.getElementById('form-presupuesto').addEventListener('submit', async e => {
+    e.preventDefault();
+
+    const btn = document.getElementById('btn-submit');
+    btn.disabled = true;
+    btn.textContent = 'Generando…';
+
+    const conceptos = [];
+    document.querySelectorAll('.concepto-row').forEach(r => {
+      const nombre = r.querySelector('.c-nombre').value.trim();
+      const desc   = r.querySelector('.c-desc').value.trim();
+      const qty    = parseFloat(r.querySelector('.c-cantidad').value) || 1;
+      const price  = parseFloat(r.querySelector('.c-precio').value)   || 0;
+      if (nombre) conceptos.push({ nombre, descripcion: desc, cantidad: qty, precio_unitario: price });
+    });
+
+    if (!conceptos.length) {
+      alert('Añade al menos un concepto con nombre.');
+      btn.disabled = false;
+      btn.textContent = 'Generar presupuesto';
+      return;
+    }
+
+    const payload = {
+      marca:                 document.getElementById('marca').value,
+      cliente_nombre:        document.getElementById('cliente_nombre').value.trim(),
+      cliente_cif:           document.getElementById('cliente_cif').value.trim() || null,
+      cliente_direccion:     document.getElementById('cliente_direccion').value.trim() || null,
+      cliente_contacto:      document.getElementById('cliente_contacto').value.trim() || null,
+      cliente_email:         document.getElementById('cliente_email').value.trim() || null,
+      cliente_telefono:      document.getElementById('cliente_telefono').value.trim() || null,
+      responsable:           document.getElementById('responsable').value.trim() || 'Marc Oliver',
+      fecha_inicio_estimada: document.getElementById('fecha_inicio_estimada').value || null,
+      validez_dias:          parseInt(document.getElementById('validez_dias').value) || 30,
+      alcance_proyecto:      document.getElementById('alcance_proyecto').value.trim() || null,
+      conceptos,
+      descuento_pct:         parseFloat(document.getElementById('descuento_pct').value) || 0,
+    };
+
+    try {
+      const resp = await fetch(BASE_URL + '/api/presupuestos', {
+        method:  'POST',
+        headers: authHeaders(),
+        body:    JSON.stringify(payload),
+      });
+
+      if (resp.status === 401) {
+        clearToken();
+        showLogin();
+        return;
+      }
+
+      const data = await resp.json();
+      if (!resp.ok) throw new Error(data.error || `Error ${resp.status}`);
+
+      // Mostrar resultado
+      document.getElementById('res-numero').textContent = data.numero;
+      document.getElementById('res-url').textContent    = data.url;
+
+      const resultEl = document.getElementById('resultado');
+      resultEl.classList.remove('hidden');
+      resultEl.scrollIntoView({ behavior: 'smooth' });
+
+      document.getElementById('btn-copy').onclick = () => {
+        navigator.clipboard.writeText(data.url).then(() => {
+          document.getElementById('btn-copy').textContent = '¡Copiado!';
+          setTimeout(() => { document.getElementById('btn-copy').textContent = 'Copiar enlace'; }, 2000);
+        });
+      };
+      document.getElementById('btn-open').onclick = () => window.open(data.url, '_blank');
+
+    } catch (err) {
+      alert('Error al crear el presupuesto: ' + err.message);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Generar presupuesto';
+    }
+  });
+})();
+</script>
+</body>
+</html>
