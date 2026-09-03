@@ -335,15 +335,7 @@ router.get('/:customerId/recomendaciones-google', requireAuth, async (req, res) 
         SELECT
           recommendation.resource_name,
           recommendation.type,
-          recommendation.campaign,
-          recommendation.impact.base_metrics.clicks,
-          recommendation.impact.base_metrics.impressions,
-          recommendation.impact.base_metrics.conversions,
-          recommendation.impact.base_metrics.cost_micros,
-          recommendation.impact.potential_metrics.clicks,
-          recommendation.impact.potential_metrics.impressions,
-          recommendation.impact.potential_metrics.conversions,
-          recommendation.impact.potential_metrics.cost_micros
+          recommendation.campaign
         FROM recommendation
       `),
       customer.query(`
@@ -371,7 +363,6 @@ router.get('/:customerId/recomendaciones-google', requireAuth, async (req, res) 
         descripcion: label.desc,
         campana_id: campId,
         campana_nombre: campNombre,
-        impacto: formatImpact(rec.impact),
       };
     });
     res.json(result);
