@@ -13,9 +13,11 @@ const timbolRouter       = require('./backend/api/timbol');
 const grupoRouter        = require('./backend/api/grupo');
 const contentRoutes      = require('./backend/api/content');
 const presupuestosRouter = require('./backend/api/presupuestos');
-const campanasRouter     = require('./backend/api/campanas');
-const { syncGoogleAds }      = require('./backend/jobs/google-ads-sync');
-const { syncFacturaDirecta } = require('./backend/jobs/facturadirecta-sync');
+const campanasRouter        = require('./backend/api/campanas');
+const customerMetricsRouter = require('./backend/api/customer-metrics');
+const { syncGoogleAds }          = require('./backend/jobs/google-ads-sync');
+const { syncFacturaDirecta }     = require('./backend/jobs/facturadirecta-sync');
+const { runCustomerMetricsJob }  = require('./backend/jobs/customer-metrics-job');
 
 const app = express();
 app.use(cors());
@@ -56,6 +58,7 @@ app.use('/api/content', contentRoutes);
 app.use('/presupuestos', presupuestosRouter);
 app.use('/api/presupuestos', presupuestosRouter);
 app.use('/api/campanas', campanasRouter);
+app.use('/api/customer-metrics', customerMetricsRouter);
 
 // Hub dashboard (Supabase Auth + realtime). Served at / and /hub.
 const HUB_PAGE = path.join(__dirname, 'frontend', 'pages', 'index.html');
@@ -94,6 +97,11 @@ cron.schedule('0 8 * * *', () => {
 // FacturaDirecta sync — daily at 06:00 Madrid.
 cron.schedule('0 6 * * *', () => {
   syncFacturaDirecta().catch(e => console.error('[fd-sync] cron failed:', e.message));
+}, { timezone: 'Europe/Madrid' });
+
+// Customer Intelligence metrics — daily at 06:30 Madrid.
+cron.schedule('30 6 * * *', () => {
+  runCustomerMetricsJob().catch(e => console.error('[customer-metrics] cron failed:', e.message));
 }, { timezone: 'Europe/Madrid' });
 
 // Campañas Google Ads sync — daily at 07:00 Madrid.
