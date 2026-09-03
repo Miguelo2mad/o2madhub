@@ -13,6 +13,8 @@ const timbolRouter       = require('./backend/api/timbol');
 const grupoRouter        = require('./backend/api/grupo');
 const contentRoutes      = require('./backend/api/content');
 const presupuestosRouter = require('./backend/api/presupuestos');
+const campanasRouter     = require('./backend/api/campanas');
+const { syncGoogleAds }  = require('./backend/jobs/google-ads-sync');
 
 const app = express();
 app.use(cors());
@@ -52,6 +54,7 @@ app.use('/grupo', grupoRouter);
 app.use('/api/content', contentRoutes);
 app.use('/presupuestos', presupuestosRouter);
 app.use('/api/presupuestos', presupuestosRouter);
+app.use('/api/campanas', campanasRouter);
 
 // Hub dashboard (Supabase Auth + realtime). Served at / and /hub.
 const HUB_PAGE = path.join(__dirname, 'frontend', 'pages', 'index.html');
@@ -60,6 +63,7 @@ app.get('/content', (_req, res) => res.sendFile(path.join(__dirname, 'frontend',
 app.get('/timbol-app',       (_req, res) => res.sendFile(path.join(__dirname, 'frontend', 'pages', 'timbol.html')));
 app.get('/grupo-app',        (_req, res) => res.sendFile(path.join(__dirname, 'frontend', 'pages', 'grupo.html')));
 app.get('/presupuestos-app', (_req, res) => res.sendFile(path.join(__dirname, 'frontend', 'pages', 'presupuestos.html')));
+app.get('/campanas', (_req, res) => res.sendFile(path.join(__dirname, 'frontend', 'pages', 'campanas.html')));
 
 app.get('/health', (_req, res) => res.json({ ok: true, ts: new Date().toISOString() }));
 
@@ -84,6 +88,11 @@ app.post('/run', async (req, res) => {
 // Daily at 08:00 Spain time.
 cron.schedule('0 8 * * *', () => {
   runDaily().catch(e => console.error('[o2madhub] cron run failed:', e.message));
+}, { timezone: 'Europe/Madrid' });
+
+// Campañas Google Ads sync — daily at 07:00 Madrid.
+cron.schedule('0 7 * * *', () => {
+  syncGoogleAds().catch(e => console.error('[campanas] cron failed:', e.message));
 }, { timezone: 'Europe/Madrid' });
 
 app.listen(PORT, () => {

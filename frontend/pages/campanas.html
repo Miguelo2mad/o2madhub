@@ -1,0 +1,555 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Campañas Google Ads — O2MAD HUB</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+  <style>
+    :root {
+      --negro: #0F0E0C;
+      --arena: #C4A882;
+      --blanco: #F5F0E8;
+      --negro-soft: #1a1916;
+      --arena-dim: rgba(196,168,130,0.18);
+      --rojo: #d9684f;
+      --ambar: #d9a441;
+      --verde: #7fa86b;
+      --border: rgba(196,168,130,0.22);
+      --text-muted: rgba(245,240,232,0.5);
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { font-size: 14px; }
+    body {
+      font-family: 'Inter', sans-serif;
+      background: var(--negro);
+      color: var(--blanco);
+      min-height: 100vh;
+    }
+
+    /* Header */
+    header {
+      position: sticky; top: 0; z-index: 100;
+      background: var(--negro-soft);
+      border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; gap: 16px;
+      padding: 0 24px; height: 56px;
+    }
+    .logo { font-weight: 700; font-size: 15px; color: var(--arena); letter-spacing: .04em; }
+    .logo span { color: var(--blanco); }
+    header .spacer { flex: 1; }
+    .user-email { font-size: 12px; color: var(--text-muted); }
+    header button {
+      background: var(--arena-dim); border: 1px solid var(--border);
+      color: var(--blanco); padding: 6px 14px; border-radius: 6px;
+      font-size: 12px; cursor: pointer; font-family: inherit;
+    }
+    header button:hover { background: rgba(196,168,130,0.3); }
+
+    /* Controls bar */
+    .controls {
+      display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+      padding: 16px 24px;
+      border-bottom: 1px solid var(--border);
+      background: var(--negro-soft);
+    }
+    .controls label { font-size: 12px; color: var(--text-muted); }
+    .controls select {
+      background: var(--negro); border: 1px solid var(--border);
+      color: var(--blanco); padding: 6px 10px; border-radius: 6px;
+      font-family: inherit; font-size: 13px; cursor: pointer;
+    }
+    .controls .spacer { flex: 1; }
+    .btn {
+      background: var(--arena-dim); border: 1px solid var(--border);
+      color: var(--blanco); padding: 7px 16px; border-radius: 6px;
+      font-size: 13px; font-family: inherit; cursor: pointer;
+      display: inline-flex; align-items: center; gap: 6px;
+    }
+    .btn:hover { background: rgba(196,168,130,0.3); }
+    .btn.accent { background: var(--arena); color: var(--negro); border-color: transparent; font-weight: 600; }
+    .btn.accent:hover { background: #d4b898; }
+    .btn:disabled { opacity: .4; cursor: not-allowed; }
+
+    /* Main */
+    main { padding: 24px; max-width: 1200px; }
+
+    /* KPI cards */
+    .kpi-grid {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 12px; margin-bottom: 24px;
+    }
+    .kpi-card {
+      background: var(--negro-soft); border: 1px solid var(--border);
+      border-radius: 10px; padding: 16px;
+    }
+    .kpi-card .kpi-label { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: .06em; margin-bottom: 6px; }
+    .kpi-card .kpi-value { font-size: 24px; font-weight: 700; color: var(--arena); }
+    .kpi-card .kpi-sub { font-size: 11px; color: var(--text-muted); margin-top: 4px; }
+
+    /* Chart */
+    .chart-box {
+      background: var(--negro-soft); border: 1px solid var(--border);
+      border-radius: 10px; padding: 16px; margin-bottom: 24px;
+    }
+    .chart-box h3 { font-size: 13px; font-weight: 600; margin-bottom: 12px; color: var(--blanco); }
+    .chart-box svg { width: 100%; display: block; }
+    .chart-legend { display: flex; gap: 16px; margin-top: 8px; font-size: 11px; }
+    .legend-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; margin-right: 4px; }
+
+    /* Table */
+    .table-box {
+      background: var(--negro-soft); border: 1px solid var(--border);
+      border-radius: 10px; overflow: hidden; margin-bottom: 24px;
+    }
+    .table-box h3 { font-size: 13px; font-weight: 600; padding: 14px 16px; border-bottom: 1px solid var(--border); }
+    .table-scroll { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    th { padding: 10px 12px; text-align: right; font-weight: 500; color: var(--text-muted); white-space: nowrap; border-bottom: 1px solid var(--border); }
+    th:first-child { text-align: left; }
+    td { padding: 9px 12px; text-align: right; border-bottom: 1px solid rgba(196,168,130,0.08); }
+    td:first-child { text-align: left; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: var(--arena-dim); }
+
+    /* Recommendation card */
+    .rec-card {
+      background: rgba(127,168,107,0.1); border: 1px solid rgba(127,168,107,0.4);
+      border-radius: 10px; padding: 16px; margin-bottom: 16px;
+      white-space: pre-wrap; font-size: 13px; line-height: 1.7;
+    }
+    .rec-card .rec-date { font-size: 11px; color: var(--text-muted); margin-bottom: 8px; }
+
+    /* Details / collapsible */
+    details { margin-bottom: 24px; }
+    details summary {
+      cursor: pointer; font-size: 13px; font-weight: 600;
+      padding: 12px 16px; background: var(--negro-soft);
+      border: 1px solid var(--border); border-radius: 10px;
+      list-style: none; display: flex; align-items: center; gap: 8px;
+    }
+    details summary::before { content: '▸'; color: var(--arena); }
+    details[open] summary::before { content: '▾'; }
+    details .details-body { padding: 16px 0 0; }
+
+    /* Form */
+    .form-card {
+      background: var(--negro-soft); border: 1px solid var(--border);
+      border-radius: 10px; padding: 20px;
+    }
+    .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px; }
+    .form-group { display: flex; flex-direction: column; gap: 5px; }
+    .form-group label { font-size: 11px; color: var(--text-muted); }
+    .form-group input {
+      background: var(--negro); border: 1px solid var(--border);
+      color: var(--blanco); padding: 8px 10px; border-radius: 6px;
+      font-family: inherit; font-size: 13px;
+    }
+    .form-group input:focus { outline: none; border-color: var(--arena); }
+
+    /* Empty / loading */
+    .empty { color: var(--text-muted); font-size: 13px; padding: 32px; text-align: center; }
+    .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid var(--border); border-top-color: var(--arena); border-radius: 50%; animation: spin .7s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="logo">O2MAD <span>HUB</span></div>
+  <span style="font-size:13px;color:var(--text-muted);">Campañas Google Ads</span>
+  <div class="spacer"></div>
+  <span class="user-email" id="userEmail"></span>
+  <button onclick="window.location.href='/'">← Hub</button>
+  <button onclick="signOut()">Salir</button>
+</header>
+
+<div class="controls">
+  <label for="selectCliente">Cliente</label>
+  <select id="selectCliente" onchange="onClienteChange()">
+    <option value="">— Selecciona cliente —</option>
+  </select>
+
+  <label for="selectDias">Periodo</label>
+  <select id="selectDias" onchange="onDiasChange()">
+    <option value="7">7 días</option>
+    <option value="30" selected>30 días</option>
+    <option value="90">90 días</option>
+  </select>
+
+  <div class="spacer"></div>
+
+  <button class="btn" id="btnSync" onclick="syncAhora()" disabled>
+    <span id="syncLabel">Actualizar ahora</span>
+  </button>
+  <button class="btn accent" id="btnRec" onclick="pedirRecomendacion()" disabled>
+    Pedir recomendación a Claude
+  </button>
+</div>
+
+<main>
+  <!-- KPI cards -->
+  <div class="kpi-grid">
+    <div class="kpi-card">
+      <div class="kpi-label">Gasto total</div>
+      <div class="kpi-value" id="kpiGasto">—</div>
+      <div class="kpi-sub" id="kpiCpc"></div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">Conversiones</div>
+      <div class="kpi-value" id="kpiConv">—</div>
+      <div class="kpi-sub" id="kpiRoas"></div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">CPL medio</div>
+      <div class="kpi-value" id="kpiCpl">—</div>
+      <div class="kpi-sub" id="kpiCplObj"></div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">CTR</div>
+      <div class="kpi-value" id="kpiCtr">—</div>
+      <div class="kpi-sub" id="kpiClics"></div>
+    </div>
+  </div>
+
+  <!-- Chart -->
+  <div class="chart-box">
+    <h3>Evolución diaria</h3>
+    <svg id="chart" viewBox="0 0 800 180" preserveAspectRatio="xMidYMid meet" style="height:180px;">
+      <text x="400" y="100" text-anchor="middle" fill="rgba(245,240,232,0.3)" font-size="13">Selecciona un cliente</text>
+    </svg>
+    <div class="chart-legend">
+      <span><span class="legend-dot" style="background:#5b8fd9;"></span>Gasto (€)</span>
+      <span><span class="legend-dot" style="background:#d9a441;"></span>Conversiones</span>
+    </div>
+  </div>
+
+  <!-- Table -->
+  <div class="table-box">
+    <h3>Por campaña</h3>
+    <div class="table-scroll">
+      <table id="tablaCampanas">
+        <thead>
+          <tr>
+            <th>Campaña</th>
+            <th>Impresiones</th>
+            <th>Clics</th>
+            <th>CTR</th>
+            <th>Coste</th>
+            <th>Conversiones</th>
+            <th>CPL</th>
+            <th>ROAS</th>
+          </tr>
+        </thead>
+        <tbody id="tbodyCampanas">
+          <tr><td colspan="8" class="empty">Selecciona un cliente</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Recomendación nueva -->
+  <div id="recNueva" style="display:none;margin-bottom:24px;">
+    <div class="rec-card" id="recNuevaCard"></div>
+  </div>
+
+  <!-- Recomendaciones anteriores -->
+  <details id="detallesRec">
+    <summary>Recomendaciones anteriores</summary>
+    <div class="details-body" id="recHistorial">
+      <div class="empty">Selecciona un cliente</div>
+    </div>
+  </details>
+
+  <!-- Añadir cliente -->
+  <details>
+    <summary>Añadir cliente</summary>
+    <div class="details-body">
+      <div class="form-card">
+        <div class="form-row">
+          <div class="form-group">
+            <label>Nombre del cliente *</label>
+            <input type="text" id="fNombre" placeholder="Ej: Hotel Astoria Playa" />
+          </div>
+          <div class="form-group">
+            <label>Customer ID de Google Ads *</label>
+            <input type="text" id="fCustomerId" placeholder="123-456-7890" />
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Objetivo CPL (€)</label>
+            <input type="number" id="fCpl" placeholder="Ej: 25" min="0" step="0.01" />
+          </div>
+          <div class="form-group">
+            <label>Objetivo ROAS</label>
+            <input type="number" id="fRoas" placeholder="Ej: 4.5" min="0" step="0.1" />
+          </div>
+        </div>
+        <button class="btn accent" onclick="guardarCliente()">Guardar cliente</button>
+        <span id="fMsg" style="margin-left:12px;font-size:12px;color:var(--text-muted);"></span>
+      </div>
+    </div>
+  </details>
+</main>
+
+<script>
+  const SUPABASE_URL = 'https://eqruoeoiqvlnlzidqxqr.supabase.co';
+  const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVxcnVvZW9pcXZsbmx6aWRxeHFyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE4NTY4MDcsImV4cCI6MjA5NzQzMjgwN30.QYMAUUrARJ9i_F8tb4gyGBkJAL66m7izlqgE2gZyz5k';
+
+  const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  let currentUser = null;
+  let accessToken = null;
+  let clientes = [];
+  let clienteActual = null;
+  let statsActuales = null;
+
+  sb.auth.getSession().then(({ data }) => {
+    if (!data.session) { window.location.href = '/'; return; }
+    currentUser = data.session.user;
+    accessToken = data.session.access_token;
+    document.getElementById('userEmail').textContent = currentUser.email;
+    init();
+  });
+
+  async function signOut() {
+    await sb.auth.signOut();
+    window.location.href = '/';
+  }
+
+  async function api(path, opts = {}) {
+    const res = await fetch(path, {
+      ...opts,
+      headers: { 'Authorization': `Bearer ${accessToken}`, 'Content-Type': 'application/json', ...(opts.headers || {}) },
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: res.statusText }));
+      throw new Error(err.error || res.statusText);
+    }
+    return res.json();
+  }
+
+  async function init() {
+    try {
+      clientes = await api('/api/campanas/clientes');
+      const sel = document.getElementById('selectCliente');
+      clientes.forEach(c => {
+        const opt = document.createElement('option');
+        opt.value = c.customer_id;
+        opt.textContent = c.nombre_cliente;
+        sel.appendChild(opt);
+      });
+      if (clientes.length === 1) {
+        sel.value = clientes[0].customer_id;
+        await onClienteChange();
+      }
+    } catch (e) {
+      console.error('init error:', e);
+    }
+  }
+
+  async function onClienteChange() {
+    const customerId = document.getElementById('selectCliente').value;
+    if (!customerId) return;
+    clienteActual = clientes.find(c => c.customer_id === customerId) || null;
+    document.getElementById('btnSync').disabled = false;
+    document.getElementById('btnRec').disabled = false;
+    await cargarStats();
+    await cargarRecomendaciones();
+  }
+
+  async function onDiasChange() {
+    if (clienteActual) await cargarStats();
+  }
+
+  async function cargarStats() {
+    if (!clienteActual) return;
+    const dias = document.getElementById('selectDias').value;
+    try {
+      statsActuales = await api(`/api/campanas/${clienteActual.customer_id}/stats?dias=${dias}`);
+      renderKpis(statsActuales.totales);
+      renderChart(statsActuales.por_dia);
+      renderTabla(statsActuales.por_campana);
+    } catch (e) {
+      console.error('stats error:', e);
+    }
+  }
+
+  function eur(n) { return new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' }).format(n || 0); }
+  function pct(n) { return ((n || 0) * 100).toFixed(2) + '%'; }
+  function fmt(n) { return Number(n || 0).toFixed(2); }
+  function fmtInt(n) { return new Intl.NumberFormat('es-ES').format(Math.round(n || 0)); }
+
+  function renderKpis(t) {
+    document.getElementById('kpiGasto').textContent = eur(t.coste);
+    document.getElementById('kpiCpc').textContent = `CPC: ${eur(t.cpc)}`;
+    document.getElementById('kpiConv').textContent = fmt(t.conversiones);
+    document.getElementById('kpiRoas').textContent = `ROAS: ${fmt(t.roas)}x`;
+    document.getElementById('kpiCpl').textContent = t.conversiones > 0 ? eur(t.cpl) : '—';
+    const objCpl = clienteActual?.objetivo_cpl;
+    document.getElementById('kpiCplObj').textContent = objCpl ? `Objetivo: ${eur(objCpl)}` : '';
+    document.getElementById('kpiCtr').textContent = pct(t.ctr);
+    document.getElementById('kpiClics').textContent = `${fmtInt(t.clics)} clics`;
+  }
+
+  function renderChart(porDia) {
+    const svg = document.getElementById('chart');
+    if (!porDia || porDia.length === 0) {
+      svg.innerHTML = '<text x="400" y="100" text-anchor="middle" fill="rgba(245,240,232,0.3)" font-size="13">Sin datos</text>';
+      return;
+    }
+
+    const W = 800, H = 180, PAD = { top: 16, right: 20, bottom: 32, left: 60 };
+    const iW = W - PAD.left - PAD.right;
+    const iH = H - PAD.top - PAD.bottom;
+
+    const maxCoste = Math.max(...porDia.map(d => d.coste), 1);
+    const maxConv = Math.max(...porDia.map(d => d.conversiones), 1);
+    const n = porDia.length;
+
+    const xScale = i => PAD.left + (i / Math.max(n - 1, 1)) * iW;
+    const yCoste = v => PAD.top + iH - (v / maxCoste) * iH;
+    const yConv = v => PAD.top + iH - (v / maxConv) * iH;
+
+    const costePoints = porDia.map((d, i) => `${xScale(i)},${yCoste(d.coste)}`).join(' ');
+    const convPoints = porDia.map((d, i) => `${xScale(i)},${yConv(d.conversiones)}`).join(' ');
+    const areaPoints = `${xScale(0)},${PAD.top + iH} ${costePoints} ${xScale(n - 1)},${PAD.top + iH}`;
+
+    // Y axis labels
+    const yLabels = [0, 0.5, 1].map(f => {
+      const val = maxCoste * f;
+      const y = PAD.top + iH - f * iH;
+      return `<text x="${PAD.left - 6}" y="${y + 4}" text-anchor="end" fill="rgba(245,240,232,0.35)" font-size="10">${eur(val)}</text>
+              <line x1="${PAD.left}" y1="${y}" x2="${W - PAD.right}" y2="${y}" stroke="rgba(196,168,130,0.1)" stroke-width="1"/>`;
+    }).join('');
+
+    // X axis labels (show ~5)
+    const step = Math.ceil(n / 5);
+    const xLabels = porDia.filter((_, i) => i % step === 0 || i === n - 1).map((d, _, arr) => {
+      const idx = porDia.indexOf(d);
+      return `<text x="${xScale(idx)}" y="${H - 8}" text-anchor="middle" fill="rgba(245,240,232,0.35)" font-size="10">${d.fecha.slice(5)}</text>`;
+    }).join('');
+
+    svg.innerHTML = `
+      <defs>
+        <linearGradient id="gArea" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="#5b8fd9" stop-opacity="0.35"/>
+          <stop offset="100%" stop-color="#5b8fd9" stop-opacity="0"/>
+        </linearGradient>
+      </defs>
+      ${yLabels}
+      ${xLabels}
+      <polygon points="${areaPoints}" fill="url(#gArea)"/>
+      <polyline points="${costePoints}" fill="none" stroke="#5b8fd9" stroke-width="2" stroke-linejoin="round"/>
+      <polyline points="${convPoints}" fill="none" stroke="#d9a441" stroke-width="2" stroke-linejoin="round" stroke-dasharray="4 2"/>
+    `;
+  }
+
+  function renderTabla(porCampana) {
+    const tbody = document.getElementById('tbodyCampanas');
+    if (!porCampana || porCampana.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="8" class="empty">Sin datos</td></tr>';
+      return;
+    }
+    tbody.innerHTML = porCampana.sort((a, b) => b.coste - a.coste).map(c => `
+      <tr>
+        <td title="${c.campana_nombre}">${c.campana_nombre}</td>
+        <td>${fmtInt(c.impresiones)}</td>
+        <td>${fmtInt(c.clics)}</td>
+        <td>${pct(c.ctr)}</td>
+        <td>${eur(c.coste)}</td>
+        <td>${fmt(c.conversiones)}</td>
+        <td>${c.conversiones > 0 ? eur(c.cpl) : '—'}</td>
+        <td>${c.coste > 0 ? fmt(c.roas) + 'x' : '—'}</td>
+      </tr>
+    `).join('');
+  }
+
+  async function cargarRecomendaciones() {
+    if (!clienteActual) return;
+    try {
+      const recs = await api(`/api/campanas/${clienteActual.customer_id}/recomendaciones`);
+      const cont = document.getElementById('recHistorial');
+      if (!recs.length) { cont.innerHTML = '<div class="empty">Sin recomendaciones anteriores</div>'; return; }
+      cont.innerHTML = recs.map(r => `
+        <div class="rec-card">
+          <div class="rec-date">${new Date(r.fecha).toLocaleString('es-ES')}</div>
+          ${r.texto}
+        </div>
+      `).join('');
+    } catch (e) {
+      console.error('recs error:', e);
+    }
+  }
+
+  async function syncAhora() {
+    const btn = document.getElementById('btnSync');
+    const label = document.getElementById('syncLabel');
+    btn.disabled = true;
+    label.innerHTML = '<span class="spinner"></span> Sincronizando…';
+    try {
+      const res = await api('/api/campanas/sync', { method: 'POST' });
+      label.textContent = `✓ ${res.filas} filas`;
+      await cargarStats();
+      setTimeout(() => { label.textContent = 'Actualizar ahora'; btn.disabled = false; }, 3000);
+    } catch (e) {
+      label.textContent = 'Error: ' + e.message;
+      btn.disabled = false;
+    }
+  }
+
+  async function pedirRecomendacion() {
+    if (!clienteActual) return;
+    const btn = document.getElementById('btnRec');
+    btn.disabled = true;
+    btn.textContent = '⏳ Generando…';
+    try {
+      const { recomendacion } = await api(`/api/campanas/${clienteActual.customer_id}/recomendar`, { method: 'POST' });
+      const card = document.getElementById('recNuevaCard');
+      card.innerHTML = `<div class="rec-date">Ahora — ${new Date(recomendacion.fecha).toLocaleString('es-ES')}</div>${recomendacion.texto}`;
+      document.getElementById('recNueva').style.display = 'block';
+      await cargarRecomendaciones();
+    } catch (e) {
+      alert('Error al generar recomendación: ' + e.message);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Pedir recomendación a Claude';
+    }
+  }
+
+  async function guardarCliente() {
+    const nombre_cliente = document.getElementById('fNombre').value.trim();
+    const customer_id = document.getElementById('fCustomerId').value.replace(/-/g, '').trim();
+    const objetivo_cpl = parseFloat(document.getElementById('fCpl').value) || null;
+    const objetivo_roas = parseFloat(document.getElementById('fRoas').value) || null;
+    const msg = document.getElementById('fMsg');
+    msg.textContent = '';
+
+    if (!nombre_cliente || !customer_id) { msg.textContent = 'Nombre y Customer ID son obligatorios.'; return; }
+
+    try {
+      const nuevo = await api('/api/campanas/clientes', {
+        method: 'POST',
+        body: JSON.stringify({ nombre_cliente, customer_id, objetivo_cpl, objetivo_roas }),
+      });
+      clientes.push(nuevo);
+      const sel = document.getElementById('selectCliente');
+      const opt = document.createElement('option');
+      opt.value = nuevo.customer_id;
+      opt.textContent = nuevo.nombre_cliente;
+      sel.appendChild(opt);
+      msg.textContent = '✓ Cliente guardado';
+      document.getElementById('fNombre').value = '';
+      document.getElementById('fCustomerId').value = '';
+      document.getElementById('fCpl').value = '';
+      document.getElementById('fRoas').value = '';
+    } catch (e) {
+      msg.textContent = 'Error: ' + e.message;
+    }
+  }
+</script>
+</body>
+</html>
