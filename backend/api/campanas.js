@@ -270,26 +270,110 @@ router.get('/:customerId/campanas', requireAuth, async (req, res) => {
   }
 });
 
+const RECOMMENDATION_LABELS = {
+  2:  { es: 'Aumentar presupuesto de campaña',          desc: 'Google detecta que el presupuesto diario se agota y limita el alcance de la campaña.' },
+  3:  { es: 'Añadir keywords',                          desc: 'Palabras clave sugeridas para captar más búsquedas relevantes.' },
+  4:  { es: 'Crear anuncio de texto',                   desc: 'Añadir un nuevo anuncio para mejorar la relevancia del grupo de anuncios.' },
+  5:  { es: 'Activar Target CPA',                       desc: 'Cambiar la puja a CPA objetivo para optimizar conversiones automáticamente.' },
+  6:  { es: 'Activar Maximizar conversiones',           desc: 'Cambiar la estrategia de puja a Maximizar conversiones.' },
+  7:  { es: 'Activar CPC mejorado',                     desc: 'Habilitar el ajuste automático de pujas para mejorar conversiones.' },
+  9:  { es: 'Activar Maximizar clics',                  desc: 'Cambiar la estrategia de puja a Maximizar clics.' },
+  10: { es: 'Optimizar rotación de anuncios',            desc: 'Usar rotación optimizada para mostrar los anuncios con mejor rendimiento.' },
+  14: { es: 'Cambiar tipo de concordancia',             desc: 'Ajustar el tipo de concordancia de algunas keywords para mejorar cobertura.' },
+  15: { es: 'Mover presupuesto no utilizado',           desc: 'Reasignar presupuesto de campañas con excedente a campañas limitadas.' },
+  16: { es: 'Aumentar presupuesto (previsión)',         desc: 'Aumentar el presupuesto basándose en previsiones de demanda futura.' },
+  17: { es: 'Activar Target ROAS',                      desc: 'Cambiar la puja a ROAS objetivo para maximizar el valor de conversión.' },
+  18: { es: 'Crear anuncio de búsqueda responsive',    desc: 'Añadir un anuncio de búsqueda responsive para mejorar rendimiento.' },
+  19: { es: 'Aumentar presupuesto (ROI marginal)',      desc: 'Aumentar el presupuesto donde la inversión adicional sería rentable.' },
+  20: { es: 'Usar concordancia amplia en keywords',    desc: 'Cambiar keywords a concordancia amplia para captar más búsquedas relevantes con Smart Bidding.' },
+  21: { es: 'Mejorar anuncio de búsqueda responsive',  desc: 'Añadir más títulos o descripciones al anuncio responsive.' },
+  23: { es: 'Mejorar fuerza del anuncio responsive',   desc: 'Mejorar la fuerza del anuncio añadiendo variantes de texto.' },
+  26: { es: 'Aumentar puja de CPA objetivo',           desc: 'El CPA objetivo actual es muy bajo — aumentarlo puede generar más conversiones.' },
+  27: { es: 'Establecer Target ROAS (previsión)',       desc: 'Aplicar ROAS objetivo basándose en previsiones estacionales.' },
+  28: { es: 'Añadir extensiones de texto destacado',   desc: 'Añadir callouts para resaltar beneficios del negocio en los anuncios.' },
+  29: { es: 'Añadir sitelinks',                        desc: 'Añadir extensiones de sitelink para mostrar más páginas de destino en el anuncio.' },
+  30: { es: 'Añadir extensión de llamada',              desc: 'Añadir un número de teléfono al anuncio para captar llamadas directas.' },
+  44: { es: 'Aumentar CPA objetivo',                   desc: 'Aumentar el CPA objetivo para conseguir más conversiones.' },
+  45: { es: 'Reducir ROAS objetivo',                   desc: 'Reducir el ROAS objetivo para aumentar el volumen de conversiones.' },
+  46: { es: 'Activar Performance Max',                 desc: 'Crear una campaña Performance Max para ampliar el alcance.' },
+  49: { es: 'Establecer CPA objetivo (previsión)',      desc: 'Aplicar CPA objetivo basándose en previsiones estacionales.' },
+  50: { es: 'Establecer CPA objetivo',                 desc: 'Configurar un CPA objetivo para optimizar la estrategia de puja.' },
+  51: { es: 'Establecer ROAS objetivo',                desc: 'Configurar un ROAS objetivo para maximizar el valor de conversión.' },
+};
+
+function getRecommendationLabel(typeCode) {
+  const num = Number(typeCode);
+  return RECOMMENDATION_LABELS[num] || { es: `Recomendación tipo ${typeCode}`, desc: '' };
+}
+
+function extractCampaignId(resourceName) {
+  if (!resourceName) return null;
+  const m = resourceName.match(/campaigns\/(\d+)/);
+  return m ? m[1] : null;
+}
+
+function formatImpact(impact) {
+  if (!impact) return null;
+  const base = impact.base_metrics || {};
+  const pot  = impact.potential_metrics || {};
+  const diff = {};
+  if (pot.clicks    != null && base.clicks    != null) diff.clics       = +(pot.clicks    - base.clicks).toFixed(1);
+  if (pot.impressions != null && base.impressions != null) diff.impresiones = +(pot.impressions - base.impressions).toFixed(0);
+  if (pot.conversions != null && base.conversions != null) diff.conversiones = +(pot.conversions - base.conversions).toFixed(2);
+  if (pot.cost_micros != null && base.cost_micros != null) diff.coste_eur = +((pot.cost_micros - base.cost_micros) / 1e6).toFixed(2);
+  return Object.keys(diff).length ? diff : null;
+}
+
 // GET /:customerId/recomendaciones-google
 router.get('/:customerId/recomendaciones-google', requireAuth, async (req, res) => {
   const { customerId } = req.params;
   try {
     const customer = getGadsCustomer(customerId);
-    const gaql = `
-      SELECT
-        recommendation.resource_name,
-        recommendation.type,
-        recommendation.campaign,
-        recommendation.impact
-      FROM recommendation
-    `;
-    const rows = await customer.query(gaql);
-    const result = rows.map(r => ({
-      resource_name: r.recommendation.resource_name,
-      type: r.recommendation.type,
-      campaign: r.recommendation.campaign,
-      impact: r.recommendation.impact,
-    }));
+    // Fetch recommendations + campaign names in parallel
+    const [recRows, campRows] = await Promise.all([
+      customer.query(`
+        SELECT
+          recommendation.resource_name,
+          recommendation.type,
+          recommendation.campaign,
+          recommendation.impact.base_metrics.clicks,
+          recommendation.impact.base_metrics.impressions,
+          recommendation.impact.base_metrics.conversions,
+          recommendation.impact.base_metrics.cost_micros,
+          recommendation.impact.potential_metrics.clicks,
+          recommendation.impact.potential_metrics.impressions,
+          recommendation.impact.potential_metrics.conversions,
+          recommendation.impact.potential_metrics.cost_micros
+        FROM recommendation
+      `),
+      customer.query(`
+        SELECT campaign.id, campaign.name FROM campaign
+        WHERE campaign.status != 'REMOVED'
+      `),
+    ]);
+
+    // Build campaign lookup map
+    const campMap = {};
+    for (const r of campRows) {
+      campMap[String(r.campaign.id)] = r.campaign.name;
+    }
+
+    const result = recRows.map(r => {
+      const rec = r.recommendation;
+      const typeCode = rec.type;
+      const label = getRecommendationLabel(typeCode);
+      const campId = extractCampaignId(rec.campaign);
+      const campNombre = campId ? (campMap[campId] || `Campaña ${campId}`) : null;
+      return {
+        resource_name: rec.resource_name,
+        type_code: typeCode,
+        type_label: label.es,
+        descripcion: label.desc,
+        campana_id: campId,
+        campana_nombre: campNombre,
+        impacto: formatImpact(rec.impact),
+      };
+    });
     res.json(result);
   } catch (e) {
     res.status(500).json({ error: extractGadsError(e) });

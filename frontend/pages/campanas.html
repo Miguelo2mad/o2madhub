@@ -643,21 +643,29 @@
         lista.innerHTML = '<div class="empty" style="padding:16px 0;">Sin recomendaciones activas en esta cuenta</div>';
         return;
       }
-      lista.innerHTML = recs.map((r, i) => {
-        const tipo = String(r.type || '').replace(/_/g, ' ');
-        const impacto = r.impact?.potential_metrics
-          ? `Impacto estimado: ${JSON.stringify(r.impact.potential_metrics)}`
-          : (r.impact ? JSON.stringify(r.impact) : '');
+      lista.innerHTML = recs.map((r) => {
+        // Build impact line
+        let impactoHtml = '';
+        if (r.impacto) {
+          const partes = [];
+          if (r.impacto.clics        != null) partes.push(`${r.impacto.clics > 0 ? '+' : ''}${r.impacto.clics.toFixed(1)} clics/día`);
+          if (r.impacto.impresiones  != null) partes.push(`${r.impacto.impresiones > 0 ? '+' : ''}${Number(r.impacto.impresiones).toLocaleString('es-ES')} impresiones`);
+          if (r.impacto.conversiones != null) partes.push(`${r.impacto.conversiones > 0 ? '+' : ''}${r.impacto.conversiones.toFixed(2)} conv.`);
+          if (r.impacto.coste_eur   != null) partes.push(`${r.impacto.coste_eur > 0 ? '+' : ''}${r.impacto.coste_eur.toFixed(2)}€ gasto`);
+          if (partes.length) impactoHtml = `<div style="font-size:11px;color:var(--ambar);margin-top:4px;">Impacto estimado: ${partes.join(' · ')}</div>`;
+        }
+        const rn = r.resource_name.replace(/'/g, "\\'");
         return `
-          <div class="rec-card" style="background:rgba(91,143,217,0.08);border-color:rgba(91,143,217,0.35);margin-bottom:10px;">
+          <div class="rec-card" style="background:rgba(91,143,217,0.08);border:1px solid rgba(91,143,217,0.3);border-radius:8px;padding:14px 16px;margin-bottom:10px;">
             <div style="display:flex;align-items:flex-start;gap:12px;">
               <div style="flex:1;">
-                <div style="font-weight:600;font-size:13px;margin-bottom:4px;">${tipo}</div>
-                ${r.campaign ? `<div style="font-size:11px;color:var(--text-muted);margin-bottom:4px;">Campaña: ${r.campaign}</div>` : ''}
-                ${impacto ? `<div style="font-size:11px;color:var(--text-muted);">${impacto}</div>` : ''}
+                <div style="font-weight:600;font-size:13px;margin-bottom:3px;">${r.type_label}</div>
+                ${r.campana_nombre ? `<div style="font-size:11px;color:var(--text-muted);margin-bottom:2px;">📢 ${r.campana_nombre}</div>` : ''}
+                ${r.descripcion    ? `<div style="font-size:11px;color:var(--text-muted);">${r.descripcion}</div>` : ''}
+                ${impactoHtml}
               </div>
-              <button class="btn" style="font-size:11px;padding:5px 12px;white-space:nowrap;"
-                onclick="aplicarRecGoogle('${r.resource_name.replace(/'/g,"\\'")}')">Aplicar</button>
+              <button class="btn" style="font-size:11px;padding:5px 12px;white-space:nowrap;flex-shrink:0;"
+                onclick="aplicarRecGoogle('${rn}', '${(r.type_label||'').replace(/'/g,"\\'")}')">Aplicar</button>
             </div>
           </div>`;
       }).join('');
@@ -666,9 +674,10 @@
     }
   }
 
-  async function aplicarRecGoogle(resourceName) {
+  async function aplicarRecGoogle(resourceName, typeLabel) {
     if (!clienteActual) return;
-    if (!confirm(`¿Aplicar esta recomendación de Google a la cuenta real de ${clienteActual.nombre_cliente}?`)) return;
+    const accion = typeLabel ? `"${typeLabel}"` : 'esta recomendación';
+    if (!confirm(`¿Aplicar ${accion} de Google a la cuenta real de ${clienteActual.nombre_cliente}?\n\nEsta acción modificará la cuenta de Google Ads.`)) return;
     try {
       await api(`/api/campanas/${clienteActual.customer_id}/recomendaciones-google/aplicar`, {
         method: 'POST',
