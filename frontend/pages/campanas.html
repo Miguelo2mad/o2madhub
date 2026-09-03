@@ -242,10 +242,12 @@
             <th>Conversiones</th>
             <th>CPL</th>
             <th>ROAS</th>
+            <th>Estado</th>
+            <th>Presupuesto/día</th>
           </tr>
         </thead>
         <tbody id="tbodyCampanas">
-          <tr><td colspan="8" class="empty">Selecciona un cliente</td></tr>
+          <tr><td colspan="10" class="empty">Selecciona un cliente</td></tr>
         </tbody>
       </table>
     </div>
@@ -261,6 +263,44 @@
     <summary>Recomendaciones anteriores</summary>
     <div class="details-body" id="recHistorial">
       <div class="empty">Selecciona un cliente</div>
+    </div>
+  </details>
+
+  <!-- Recomendaciones de Google Ads -->
+  <details id="detallesRecsGoogle" style="margin-bottom:24px;">
+    <summary>Recomendaciones de Google Ads</summary>
+    <div class="details-body">
+      <div style="margin-bottom:12px;">
+        <button class="btn" id="btnCargarRecsGoogle" onclick="cargarRecsGoogle()" disabled>Cargar recomendaciones</button>
+        <span id="recsGoogleStatus" style="margin-left:12px;font-size:12px;color:var(--text-muted);"></span>
+      </div>
+      <div id="listaRecsGoogle"></div>
+    </div>
+  </details>
+
+  <!-- Historial de acciones -->
+  <details id="detallesHistorial" style="margin-bottom:24px;">
+    <summary>Historial de acciones</summary>
+    <div class="details-body">
+      <div class="table-box" style="margin-bottom:0;">
+        <div class="table-scroll">
+          <table id="tablaHistorial">
+            <thead>
+              <tr>
+                <th style="text-align:left;">Acción</th>
+                <th style="text-align:left;">Campaña ID</th>
+                <th style="text-align:left;">Anterior</th>
+                <th style="text-align:left;">Nuevo</th>
+                <th style="text-align:left;">Origen</th>
+                <th style="text-align:left;">Fecha</th>
+              </tr>
+            </thead>
+            <tbody id="tbodyHistorial">
+              <tr><td colspan="6" class="empty">Selecciona un cliente</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
     </div>
   </details>
 
@@ -306,6 +346,7 @@
   let clientes = [];
   let clienteActual = null;
   let statsActuales = null;
+  let campanasActuales = {}; // keyed by campana_id: { id, nombre, status, presupuesto_eur, presupuesto_resource_name }
 
   sb.auth.getSession().then(({ data }) => {
     if (!data.session) { window.location.href = '/'; return; }
@@ -357,8 +398,14 @@
     clienteActual = clientes.find(c => c.customer_id === customerId) || null;
     document.getElementById('btnSync').disabled = false;
     document.getElementById('btnRec').disabled = false;
-    await cargarStats();
-    await cargarRecomendaciones();
+    document.getElementById('btnCargarRecsGoogle').disabled = false;
+    campanasActuales = {};
+    await Promise.all([
+      cargarStats(),
+      cargarRecomendaciones(),
+      cargarCampanasActuales(),
+      cargarHistorial(),
+    ]);
   }
 
   async function onDiasChange() {
@@ -375,6 +422,19 @@
       renderTabla(statsActuales.por_campana);
     } catch (e) {
       console.error('stats error:', e);
+    }
+  }
+
+  async function cargarCampanasActuales() {
+    if (!clienteActual) return;
+    try {
+      const data = await api(`/api/campanas/${clienteActual.customer_id}/campanas`);
+      campanasActuales = {};
+      data.forEach(c => { campanasActuales[c.id] = c; });
+      // Re-render table to include status/budget columns if stats already loaded
+      if (statsActuales) renderTabla(statsActuales.por_campana);
+    } catch (e) {
+      console.error('campanas actuales error:', e);
     }
   }
 
@@ -451,21 +511,71 @@
   function renderTabla(porCampana) {
     const tbody = document.getElementById('tbodyCampanas');
     if (!porCampana || porCampana.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="8" class="empty">Sin datos</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="10" class="empty">Sin datos</td></tr>';
       return;
     }
-    tbody.innerHTML = porCampana.sort((a, b) => b.coste - a.coste).map(c => `
-      <tr>
-        <td title="${c.campana_nombre}">${c.campana_nombre}</td>
-        <td>${fmtInt(c.impresiones)}</td>
-        <td>${fmtInt(c.clics)}</td>
-        <td>${pct(c.ctr)}</td>
-        <td>${eur(c.coste)}</td>
-        <td>${fmt(c.conversiones)}</td>
-        <td>${c.conversiones > 0 ? eur(c.cpl) : '—'}</td>
-        <td>${c.coste > 0 ? fmt(c.roas) + 'x' : '—'}</td>
-      </tr>
-    `).join('');
+    tbody.innerHTML = porCampana.sort((a, b) => b.coste - a.coste).map(c => {
+      const live = campanasActuales[c.campana_id];
+      const isEnabled = live?.status === 2 || String(live?.status).toUpperCase() === 'ENABLED';
+      const isPaused = live?.status === 3 || String(live?.status).toUpperCase() === 'PAUSED';
+      const estadoBtn = live
+        ? (isEnabled
+            ? `<button class="btn" style="font-size:11px;padding:4px 10px;" onclick="cambiarEstado('${clienteActual.customer_id}','${c.campana_id}','PAUSED','${c.campana_nombre.replace(/'/g,"\\'")}')">Pausar</button>`
+            : `<button class="btn" style="font-size:11px;padding:4px 10px;border-color:var(--verde);color:var(--verde);" onclick="cambiarEstado('${clienteActual.customer_id}','${c.campana_id}','ENABLED','${c.campana_nombre.replace(/'/g,"\\'")}')">Activar</button>`)
+        : '<span style="color:var(--text-muted);font-size:11px;">—</span>';
+      const presupuestoActual = live ? live.presupuesto_eur : '';
+      const budgetInput = live
+        ? `<div style="display:flex;gap:6px;align-items:center;">
+            <input type="number" id="bgt-${c.campana_id}" value="${presupuestoActual.toFixed(2)}" min="0.01" step="0.01"
+              style="width:80px;background:var(--negro);border:1px solid var(--border);color:var(--blanco);padding:3px 6px;border-radius:4px;font-family:inherit;font-size:11px;" />
+            <button class="btn" style="font-size:11px;padding:4px 10px;" onclick="guardarPresupuesto('${clienteActual.customer_id}','${c.campana_id}','${c.campana_nombre.replace(/'/g,"\\'")}',${presupuestoActual})">Guardar</button>
+          </div>`
+        : '<span style="color:var(--text-muted);font-size:11px;">—</span>';
+      return `
+        <tr>
+          <td title="${c.campana_nombre}">${c.campana_nombre}</td>
+          <td>${fmtInt(c.impresiones)}</td>
+          <td>${fmtInt(c.clics)}</td>
+          <td>${pct(c.ctr)}</td>
+          <td>${eur(c.coste)}</td>
+          <td>${fmt(c.conversiones)}</td>
+          <td>${c.conversiones > 0 ? eur(c.cpl) : '—'}</td>
+          <td>${c.coste > 0 ? fmt(c.roas) + 'x' : '—'}</td>
+          <td style="text-align:center;">${estadoBtn}</td>
+          <td style="text-align:left;min-width:180px;">${budgetInput}</td>
+        </tr>
+      `;
+    }).join('');
+  }
+
+  async function cambiarEstado(customerId, campanaId, nuevoEstado, campanaNombre) {
+    const accion = nuevoEstado === 'PAUSED' ? 'Pausar' : 'Activar';
+    if (!confirm(`¿${accion} la campaña "${campanaNombre}" en la cuenta ${clienteActual.nombre_cliente}?`)) return;
+    try {
+      await api(`/api/campanas/${customerId}/campanas/${campanaId}/estado`, {
+        method: 'POST',
+        body: JSON.stringify({ estado: nuevoEstado }),
+      });
+      await Promise.all([cargarCampanasActuales(), cargarHistorial()]);
+    } catch (e) {
+      alert('Error al cambiar estado: ' + e.message);
+    }
+  }
+
+  async function guardarPresupuesto(customerId, campanaId, campanaNombre, anteriorEur) {
+    const input = document.getElementById(`bgt-${campanaId}`);
+    const nuevoEur = parseFloat(input?.value);
+    if (!isFinite(nuevoEur) || nuevoEur <= 0) { alert('Introduce un presupuesto válido mayor que 0.'); return; }
+    if (!confirm(`¿Cambiar presupuesto de ${eur(anteriorEur)} a ${eur(nuevoEur)} en "${campanaNombre}"?`)) return;
+    try {
+      await api(`/api/campanas/${customerId}/campanas/${campanaId}/presupuesto`, {
+        method: 'POST',
+        body: JSON.stringify({ presupuesto_diario: nuevoEur }),
+      });
+      await Promise.all([cargarCampanasActuales(), cargarHistorial()]);
+    } catch (e) {
+      alert('Error al cambiar presupuesto: ' + e.message);
+    }
   }
 
   async function cargarRecomendaciones() {
@@ -517,6 +627,85 @@
     } finally {
       btn.disabled = false;
       btn.textContent = 'Pedir recomendación a Claude';
+    }
+  }
+
+  async function cargarRecsGoogle() {
+    if (!clienteActual) return;
+    const status = document.getElementById('recsGoogleStatus');
+    const lista = document.getElementById('listaRecsGoogle');
+    status.textContent = 'Cargando…';
+    lista.innerHTML = '';
+    try {
+      const recs = await api(`/api/campanas/${clienteActual.customer_id}/recomendaciones-google`);
+      status.textContent = `${recs.length} recomendación(es)`;
+      if (!recs.length) {
+        lista.innerHTML = '<div class="empty" style="padding:16px 0;">Sin recomendaciones activas en esta cuenta</div>';
+        return;
+      }
+      lista.innerHTML = recs.map((r, i) => {
+        const tipo = String(r.type || '').replace(/_/g, ' ');
+        const impacto = r.impact?.potential_metrics
+          ? `Impacto estimado: ${JSON.stringify(r.impact.potential_metrics)}`
+          : (r.impact ? JSON.stringify(r.impact) : '');
+        return `
+          <div class="rec-card" style="background:rgba(91,143,217,0.08);border-color:rgba(91,143,217,0.35);margin-bottom:10px;">
+            <div style="display:flex;align-items:flex-start;gap:12px;">
+              <div style="flex:1;">
+                <div style="font-weight:600;font-size:13px;margin-bottom:4px;">${tipo}</div>
+                ${r.campaign ? `<div style="font-size:11px;color:var(--text-muted);margin-bottom:4px;">Campaña: ${r.campaign}</div>` : ''}
+                ${impacto ? `<div style="font-size:11px;color:var(--text-muted);">${impacto}</div>` : ''}
+              </div>
+              <button class="btn" style="font-size:11px;padding:5px 12px;white-space:nowrap;"
+                onclick="aplicarRecGoogle('${r.resource_name.replace(/'/g,"\\'")}')">Aplicar</button>
+            </div>
+          </div>`;
+      }).join('');
+    } catch (e) {
+      status.textContent = 'Error: ' + e.message;
+    }
+  }
+
+  async function aplicarRecGoogle(resourceName) {
+    if (!clienteActual) return;
+    if (!confirm(`¿Aplicar esta recomendación de Google a la cuenta real de ${clienteActual.nombre_cliente}?`)) return;
+    try {
+      await api(`/api/campanas/${clienteActual.customer_id}/recomendaciones-google/aplicar`, {
+        method: 'POST',
+        body: JSON.stringify({ resource_name: resourceName }),
+      });
+      alert('Recomendación aplicada con éxito.');
+      await Promise.all([cargarRecsGoogle(), cargarHistorial()]);
+    } catch (e) {
+      alert('Error al aplicar recomendación: ' + e.message);
+    }
+  }
+
+  async function cargarHistorial() {
+    if (!clienteActual) return;
+    const tbody = document.getElementById('tbodyHistorial');
+    try {
+      const log = await api(`/api/campanas/${clienteActual.customer_id}/acciones-log?limite=20`);
+      if (!log.length) {
+        tbody.innerHTML = '<tr><td colspan="6" class="empty" style="padding:16px;">Sin acciones registradas</td></tr>';
+        return;
+      }
+      tbody.innerHTML = log.map(l => {
+        const anterior = l.valor_anterior ? JSON.stringify(l.valor_anterior) : '—';
+        const nuevo = l.valor_nuevo ? JSON.stringify(l.valor_nuevo) : '—';
+        const fecha = new Date(l.ejecutado_en).toLocaleString('es-ES');
+        return `
+          <tr>
+            <td style="text-align:left;font-weight:500;">${l.tipo_accion}</td>
+            <td style="text-align:left;font-size:11px;color:var(--text-muted);">${l.campana_id || '—'}</td>
+            <td style="text-align:left;font-size:11px;color:var(--text-muted);max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${anterior}">${anterior}</td>
+            <td style="text-align:left;font-size:11px;color:var(--arena);max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${nuevo}">${nuevo}</td>
+            <td style="text-align:left;font-size:11px;color:var(--text-muted);">${l.origen}</td>
+            <td style="text-align:left;font-size:11px;white-space:nowrap;">${fecha}</td>
+          </tr>`;
+      }).join('');
+    } catch (e) {
+      tbody.innerHTML = `<tr><td colspan="6" class="empty">Error: ${e.message}</td></tr>`;
     }
   }
 
