@@ -15,9 +15,11 @@ const contentRoutes      = require('./backend/api/content');
 const presupuestosRouter = require('./backend/api/presupuestos');
 const campanasRouter        = require('./backend/api/campanas');
 const customerMetricsRouter = require('./backend/api/customer-metrics');
+const crmRouter             = require('./backend/api/crm');
 const { syncGoogleAds }          = require('./backend/jobs/google-ads-sync');
 const { syncFacturaDirecta }     = require('./backend/jobs/facturadirecta-sync');
 const { runCustomerMetricsJob }  = require('./backend/jobs/customer-metrics-job');
+const { importarContactosFD }    = require('./backend/jobs/crm-import-fd');
 
 const app = express();
 app.use(cors());
@@ -59,6 +61,7 @@ app.use('/presupuestos', presupuestosRouter);
 app.use('/api/presupuestos', presupuestosRouter);
 app.use('/api/campanas', campanasRouter);
 app.use('/api/customer-metrics', customerMetricsRouter);
+app.use('/api/crm', crmRouter);
 
 // Hub dashboard (Supabase Auth + realtime). Served at / and /hub.
 const HUB_PAGE = path.join(__dirname, 'frontend', 'pages', 'index.html');
@@ -68,6 +71,7 @@ app.get('/timbol-app',       (_req, res) => res.sendFile(path.join(__dirname, 'f
 app.get('/grupo-app',        (_req, res) => res.sendFile(path.join(__dirname, 'frontend', 'pages', 'grupo.html')));
 app.get('/presupuestos-app', (_req, res) => res.sendFile(path.join(__dirname, 'frontend', 'pages', 'presupuestos.html')));
 app.get('/campanas', (_req, res) => res.sendFile(path.join(__dirname, 'frontend', 'pages', 'campanas.html')));
+app.get('/crm', (_req, res) => res.sendFile(path.join(__dirname, 'frontend', 'pages', 'crm.html')));
 
 app.get('/health', (_req, res) => res.json({ ok: true, ts: new Date().toISOString() }));
 
@@ -102,6 +106,11 @@ cron.schedule('0 6 * * *', () => {
 // Customer Intelligence metrics — daily at 06:30 Madrid.
 cron.schedule('30 6 * * *', () => {
   runCustomerMetricsJob().catch(e => console.error('[customer-metrics] cron failed:', e.message));
+}, { timezone: 'Europe/Madrid' });
+
+// CRM import — daily at 06:45 Madrid (after customer-metrics at 06:30).
+cron.schedule('45 6 * * *', () => {
+  importarContactosFD().catch(e => console.error('[crm-import] cron failed:', e.message));
 }, { timezone: 'Europe/Madrid' });
 
 // Campañas Google Ads sync — daily at 07:00 Madrid.

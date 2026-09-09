@@ -1,0 +1,849 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CRM · O2MAD Hub</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+  <style>
+    :root {
+      --negro: #0F0E0C;
+      --arena: #C4A882;
+      --blanco: #F5F0E8;
+      --negro-soft: #1a1916;
+      --arena-dim: rgba(196,168,130,0.18);
+      --rojo: #d9684f;
+      --ambar: #d9a441;
+      --verde: #7fa86b;
+      --azul: #5b8fd9;
+      --border: rgba(196,168,130,0.22);
+      --text-muted: rgba(245,240,232,0.5);
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { font-size: 14px; }
+    body { font-family: 'Inter', sans-serif; background: var(--negro); color: var(--blanco); min-height: 100vh; }
+
+    /* Header */
+    header {
+      position: sticky; top: 0; z-index: 100;
+      background: var(--negro-soft);
+      border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; gap: 16px;
+      padding: 0 24px; height: 56px;
+    }
+    .logo { font-weight: 700; font-size: 15px; color: var(--arena); letter-spacing: .04em; }
+    .logo span { color: var(--blanco); }
+    .page-title { font-size: 13px; color: var(--text-muted); }
+    header .spacer { flex: 1; }
+    .user-email { font-size: 12px; color: var(--text-muted); }
+    header button {
+      background: var(--arena-dim); border: 1px solid var(--border);
+      color: var(--blanco); padding: 6px 14px; border-radius: 6px;
+      font-size: 12px; cursor: pointer; font-family: inherit;
+    }
+    header button:hover { background: rgba(196,168,130,0.3); }
+
+    /* Buttons */
+    .btn {
+      background: var(--arena-dim); border: 1px solid var(--border);
+      color: var(--blanco); padding: 7px 16px; border-radius: 6px;
+      font-size: 13px; font-family: inherit; cursor: pointer;
+      display: inline-flex; align-items: center; gap: 6px;
+    }
+    .btn:hover { background: rgba(196,168,130,0.3); }
+    .btn.accent { background: var(--arena); color: var(--negro); border-color: transparent; font-weight: 600; }
+    .btn.accent:hover { background: #d4b898; }
+    .btn:disabled { opacity: .4; cursor: not-allowed; }
+    .btn.danger { background: rgba(217,104,79,0.15); border-color: rgba(217,104,79,0.3); color: var(--rojo); }
+
+    /* KPI bar */
+    .kpi-bar {
+      display: flex; gap: 10px; padding: 16px 24px; flex-wrap: wrap;
+      border-bottom: 1px solid var(--border); background: var(--negro-soft);
+    }
+    .kpi-pill {
+      background: var(--arena-dim); border: 1px solid var(--border);
+      border-radius: 8px; padding: 8px 16px; cursor: pointer;
+      font-size: 12px; transition: border-color .15s;
+      display: flex; flex-direction: column; align-items: center; gap: 2px;
+    }
+    .kpi-pill:hover { border-color: var(--arena); }
+    .kpi-pill.active { border-color: var(--arena); background: rgba(196,168,130,0.28); }
+    .kpi-pill .pill-count { font-size: 20px; font-weight: 700; }
+    .kpi-pill .pill-label { font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: .06em; }
+    .kpi-pill[data-status="ACTIVE"] .pill-count { color: var(--verde); }
+    .kpi-pill[data-status="AT_RISK"] .pill-count { color: var(--ambar); }
+    .kpi-pill[data-status="INACTIVE"] .pill-count,
+    .kpi-pill[data-status="DORMANT"] .pill-count,
+    .kpi-pill[data-status="LOST"] .pill-count { color: var(--rojo); }
+    .kpi-pill[data-status="NEW"] .pill-count { color: var(--azul); }
+
+    /* Search bar */
+    .search-bar {
+      padding: 12px 24px; display: flex; align-items: center; gap: 12px;
+      border-bottom: 1px solid var(--border);
+    }
+    .search-bar input {
+      flex: 1; max-width: 340px;
+      background: var(--negro); border: 1px solid var(--border);
+      color: var(--blanco); padding: 7px 12px; border-radius: 6px;
+      font-family: inherit; font-size: 13px;
+    }
+    .search-bar input:focus { outline: none; border-color: var(--arena); }
+    .search-bar select {
+      background: var(--negro); border: 1px solid var(--border);
+      color: var(--blanco); padding: 7px 10px; border-radius: 6px;
+      font-family: inherit; font-size: 13px; cursor: pointer;
+    }
+    .search-bar .spacer { flex: 1; }
+
+    /* Table */
+    main { padding: 0; }
+    .table-wrap { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    th {
+      padding: 10px 14px; text-align: left; font-weight: 500;
+      color: var(--text-muted); white-space: nowrap;
+      border-bottom: 1px solid var(--border);
+      background: var(--negro-soft); position: sticky; top: 56px;
+    }
+    th.num { text-align: right; }
+    td { padding: 9px 14px; border-bottom: 1px solid rgba(196,168,130,0.08); vertical-align: middle; }
+    td.num { text-align: right; }
+    tr:hover td { background: var(--arena-dim); cursor: pointer; }
+
+    /* Badge */
+    .badge {
+      display: inline-block; padding: 2px 8px; border-radius: 4px;
+      font-size: 10px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; white-space: nowrap;
+    }
+    .badge.ACTIVE { background: rgba(127,168,107,0.18); color: var(--verde); border: 1px solid rgba(127,168,107,0.3); }
+    .badge.AT_RISK { background: rgba(217,164,65,0.18); color: var(--ambar); border: 1px solid rgba(217,164,65,0.3); }
+    .badge.INACTIVE, .badge.DORMANT, .badge.LOST { background: rgba(217,104,79,0.15); color: var(--rojo); border: 1px solid rgba(217,104,79,0.25); }
+    .badge.NEW { background: rgba(91,143,217,0.15); color: var(--azul); border: 1px solid rgba(91,143,217,0.25); }
+    .badge.default { background: var(--arena-dim); color: var(--text-muted); border: 1px solid var(--border); }
+
+    /* Score pill */
+    .score-pill {
+      display: inline-block; min-width: 36px; text-align: center;
+      padding: 2px 8px; border-radius: 4px; font-weight: 600; font-size: 12px;
+    }
+
+    /* Pagination */
+    .pagination {
+      display: flex; align-items: center; gap: 12px; justify-content: flex-end;
+      padding: 14px 24px; font-size: 12px; color: var(--text-muted);
+      border-top: 1px solid var(--border);
+    }
+
+    /* Spinner */
+    .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid var(--border); border-top-color: var(--arena); border-radius: 50%; animation: spin .7s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .empty { color: var(--text-muted); font-size: 13px; padding: 48px; text-align: center; }
+
+    /* ============ FICHA ============ */
+    #view-ficha { display: none; }
+    .ficha-header {
+      padding: 24px; border-bottom: 1px solid var(--border);
+      display: flex; align-items: flex-start; gap: 16px; flex-wrap: wrap;
+    }
+    .ficha-title { font-size: 22px; font-weight: 700; flex: 1; }
+    .ficha-score {
+      background: var(--arena); color: var(--negro);
+      border-radius: 8px; padding: 6px 16px;
+      font-size: 20px; font-weight: 700; text-align: center; min-width: 64px;
+    }
+    .ficha-score .score-label { font-size: 9px; font-weight: 600; text-transform: uppercase; letter-spacing: .07em; }
+    .ficha-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: flex-start; }
+
+    .senal-card {
+      margin: 16px 24px; padding: 14px 18px;
+      background: rgba(217,164,65,0.12); border: 1px solid rgba(217,164,65,0.35);
+      border-radius: 8px; font-size: 13px; color: var(--ambar);
+      display: flex; align-items: center; gap: 10px;
+    }
+
+    .ficha-grid {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 16px; padding: 16px 24px;
+    }
+    .ficha-section {
+      background: var(--negro-soft); border: 1px solid var(--border);
+      border-radius: 10px; padding: 16px; overflow: hidden;
+    }
+    .ficha-section h3 {
+      font-size: 11px; color: var(--text-muted); text-transform: uppercase;
+      letter-spacing: .07em; margin-bottom: 12px; font-weight: 600;
+    }
+
+    .metrics-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .metric-item .m-label { font-size: 11px; color: var(--text-muted); margin-bottom: 3px; }
+    .metric-item .m-value { font-size: 17px; font-weight: 700; color: var(--arena); }
+
+    .facturas-mini { width: 100%; border-collapse: collapse; font-size: 11px; }
+    .facturas-mini td { padding: 5px 0; border-bottom: 1px solid rgba(196,168,130,0.08); }
+    .facturas-mini tr:last-child td { border-bottom: none; }
+    .facturas-mini td:last-child { text-align: right; color: var(--arena); }
+
+    .tags-wrap { display: flex; flex-wrap: wrap; gap: 6px; }
+    .tag {
+      padding: 3px 10px; border-radius: 4px; font-size: 10px; font-weight: 600;
+      text-transform: uppercase; letter-spacing: .05em;
+    }
+    .tag.contratado { background: rgba(127,168,107,0.15); color: var(--verde); border: 1px solid rgba(127,168,107,0.25); }
+    .tag.pendiente { background: var(--arena-dim); color: var(--text-muted); border: 1px solid var(--border); }
+
+    /* Timeline */
+    .timeline { display: flex; flex-direction: column; gap: 10px; }
+    .timeline-item { display: flex; gap: 10px; align-items: flex-start; }
+    .timeline-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--arena); flex-shrink: 0; margin-top: 5px; }
+    .timeline-body { flex: 1; }
+    .timeline-meta { font-size: 10px; color: var(--text-muted); margin-bottom: 2px; }
+    .timeline-titulo { font-size: 12px; font-weight: 600; }
+    .timeline-detalle { font-size: 12px; color: var(--text-muted); margin-top: 3px; }
+
+    .nota-form { margin-top: 14px; display: none; }
+    .nota-form textarea {
+      width: 100%; background: var(--negro); border: 1px solid var(--border);
+      color: var(--blanco); padding: 8px 10px; border-radius: 6px;
+      font-family: inherit; font-size: 12px; resize: vertical; min-height: 72px;
+    }
+    .nota-form textarea:focus { outline: none; border-color: var(--arena); }
+    .nota-actions { display: flex; gap: 8px; margin-top: 6px; }
+
+    /* Contacto editable */
+    .contacto-row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+    .contacto-row .clabel { font-size: 11px; color: var(--text-muted); min-width: 60px; }
+    .contacto-row .cval { font-size: 13px; }
+    .contacto-row input {
+      display: none; background: var(--negro); border: 1px solid var(--border);
+      color: var(--blanco); padding: 5px 8px; border-radius: 5px;
+      font-family: inherit; font-size: 13px; flex: 1;
+    }
+    .contacto-row input:focus { outline: none; border-color: var(--arena); }
+
+    /* Modal */
+    .modal-overlay {
+      display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.7);
+      z-index: 200; align-items: center; justify-content: center;
+    }
+    .modal-overlay.open { display: flex; }
+    .modal {
+      background: var(--negro-soft); border: 1px solid var(--border);
+      border-radius: 12px; padding: 28px; width: 100%; max-width: 460px;
+    }
+    .modal h2 { font-size: 16px; font-weight: 700; margin-bottom: 20px; }
+    .form-group { margin-bottom: 12px; }
+    .form-group label { display: block; font-size: 11px; color: var(--text-muted); margin-bottom: 5px; text-transform: uppercase; letter-spacing: .05em; }
+    .form-group input, .form-group select {
+      width: 100%; background: var(--negro); border: 1px solid var(--border);
+      color: var(--blanco); padding: 8px 10px; border-radius: 6px;
+      font-family: inherit; font-size: 13px;
+    }
+    .form-group input:focus, .form-group select:focus { outline: none; border-color: var(--arena); }
+    .modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; }
+    .modal-error { color: var(--rojo); font-size: 12px; margin-top: 8px; min-height: 16px; }
+
+    /* Phase 6 disabled block */
+    .accion-rec {
+      background: var(--arena-dim); border: 1px solid var(--border);
+      border-radius: 8px; padding: 14px;
+      display: flex; align-items: center; gap: 12px; opacity: .5;
+    }
+    .fase-badge {
+      font-size: 9px; font-weight: 700; padding: 2px 8px; border-radius: 4px;
+      background: var(--arena-dim); color: var(--arena); border: 1px solid var(--border);
+      text-transform: uppercase; white-space: nowrap;
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="logo">O2MAD <span>HUB</span></div>
+  <span class="page-title">CRM · Clientes</span>
+  <div class="spacer"></div>
+  <span class="user-email" id="userEmail"></span>
+  <button onclick="window.location.href='/'">&#8592; Hub</button>
+  <button onclick="signOut()">Salir</button>
+</header>
+
+<!-- Vista lista -->
+<div id="view-lista">
+  <div class="kpi-bar" id="kpiBar">
+    <div class="kpi-pill active" data-status="" onclick="filtrarStatus('')">
+      <div class="pill-count" id="kpiTotal">—</div>
+      <div class="pill-label">Todos</div>
+    </div>
+    <div class="kpi-pill" data-status="ACTIVE" onclick="filtrarStatus('ACTIVE')">
+      <div class="pill-count" id="kpiActive">—</div>
+      <div class="pill-label">Activos</div>
+    </div>
+    <div class="kpi-pill" data-status="AT_RISK" onclick="filtrarStatus('AT_RISK')">
+      <div class="pill-count" id="kpiAtRisk">—</div>
+      <div class="pill-label">En riesgo</div>
+    </div>
+    <div class="kpi-pill" data-status="INACTIVE" onclick="filtrarStatus('INACTIVE')">
+      <div class="pill-count" id="kpiInactive">—</div>
+      <div class="pill-label">Inactivos</div>
+    </div>
+    <div class="kpi-pill" data-status="DORMANT" onclick="filtrarStatus('DORMANT')">
+      <div class="pill-count" id="kpiDormant">—</div>
+      <div class="pill-label">Dormidos</div>
+    </div>
+    <div class="kpi-pill" data-status="LOST" onclick="filtrarStatus('LOST')">
+      <div class="pill-count" id="kpiLost">—</div>
+      <div class="pill-label">Perdidos</div>
+    </div>
+    <div class="kpi-pill" data-status="NEW" onclick="filtrarStatus('NEW')">
+      <div class="pill-count" id="kpiNew">—</div>
+      <div class="pill-label">Nuevos</div>
+    </div>
+  </div>
+
+  <div class="search-bar">
+    <input type="search" id="searchInput" placeholder="Buscar empresa, CIF, email..." oninput="onSearch()" />
+    <label style="font-size:12px;color:var(--text-muted);">Orden</label>
+    <select id="ordenSelect" onchange="cargarEmpresas(true)">
+      <option value="score">Score</option>
+      <option value="facturado">Facturado 12m</option>
+      <option value="ultima">Última factura</option>
+    </select>
+    <div class="spacer"></div>
+    <button class="btn accent" onclick="abrirModal()">+ Alta manual</button>
+  </div>
+
+  <main>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Empresa</th>
+            <th>Estado</th>
+            <th class="num">Score</th>
+            <th class="num">Fact. 12m</th>
+            <th>Última factura</th>
+            <th class="num">Días inactivo</th>
+          </tr>
+        </thead>
+        <tbody id="empresasBody">
+          <tr><td colspan="7" class="empty"><span class="spinner"></span></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="pagination">
+      <span id="paginationInfo"></span>
+      <button class="btn" id="btnPrev" onclick="cambiarPag(-1)" disabled>&#8592; Anterior</button>
+      <button class="btn" id="btnNext" onclick="cambiarPag(1)" disabled>Siguiente &#8594;</button>
+    </div>
+  </main>
+</div>
+
+<!-- Vista ficha -->
+<div id="view-ficha">
+  <div class="ficha-header">
+    <div style="flex:1;">
+      <div id="fichaEmpresaNombre" class="ficha-title"></div>
+      <div id="fichaEmpresaCif" style="font-size:12px;color:var(--text-muted);margin-top:4px;"></div>
+    </div>
+    <div class="ficha-score">
+      <div id="fichaScore">—</div>
+      <div class="score-label">Score</div>
+    </div>
+    <div id="fichaBadge"></div>
+    <div class="ficha-actions">
+      <button class="btn" onclick="volverLista()">&#8592; Volver</button>
+      <button class="btn" onclick="toggleNota()" id="btnNuevaNota">Nueva nota</button>
+      <a id="btnPresupuesto" class="btn" href="#" target="_blank">Crear presupuesto</a>
+      <button class="btn" disabled title="Disponible en fase 2">Nueva oportunidad</button>
+    </div>
+  </div>
+
+  <div id="fichaSenal" style="display:none;" class="senal-card">
+    <span style="font-size:18px;">&#9888;</span>
+    <span id="fichasenalTexto"></span>
+  </div>
+
+  <div class="ficha-grid">
+    <!-- Métricas -->
+    <div class="ficha-section">
+      <h3>Métricas</h3>
+      <div class="metrics-grid" id="fichaMetrics">
+        <div class="metric-item"><div class="m-label">Revenue total</div><div class="m-value" id="mRevTotal">—</div></div>
+        <div class="metric-item"><div class="m-label">Revenue 12m</div><div class="m-value" id="mRev12">—</div></div>
+        <div class="metric-item"><div class="m-label">Facturas</div><div class="m-value" id="mFacturas">—</div></div>
+        <div class="metric-item"><div class="m-label">Última factura</div><div class="m-value" id="mUltimaFactura" style="font-size:13px;">—</div></div>
+        <div class="metric-item"><div class="m-label">Días sin actividad</div><div class="m-value" id="mDias">—</div></div>
+        <div class="metric-item"><div class="m-label">Score reactivación</div><div class="m-value" id="mScore">—</div></div>
+      </div>
+    </div>
+
+    <!-- Contacto -->
+    <div class="ficha-section">
+      <h3>Contacto <button class="btn" style="padding:2px 8px;font-size:11px;margin-left:8px;" onclick="toggleEditContacto()" id="btnEditContacto">Editar</button></h3>
+      <div class="contacto-row"><span class="clabel">Email</span><span class="cval" id="cEmail">—</span><input id="iEmail" type="email" /></div>
+      <div class="contacto-row"><span class="clabel">Teléfono</span><span class="cval" id="cTelefono">—</span><input id="iTelefono" type="tel" /></div>
+      <div class="contacto-row"><span class="clabel">Sector</span><span class="cval" id="cSector">—</span><input id="iSector" /></div>
+      <div id="editContactoActions" style="display:none;margin-top:8px;display:none;">
+        <button class="btn accent" onclick="guardarContacto()" style="font-size:12px;">Guardar</button>
+        <button class="btn" onclick="cancelarEditContacto()" style="font-size:12px;">Cancelar</button>
+      </div>
+    </div>
+
+    <!-- Últimas facturas -->
+    <div class="ficha-section">
+      <h3>Últimas facturas</h3>
+      <div style="overflow-x:auto;">
+        <table class="facturas-mini">
+          <tbody id="fichaFacturas"><tr><td colspan="4">—</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Servicios -->
+    <div class="ficha-section">
+      <h3>Servicios contratados</h3>
+      <div class="tags-wrap" id="fichaServicios"></div>
+      <h3 style="margin-top:14px;">Sin contratar</h3>
+      <div class="tags-wrap" id="fichaSinServicios"></div>
+    </div>
+
+    <!-- Actividades -->
+    <div class="ficha-section" style="grid-column:1/-1;">
+      <h3>Actividades</h3>
+      <div class="timeline" id="fichaTimeline"></div>
+
+      <!-- Inline nota form (visible when "Nueva nota" clicked) -->
+      <div class="nota-form" id="notaForm">
+        <textarea id="notaTexto" placeholder="Añadir nota..."></textarea>
+        <div class="nota-actions">
+          <button class="btn accent" onclick="guardarNota()">Guardar nota</button>
+          <button class="btn" onclick="cancelarNota()">Cancelar</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Acción recomendada Fase 6 -->
+    <div class="ficha-section" style="grid-column:1/-1;">
+      <h3>Acción recomendada <span class="fase-badge">Fase 6</span></h3>
+      <div class="accion-rec">
+        <span style="font-size:13px;">Las recomendaciones de reactivación con IA estarán disponibles en la Fase 6.</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal alta manual -->
+<div class="modal-overlay" id="modalOverlay" onclick="if(event.target===this)cerrarModal()">
+  <div class="modal">
+    <h2>Alta manual de empresa</h2>
+    <div class="form-group">
+      <label>Nombre *</label>
+      <input type="text" id="fNombre" placeholder="Nombre de la empresa" />
+    </div>
+    <div class="form-group">
+      <label>CIF / NIF</label>
+      <input type="text" id="fCif" placeholder="B12345678" />
+    </div>
+    <div class="form-group">
+      <label>Email</label>
+      <input type="email" id="fEmail" placeholder="contacto@empresa.com" />
+    </div>
+    <div class="form-group">
+      <label>Teléfono</label>
+      <input type="tel" id="fTelefono" placeholder="+34 612 345 678" />
+    </div>
+    <div class="form-group">
+      <label>Sector</label>
+      <select id="fSector">
+        <option value="">— Selecciona —</option>
+        <option value="hotel">Hotel</option>
+        <option value="restaurante">Restaurante</option>
+        <option value="clinica">Clínica</option>
+        <option value="ecommerce">E-commerce</option>
+        <option value="otro">Otro</option>
+      </select>
+    </div>
+    <div class="modal-error" id="modalError"></div>
+    <div class="modal-actions">
+      <button class="btn" onclick="cerrarModal()">Cancelar</button>
+      <button class="btn accent" onclick="guardarAlta()">Guardar</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  const SUPABASE_URL = 'https://eqruoeoiqvlnlzidqxqr.supabase.co';
+  const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVxcnVvZW9pcXZsbmx6aWRxeHFyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE4NTY4MDcsImV4cCI6MjA5NzQzMjgwN30.QYMAUUrARJ9i_F8tb4gyGBkJAL66m7izlqgE2gZyz5k';
+
+  const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  let accessToken = null;
+  let currentEmpresaId = null;
+  let filtroStatus = '';
+  let offset = 0;
+  const LIMIT = 50;
+  let totalEmpresas = 0;
+  let searchTimer = null;
+
+  // ---- Auth ----
+  sb.auth.getSession().then(({ data }) => {
+    if (!data.session) { window.location.href = '/'; return; }
+    accessToken = data.session.access_token;
+    document.getElementById('userEmail').textContent = data.session.user.email;
+    init();
+  });
+
+  async function signOut() {
+    await sb.auth.signOut();
+    window.location.href = '/';
+  }
+
+  async function api(path, opts = {}) {
+    const res = await fetch(path, {
+      ...opts,
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+        ...(opts.headers || {}),
+      },
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: res.statusText }));
+      throw new Error(err.error || res.statusText);
+    }
+    return res.json();
+  }
+
+  async function init() {
+    await Promise.all([cargarResumen(), cargarEmpresas(true)]);
+  }
+
+  async function cargarResumen() {
+    try {
+      const data = await api('/api/crm/resumen');
+      document.getElementById('kpiTotal').textContent = data.total;
+      document.getElementById('kpiActive').textContent = data.por_status.ACTIVE;
+      document.getElementById('kpiAtRisk').textContent = data.por_status.AT_RISK;
+      document.getElementById('kpiInactive').textContent = data.por_status.INACTIVE;
+      document.getElementById('kpiDormant').textContent = data.por_status.DORMANT;
+      document.getElementById('kpiLost').textContent = data.por_status.LOST;
+      document.getElementById('kpiNew').textContent = data.por_status.NEW;
+    } catch (e) {
+      console.error('resumen error', e.message);
+    }
+  }
+
+  async function cargarEmpresas(reset) {
+    if (reset) offset = 0;
+    const q = document.getElementById('searchInput').value.trim();
+    const orden = document.getElementById('ordenSelect').value;
+    const params = new URLSearchParams({ limit: LIMIT, offset });
+    if (filtroStatus) params.set('estado', filtroStatus);
+    if (q) params.set('q', q);
+    if (orden) params.set('orden', orden);
+
+    const tbody = document.getElementById('empresasBody');
+    tbody.innerHTML = '<tr><td colspan="7" class="empty"><span class="spinner"></span></td></tr>';
+
+    try {
+      const data = await api(`/api/crm/empresas?${params}`);
+      totalEmpresas = data.total;
+      renderTabla(data.data);
+      renderPaginacion();
+    } catch (e) {
+      tbody.innerHTML = `<tr><td colspan="7" class="empty">Error: ${esc(e.message)}</td></tr>`;
+    }
+  }
+
+  function renderTabla(rows) {
+    const tbody = document.getElementById('empresasBody');
+    if (!rows.length) {
+      tbody.innerHTML = '<tr><td colspan="7" class="empty">Sin resultados</td></tr>';
+      return;
+    }
+    tbody.innerHTML = rows.map((r, i) => `
+      <tr onclick="abrirFicha('${r.id}')">
+        <td style="color:var(--text-muted)">${offset + i + 1}</td>
+        <td><strong>${esc(r.nombre)}</strong>${r.cif ? `<br><small style="color:var(--text-muted)">${esc(r.cif)}</small>` : ''}</td>
+        <td>${badgeHtml(r.customer_status)}</td>
+        <td class="num">${scorePill(r.reactivation_score)}</td>
+        <td class="num">${eur(r.revenue_12m)}</td>
+        <td>${r.last_invoice_date ? fmtDate(r.last_invoice_date) : '—'}</td>
+        <td class="num">${r.days_since_last_invoice != null ? r.days_since_last_invoice : '—'}</td>
+      </tr>
+    `).join('');
+  }
+
+  function renderPaginacion() {
+    const from = offset + 1;
+    const to = Math.min(offset + LIMIT, totalEmpresas);
+    document.getElementById('paginationInfo').textContent = `${from}–${to} de ${totalEmpresas}`;
+    document.getElementById('btnPrev').disabled = offset === 0;
+    document.getElementById('btnNext').disabled = offset + LIMIT >= totalEmpresas;
+  }
+
+  function cambiarPag(dir) {
+    offset = Math.max(0, offset + dir * LIMIT);
+    cargarEmpresas(false);
+  }
+
+  function filtrarStatus(status) {
+    filtroStatus = status;
+    document.querySelectorAll('.kpi-pill').forEach(p => {
+      p.classList.toggle('active', p.dataset.status === status);
+    });
+    cargarEmpresas(true);
+  }
+
+  let searchTimerRef = null;
+  function onSearch() {
+    clearTimeout(searchTimerRef);
+    searchTimerRef = setTimeout(() => cargarEmpresas(true), 320);
+  }
+
+  // ---- Ficha ----
+  async function abrirFicha(id) {
+    currentEmpresaId = id;
+    document.getElementById('view-lista').style.display = 'none';
+    document.getElementById('view-ficha').style.display = 'block';
+    document.getElementById('fichaSenal').style.display = 'none';
+    document.getElementById('fichaEmpresaNombre').textContent = '…';
+    document.getElementById('fichaScore').textContent = '—';
+    document.getElementById('fichaBadge').innerHTML = '';
+    window.scrollTo(0, 0);
+
+    try {
+      const d = await api(`/api/crm/empresas/${id}`);
+      renderFicha(d);
+    } catch (e) {
+      document.getElementById('fichaEmpresaNombre').textContent = 'Error: ' + e.message;
+    }
+  }
+
+  function renderFicha(d) {
+    const { empresa, metricas, facturas, servicios, nunca_contratados, actividades, senal } = d;
+
+    document.getElementById('fichaEmpresaNombre').textContent = empresa.nombre;
+    document.getElementById('fichaEmpresaCif').textContent = [empresa.cif, empresa.sector].filter(Boolean).join(' · ');
+    document.getElementById('fichaScore').textContent = metricas?.reactivation_score ?? '—';
+    document.getElementById('fichaBadge').innerHTML = badgeHtml(metricas?.customer_status);
+
+    // Señal churn
+    if (senal) {
+      document.getElementById('fichaSenal').style.display = 'flex';
+      document.getElementById('fichasenalTexto').textContent = senal;
+    }
+
+    // Métricas
+    document.getElementById('mRevTotal').textContent = eur(metricas?.revenue_total);
+    document.getElementById('mRev12').textContent = eur(metricas?.revenue_12m);
+    document.getElementById('mFacturas').textContent = metricas?.invoice_count ?? '—';
+    document.getElementById('mUltimaFactura').textContent = metricas?.last_invoice_date ? fmtDate(metricas.last_invoice_date) : '—';
+    document.getElementById('mDias').textContent = metricas?.days_since_last_invoice != null ? metricas.days_since_last_invoice + ' días' : '—';
+    document.getElementById('mScore').textContent = metricas?.reactivation_score ?? '—';
+
+    // Contacto
+    document.getElementById('cEmail').textContent = empresa.email || '—';
+    document.getElementById('cTelefono').textContent = empresa.telefono || '—';
+    document.getElementById('cSector').textContent = empresa.sector || '—';
+    document.getElementById('iEmail').value = empresa.email || '';
+    document.getElementById('iTelefono').value = empresa.telefono || '';
+    document.getElementById('iSector').value = empresa.sector || '';
+
+    // Presupuesto link
+    const params = new URLSearchParams();
+    if (empresa.nombre) params.set('nombre', empresa.nombre);
+    if (empresa.cif) params.set('cif', empresa.cif);
+    document.getElementById('btnPresupuesto').href = `/presupuestos-app?${params}`;
+
+    // Últimas facturas
+    const tbody = document.getElementById('fichaFacturas');
+    if (facturas.length) {
+      tbody.innerHTML = facturas.map(f => `
+        <tr>
+          <td>${esc(f.document_number || '—')}</td>
+          <td style="color:var(--text-muted)">${f.invoice_date ? fmtDate(f.invoice_date) : '—'}</td>
+          <td style="color:var(--text-muted);max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(f.primera_linea_descripcion || '—')}</td>
+          <td>${eur(f.total)}</td>
+        </tr>
+      `).join('');
+    } else {
+      tbody.innerHTML = '<tr><td colspan="4" style="color:var(--text-muted)">Sin facturas</td></tr>';
+    }
+
+    // Servicios
+    const sWrap = document.getElementById('fichaServicios');
+    if (servicios.length) {
+      sWrap.innerHTML = servicios.map(s => `<span class="tag contratado" title="Última: ${s.ultima_vez || '?'}">${esc(s.service_category)}</span>`).join('');
+    } else {
+      sWrap.innerHTML = '<span style="color:var(--text-muted);font-size:12px;">—</span>';
+    }
+
+    document.getElementById('fichaSinServicios').innerHTML =
+      nunca_contratados.map(s => `<span class="tag pendiente">+ ${esc(s)}</span>`).join('');
+
+    // Actividades
+    renderTimeline(actividades);
+  }
+
+  function renderTimeline(acts) {
+    const el = document.getElementById('fichaTimeline');
+    if (!acts.length) {
+      el.innerHTML = '<div style="color:var(--text-muted);font-size:12px;">Sin actividades registradas</div>';
+      return;
+    }
+    el.innerHTML = acts.map(a => `
+      <div class="timeline-item">
+        <div class="timeline-dot"></div>
+        <div class="timeline-body">
+          <div class="timeline-meta">${esc(a.autor || '—')} · ${relTime(a.fecha)} · ${esc(a.tipo)}</div>
+          <div class="timeline-titulo">${esc(a.titulo)}</div>
+          ${a.detalle ? `<div class="timeline-detalle">${esc(a.detalle)}</div>` : ''}
+        </div>
+      </div>
+    `).join('');
+  }
+
+  function toggleNota() {
+    const f = document.getElementById('notaForm');
+    f.style.display = f.style.display === 'block' ? 'none' : 'block';
+    if (f.style.display === 'block') document.getElementById('notaTexto').focus();
+  }
+
+  function cancelarNota() {
+    document.getElementById('notaForm').style.display = 'none';
+    document.getElementById('notaTexto').value = '';
+  }
+
+  async function guardarNota() {
+    const texto = document.getElementById('notaTexto').value.trim();
+    if (!texto) return;
+    try {
+      await api(`/api/crm/empresas/${currentEmpresaId}/actividades`, {
+        method: 'POST', body: JSON.stringify({ titulo: texto, tipo: 'nota' }),
+      });
+      cancelarNota();
+      const d = await api(`/api/crm/empresas/${currentEmpresaId}`);
+      renderTimeline(d.actividades);
+    } catch (e) {
+      alert('Error: ' + e.message);
+    }
+  }
+
+  // ---- Contacto editable ----
+  let editingContacto = false;
+  function toggleEditContacto() {
+    editingContacto = !editingContacto;
+    ['Email','Telefono','Sector'].forEach(k => {
+      document.getElementById('c' + k).style.display = editingContacto ? 'none' : '';
+      document.getElementById('i' + k).style.display = editingContacto ? 'block' : 'none';
+    });
+    document.getElementById('editContactoActions').style.display = editingContacto ? 'flex' : 'none';
+    document.getElementById('btnEditContacto').textContent = editingContacto ? 'Cancelar' : 'Editar';
+    if (!editingContacto) {
+      // reset inputs from current display
+    }
+  }
+
+  function cancelarEditContacto() {
+    editingContacto = true;
+    toggleEditContacto();
+  }
+
+  async function guardarContacto() {
+    try {
+      const body = {
+        email: document.getElementById('iEmail').value.trim() || null,
+        telefono: document.getElementById('iTelefono').value.trim() || null,
+        sector: document.getElementById('iSector').value.trim() || null,
+      };
+      const empresa = await api(`/api/crm/empresas/${currentEmpresaId}`, {
+        method: 'PATCH', body: JSON.stringify(body),
+      });
+      document.getElementById('cEmail').textContent = empresa.email || '—';
+      document.getElementById('cTelefono').textContent = empresa.telefono || '—';
+      document.getElementById('cSector').textContent = empresa.sector || '—';
+      cancelarEditContacto();
+    } catch (e) {
+      alert('Error: ' + e.message);
+    }
+  }
+
+  function volverLista() {
+    document.getElementById('view-ficha').style.display = 'none';
+    document.getElementById('view-lista').style.display = 'block';
+    currentEmpresaId = null;
+    cancelarNota();
+    // Reset contacto edit if open
+    if (editingContacto) { editingContacto = true; toggleEditContacto(); }
+  }
+
+  // ---- Modal alta manual ----
+  function abrirModal() {
+    document.getElementById('modalOverlay').classList.add('open');
+    document.getElementById('modalError').textContent = '';
+    document.getElementById('fNombre').focus();
+  }
+
+  function cerrarModal() {
+    document.getElementById('modalOverlay').classList.remove('open');
+    ['fNombre','fCif','fEmail','fTelefono'].forEach(id => document.getElementById(id).value = '');
+    document.getElementById('fSector').value = '';
+    document.getElementById('modalError').textContent = '';
+  }
+
+  async function guardarAlta() {
+    const nombre = document.getElementById('fNombre').value.trim();
+    if (!nombre) { document.getElementById('modalError').textContent = 'El nombre es obligatorio'; return; }
+    try {
+      await api('/api/crm/empresas', {
+        method: 'POST',
+        body: JSON.stringify({
+          nombre,
+          cif: document.getElementById('fCif').value.trim() || null,
+          email: document.getElementById('fEmail').value.trim() || null,
+          telefono: document.getElementById('fTelefono').value.trim() || null,
+          sector: document.getElementById('fSector').value || null,
+        }),
+      });
+      cerrarModal();
+      await Promise.all([cargarResumen(), cargarEmpresas(true)]);
+    } catch (e) {
+      document.getElementById('modalError').textContent = e.message;
+    }
+  }
+
+  // ---- Helpers ----
+  const eur = (n) => n == null ? '—' : new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 }).format(n);
+  const esc = (s) => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+  const fmtDate = (d) => d ? new Date(d).toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: 'numeric' }) : '—';
+
+  function relTime(dateStr) {
+    if (!dateStr) return '—';
+    const diff = Date.now() - new Date(dateStr).getTime();
+    const days = Math.floor(diff / 86400000);
+    if (days === 0) return 'hoy';
+    if (days === 1) return 'ayer';
+    if (days < 30) return `hace ${days} días`;
+    if (days < 365) return `hace ${Math.floor(days / 30)} meses`;
+    return `hace ${Math.floor(days / 365)} años`;
+  }
+
+  function badgeHtml(status) {
+    if (!status) return '<span class="badge default">Sin datos</span>';
+    const labels = { ACTIVE: 'Activo', AT_RISK: 'En riesgo', INACTIVE: 'Inactivo', DORMANT: 'Dormido', LOST: 'Perdido', NEW: 'Nuevo' };
+    return `<span class="badge ${status}">${labels[status] || status}</span>`;
+  }
+
+  function scorePill(score) {
+    if (score == null) return '—';
+    const alpha = Math.round(30 + (score / 100) * 70);
+    return `<span class="score-pill" style="background:rgba(196,168,130,${(alpha/100).toFixed(2)});color:${score > 60 ? '#0F0E0C' : '#F5F0E8'}">${score}</span>`;
+  }
+</script>
+</body>
+</html>
