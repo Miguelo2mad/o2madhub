@@ -63,6 +63,7 @@
     .kpi-bar {
       display: flex; gap: 10px; padding: 16px 24px; flex-wrap: wrap;
       border-bottom: 1px solid var(--border); background: var(--negro-soft);
+      position: sticky; top: 56px; z-index: 90;
     }
     .kpi-pill {
       background: var(--arena-dim); border: 1px solid var(--border);
@@ -85,6 +86,7 @@
     .search-bar {
       padding: 12px 24px; display: flex; align-items: center; gap: 12px;
       border-bottom: 1px solid var(--border);
+      position: sticky; z-index: 89; background: var(--negro);
     }
     .search-bar input {
       flex: 1; max-width: 340px;
@@ -108,7 +110,7 @@
       padding: 10px 14px; text-align: left; font-weight: 500;
       color: var(--text-muted); white-space: nowrap;
       border-bottom: 1px solid var(--border);
-      background: var(--negro-soft); position: sticky; top: 56px;
+      background: var(--negro-soft);
     }
     th.num { text-align: right; }
     td { padding: 9px 14px; border-bottom: 1px solid rgba(196,168,130,0.08); vertical-align: middle; }
@@ -477,6 +479,19 @@
 </div>
 
 <script>
+  function actualizarStickyOffsets() {
+    const headerH = 56;
+    const kpiBar = document.querySelector('.kpi-bar');
+    const searchBar = document.querySelector('.search-bar');
+    if (kpiBar && searchBar) {
+      const kpiH = kpiBar.getBoundingClientRect().height;
+      searchBar.style.top = (headerH + kpiH) + 'px';
+    }
+  }
+  window.addEventListener('resize', actualizarStickyOffsets);
+  document.addEventListener('DOMContentLoaded', actualizarStickyOffsets);
+  setTimeout(actualizarStickyOffsets, 200);
+
   const SUPABASE_URL = 'https://eqruoeoiqvlnlzidqxqr.supabase.co';
   const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVxcnVvZW9pcXZsbmx6aWRxeHFyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE4NTY4MDcsImV4cCI6MjA5NzQzMjgwN30.QYMAUUrARJ9i_F8tb4gyGBkJAL66m7izlqgE2gZyz5k';
 
@@ -520,6 +535,7 @@
 
   async function init() {
     await Promise.all([cargarResumen(), cargarEmpresas(true)]);
+    actualizarStickyOffsets();
   }
 
   async function cargarResumen() {
