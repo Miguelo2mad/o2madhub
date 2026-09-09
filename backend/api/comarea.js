@@ -231,7 +231,7 @@ router.post('/facturas/upload', requireAuth, upload.single('factura'), async (re
 // GET /comarea/facturas
 router.get('/facturas', requireAuth, async (req, res) => {
   const { mes, anyo, proveedor } = req.query;
-  let q = supabase.from('comarea_facturas').select('*').order('fecha_factura', { ascending: false });
+  let q = supabase.from('comarea_facturas').select('*').order('fecha_factura', { ascending: false }).limit(10000);
   if (mes)       q = q.eq('mes', Number(mes));
   if (anyo)      q = q.eq('anyo', Number(anyo));
   if (proveedor) q = q.ilike('proveedor', `%${proveedor}%`);
@@ -274,7 +274,7 @@ router.delete('/facturas/:id', requireAuth, requireRole('gestor', 'admin'), asyn
 // GET /comarea/analytics
 router.get('/analytics', requireAuth, async (req, res) => {
   const { anyo } = req.query;
-  let q = supabase.from('comarea_facturas').select('mes, anyo, importe_total, importe_base, proveedor');
+  let q = supabase.from('comarea_facturas').select('mes, anyo, importe_total, importe_base, proveedor').limit(10000);
   if (anyo) q = q.eq('anyo', Number(anyo));
   const { data, error } = await q;
   if (error) return res.status(500).json({ error: error.message });
@@ -386,7 +386,7 @@ router.get('/analytics/precios', requireAuth, async (req, res) => {
 // GET /comarea/tokens — solo admin
 router.get('/tokens', requireAuth, requireRole('admin'), async (req, res) => {
   const { data, error } = await supabase
-    .from('comarea_token_usage').select('input_tokens, output_tokens, coste_euros, created_at');
+    .from('comarea_token_usage').select('input_tokens, output_tokens, coste_euros, created_at').limit(10000);
   if (error) return res.status(500).json({ error: error.message });
 
   const now = new Date();
@@ -410,7 +410,7 @@ router.get('/tokens', requireAuth, requireRole('admin'), async (req, res) => {
 // GET /comarea/drive/meses — solo gestor/admin
 router.get('/drive/meses', requireAuth, requireRole('gestor', 'admin'), async (req, res) => {
   const { anyo } = req.query;
-  let q = supabase.from('comarea_facturas').select('mes, anyo, drive_url').not('drive_url', 'is', null);
+  let q = supabase.from('comarea_facturas').select('mes, anyo, drive_url').not('drive_url', 'is', null).limit(10000);
   if (anyo) q = q.eq('anyo', Number(anyo));
   const { data, error } = await q;
   if (error) return res.status(500).json({ error: error.message });

@@ -129,9 +129,14 @@ function calcMetricsForContact(contact, invoices, config) {
 async function recalculateAllMetrics() {
   const config = await loadConfig();
 
-  const { data: contacts, error: cErr } = await supabase
-    .from('fd_contacts').select('fd_contact_id, name');
-  if (cErr) throw new Error(cErr.message);
+  const contacts = [];
+  for (let from = 0; ; from += 1000) {
+    const { data: page, error: cErr } = await supabase
+      .from('fd_contacts').select('fd_contact_id, name').range(from, from + 999);
+    if (cErr) throw new Error(cErr.message);
+    contacts.push(...(page || []));
+    if (!page || page.length < 1000) break;
+  }
 
   // Paginate to avoid PostgREST 1000-row default cap; only count issued invoices
   const allInvoices = [];

@@ -324,26 +324,30 @@ router.get('/facturas/:fd_invoice_id/pdf', requireAuth, async (req, res) => {
     .maybeSingle();
   if (!inv) return res.status(404).json({ error: 'Factura no encontrada' });
 
-  // Intentar el endpoint nativo de FD (por si lo añaden en el futuro)
+  // Endpoint real de FD: PUT /{companyId}/invoices/{id}/pdf → { url, filename }
+  // La API devuelve una URL temporal al PDF (no el binario directamente)
   const baseUrl   = process.env.FACTURADIRECTA_BASE_URL;
   const companyId = process.env.FACTURADIRECTA_COMPANY_ID;
   const apiKey    = process.env.FACTURADIRECTA_API_KEY;
   if (baseUrl && companyId && apiKey) {
     try {
-      const fdRes = await axios.get(`${baseUrl}/${companyId}/invoices/${fd_invoice_id}/pdf`, {
-        headers: { 'facturadirecta-api-key': apiKey },
-        responseType: 'stream',
-        timeout: 12000,
-      });
-      const ct = fdRes.headers['content-type'] || '';
-      if (ct.includes('pdf')) {
-        const fn = `factura-${(inv.document_number || fd_invoice_id).replace(/[^a-zA-Z0-9\-_]/g, '_')}.pdf`;
+      const fdMeta = await axios.put(
+        `${baseUrl}/${companyId}/invoices/${fd_invoice_id}/pdf`,
+        { mode: 'inline' },
+        { headers: { 'facturadirecta-api-key': apiKey, 'Content-Type': 'application/json' }, timeout: 15000 }
+      );
+      const pdfUrl = fdMeta.data?.url;
+      if (pdfUrl) {
+        const fdPdf = await axios.get(pdfUrl, { responseType: 'stream', timeout: 20000 });
+        const fn = fdMeta.data.filename || `factura-${inv.document_number || fd_invoice_id}.pdf`;
         res.setHeader('Content-Type', 'application/pdf');
         res.setHeader('Content-Disposition', `inline; filename="${fn}"`);
-        fdRes.data.pipe(res);
+        fdPdf.data.pipe(res);
         return;
       }
-    } catch { /* fallthrough to HTML view */ }
+    } catch (e) {
+      console.warn(`[crm-pdf] FD PUT falló (${e.response?.status || e.message}), usando fallback HTML`);
+    }
   }
 
   // Fallback: vista HTML imprimible desde el raw
