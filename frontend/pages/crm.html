@@ -679,28 +679,34 @@
     // Últimas facturas
     const tbody = document.getElementById('fichaFacturas');
     if (facturas.length) {
-      tbody.innerHTML = facturas.map(f => `
-        <tr>
-          <td>${esc(f.document_number || '—')}</td>
+      tbody.innerHTML = facturas.map(f => {
+        const stateLabel = { voided: 'Anulada', draft: 'Borrador' }[f.state] || null;
+        const stateBadge = stateLabel
+          ? `<span style="font-size:9px;font-weight:700;padding:1px 6px;border-radius:3px;background:rgba(217,104,79,0.15);color:var(--rojo);border:1px solid rgba(217,104,79,0.25);text-transform:uppercase;margin-left:4px">${stateLabel}</span>`
+          : '';
+        return `
+        <tr style="cursor:pointer" onclick="verPDF('${f.fd_invoice_id}')">
+          <td>${esc(f.document_number || '—')}${stateBadge}</td>
           <td style="color:var(--text-muted)">${f.invoice_date ? fmtDate(f.invoice_date) : '—'}</td>
-          <td style="color:var(--text-muted);max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(f.primera_linea_descripcion || '—')}</td>
+          <td style="color:var(--text-muted);max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(f.primera_linea_descripcion || '—')}</td>
           <td>${eur(f.total)}</td>
-        </tr>
-      `).join('');
+          <td><span style="font-size:10px;color:var(--arena);white-space:nowrap">Ver PDF ↗</span></td>
+        </tr>`;
+      }).join('');
     } else {
-      tbody.innerHTML = '<tr><td colspan="4" style="color:var(--text-muted)">Sin facturas</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="5" style="color:var(--text-muted)">Sin facturas</td></tr>';
     }
 
     // Servicios
     const sWrap = document.getElementById('fichaServicios');
     if (servicios.length) {
-      sWrap.innerHTML = servicios.map(s => `<span class="tag contratado" title="Última: ${s.ultima_vez || '?'}">${esc(s.service_category)}</span>`).join('');
+      sWrap.innerHTML = servicios.map(s => `<span class="tag contratado" title="Última: ${s.ultima_vez || '?'}">${esc(s.label || s.service_category)}</span>`).join('');
     } else {
       sWrap.innerHTML = '<span style="color:var(--text-muted);font-size:12px;">—</span>';
     }
 
     document.getElementById('fichaSinServicios').innerHTML =
-      nunca_contratados.map(s => `<span class="tag pendiente">+ ${esc(s)}</span>`).join('');
+      nunca_contratados.map(s => `<span class="tag pendiente">+ ${esc(s.label || s.service_category)}</span>`).join('');
 
     // Actividades
     renderTimeline(actividades);
@@ -722,6 +728,23 @@
         </div>
       </div>
     `).join('');
+  }
+
+  async function verPDF(invId) {
+    try {
+      const res = await fetch(`/api/crm/facturas/${invId}/pdf`, {
+        headers: { 'Authorization': `Bearer ${accessToken}` },
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: res.statusText }));
+        throw new Error(err.error || res.statusText);
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      window.open(url, '_blank');
+    } catch (e) {
+      alert('No se pudo abrir el PDF: ' + e.message);
+    }
   }
 
   function toggleNota() {

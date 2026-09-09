@@ -133,9 +133,19 @@ async function recalculateAllMetrics() {
     .from('fd_contacts').select('fd_contact_id, name');
   if (cErr) throw new Error(cErr.message);
 
-  const { data: allInvoices, error: iErr } = await supabase
-    .from('fd_invoices').select('fd_contact_id, invoice_date, total');
-  if (iErr) throw new Error(iErr.message);
+  // Paginate to avoid PostgREST 1000-row default cap; only count issued invoices
+  const allInvoices = [];
+  const PAGE = 1000;
+  for (let from = 0; ; from += PAGE) {
+    const { data: page, error: iErr } = await supabase
+      .from('fd_invoices')
+      .select('fd_contact_id, invoice_date, total')
+      .eq('state', 'issued')
+      .range(from, from + PAGE - 1);
+    if (iErr) throw new Error(iErr.message);
+    allInvoices.push(...(page || []));
+    if (!page || page.length < PAGE) break;
+  }
 
   const byContact = {};
   for (const inv of allInvoices) {

@@ -1,14 +1,38 @@
 'use strict';
 const express = require('express');
-const router = express.Router();
+const axios   = require('axios');
+const router  = express.Router();
 const { supabase } = require('../lib/supabase');
 const { importarContactosFD } = require('../jobs/crm-import-fd');
 
 const CATALOGO_SERVICIOS = [
   'SEO','GOOGLE_ADS','META_ADS','SOCIAL_MEDIA','WEB_DESIGN','WEB_DEVELOPMENT',
   'ECOMMERCE','PHOTO','VIDEO','BRANDING','CONTENT','AI_AUTOMATION',
-  'WHATSAPP_AI','VOICE_AI','CRM','CONSULTING','HOSTING','MAINTENANCE',
+  'WHATSAPP_AI','VOICE_AI','CRM','CONSULTING','HOSTING','MAINTENANCE','OTHER',
 ];
+
+const SERVICIO_LABELS = {
+  SEO:            'SEO',
+  GOOGLE_ADS:     'Google Ads',
+  META_ADS:       'Meta Ads',
+  SOCIAL_MEDIA:   'Redes sociales',
+  WEB_DESIGN:     'Diseño web',
+  WEB_DEVELOPMENT:'Desarrollo web',
+  ECOMMERCE:      'Ecommerce',
+  PHOTO:          'Fotografía',
+  VIDEO:          'Vídeo',
+  BRANDING:       'Branding',
+  CONTENT:        'Contenido',
+  AI_AUTOMATION:  'Automatización IA',
+  WHATSAPP_AI:    'WhatsApp IA',
+  VOICE_AI:       'IA de voz',
+  CRM:            'CRM',
+  CONSULTING:     'Consultoría',
+  HOSTING:        'Hosting',
+  MAINTENANCE:    'Mantenimiento',
+  OTHER:          'Otros',
+};
+module.exports.SERVICIO_LABELS = SERVICIO_LABELS;
 
 async function requireAuth(req, res, next) {
   const auth = req.headers.authorization;
@@ -196,8 +220,11 @@ router.get('/empresas/:id', requireAuth, async (req, res) => {
       servicios = Object.values(svcMap);
     }
 
+    servicios = servicios.map(s => ({ ...s, label: SERVICIO_LABELS[s.service_category] || s.service_category }));
     const contratados = servicios.map(s => s.service_category);
-    const nunca_contratados = CATALOGO_SERVICIOS.filter(s => !contratados.includes(s));
+    const nunca_contratados = CATALOGO_SERVICIOS
+      .filter(s => !contratados.includes(s))
+      .map(s => ({ service_category: s, label: SERVICIO_LABELS[s] || s }));
 
     // Actividades
     const { data: actividades } = await supabase
@@ -282,6 +309,80 @@ router.post('/empresas/:id/actividades', requireAuth, async (req, res) => {
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
+});
+
+// GET /api/crm/facturas/:fd_invoice_id/pdf
+// Intenta el endpoint nativo de FD primero; si no existe (la API actual no lo expone),
+// devuelve una vista HTML imprimible generada desde el raw.
+router.get('/facturas/:fd_invoice_id/pdf', requireAuth, async (req, res) => {
+  const { fd_invoice_id } = req.params;
+
+  const { data: inv } = await supabase
+    .from('fd_invoices')
+    .select('fd_invoice_id, document_number, invoice_date, total, state, raw')
+    .eq('fd_invoice_id', fd_invoice_id)
+    .maybeSingle();
+  if (!inv) return res.status(404).json({ error: 'Factura no encontrada' });
+
+  // Intentar el endpoint nativo de FD (por si lo añaden en el futuro)
+  const baseUrl   = process.env.FACTURADIRECTA_BASE_URL;
+  const companyId = process.env.FACTURADIRECTA_COMPANY_ID;
+  const apiKey    = process.env.FACTURADIRECTA_API_KEY;
+  if (baseUrl && companyId && apiKey) {
+    try {
+      const fdRes = await axios.get(`${baseUrl}/${companyId}/invoices/${fd_invoice_id}/pdf`, {
+        headers: { 'facturadirecta-api-key': apiKey },
+        responseType: 'stream',
+        timeout: 12000,
+      });
+      const ct = fdRes.headers['content-type'] || '';
+      if (ct.includes('pdf')) {
+        const fn = `factura-${(inv.document_number || fd_invoice_id).replace(/[^a-zA-Z0-9\-_]/g, '_')}.pdf`;
+        res.setHeader('Content-Type', 'application/pdf');
+        res.setHeader('Content-Disposition', `inline; filename="${fn}"`);
+        fdRes.data.pipe(res);
+        return;
+      }
+    } catch { /* fallthrough to HTML view */ }
+  }
+
+  // Fallback: vista HTML imprimible desde el raw
+  const main = inv.raw?.content?.main || {};
+  const lines = main.lines || [];
+  const docNum = inv.document_number || '—';
+  const fecha = inv.invoice_date || '—';
+  const total = Number(inv.total || 0).toLocaleString('es-ES', { minimumFractionDigits: 2 });
+  const empresa = main.counterpart?.name || '';
+  const cif = main.counterpart?.taxId || '';
+  const linesHtml = lines.map(l => `
+    <tr>
+      <td>${(l.text || l.description || '').replace(/</g,'&lt;')}</td>
+      <td style="text-align:right">${l.quantity ?? ''}</td>
+      <td style="text-align:right">${Number(l.unitPrice || 0).toLocaleString('es-ES', { minimumFractionDigits: 2 })}</td>
+      <td style="text-align:right">${Number(l.lineTotal || 0).toLocaleString('es-ES', { minimumFractionDigits: 2 })} €</td>
+    </tr>`).join('');
+  const html = `<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8">
+<title>Factura ${docNum}</title>
+<style>
+  body { font-family: Arial, sans-serif; font-size: 13px; color: #111; padding: 40px; max-width: 800px; margin: auto; }
+  h1 { font-size: 22px; margin-bottom: 4px; } .muted { color: #666; }
+  table { width: 100%; border-collapse: collapse; margin-top: 24px; }
+  th { background: #f5f5f5; padding: 8px; text-align: left; border-bottom: 2px solid #ccc; font-size: 12px; }
+  td { padding: 7px 8px; border-bottom: 1px solid #eee; }
+  .total-row td { font-weight: 700; border-top: 2px solid #ccc; font-size: 14px; }
+  @media print { body { padding: 0; } }
+</style></head><body>
+<h1>Factura ${docNum}</h1>
+<p class="muted">Fecha: ${fecha}${empresa ? ` &nbsp;·&nbsp; Cliente: <strong>${empresa}</strong>` : ''}${cif ? ` (${cif})` : ''}</p>
+<table>
+  <thead><tr><th>Descripción</th><th style="text-align:right">Cant.</th><th style="text-align:right">Precio unit.</th><th style="text-align:right">Total</th></tr></thead>
+  <tbody>${linesHtml}</tbody>
+  <tfoot><tr class="total-row"><td colspan="3">TOTAL</td><td style="text-align:right">${total} €</td></tr></tfoot>
+</table>
+<p style="margin-top:32px;font-size:11px;color:#999">Vista generada desde O2MAD Hub · Factura original en FacturaDirecta</p>
+</body></html>`;
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  res.send(html);
 });
 
 // POST /api/crm/import
