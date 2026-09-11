@@ -14,12 +14,14 @@ const grupoRouter        = require('./backend/api/grupo');
 const contentRoutes      = require('./backend/api/content');
 const presupuestosRouter = require('./backend/api/presupuestos');
 const campanasRouter        = require('./backend/api/campanas');
-const customerMetricsRouter = require('./backend/api/customer-metrics');
-const crmRouter             = require('./backend/api/crm');
-const { syncGoogleAds }          = require('./backend/jobs/google-ads-sync');
-const { syncFacturaDirecta }     = require('./backend/jobs/facturadirecta-sync');
-const { runCustomerMetricsJob }  = require('./backend/jobs/customer-metrics-job');
-const { importarContactosFD }    = require('./backend/jobs/crm-import-fd');
+const customerMetricsRouter       = require('./backend/api/customer-metrics');
+const crmRouter                   = require('./backend/api/crm');
+const serviceClassificationRouter = require('./backend/api/service-classification');
+const { syncGoogleAds }              = require('./backend/jobs/google-ads-sync');
+const { syncFacturaDirecta }         = require('./backend/jobs/facturadirecta-sync');
+const { runCustomerMetricsJob }      = require('./backend/jobs/customer-metrics-job');
+const { importarContactosFD }        = require('./backend/jobs/crm-import-fd');
+const { runServiceClassification }   = require('./backend/jobs/service-classification-job');
 
 const app = express();
 app.use(cors());
@@ -62,6 +64,7 @@ app.use('/api/presupuestos', presupuestosRouter);
 app.use('/api/campanas', campanasRouter);
 app.use('/api/customer-metrics', customerMetricsRouter);
 app.use('/api/crm', crmRouter);
+app.use('/api/service-classification', serviceClassificationRouter);
 
 // Hub dashboard (Supabase Auth + realtime). Served at / and /hub.
 const HUB_PAGE = path.join(__dirname, 'frontend', 'pages', 'index.html');
@@ -101,6 +104,11 @@ cron.schedule('0 8 * * *', () => {
 // FacturaDirecta sync — daily at 06:00 Madrid.
 cron.schedule('0 6 * * *', () => {
   syncFacturaDirecta().catch(e => console.error('[fd-sync] cron failed:', e.message));
+}, { timezone: 'Europe/Madrid' });
+
+// Service classification — daily at 06:10 Madrid (after FD sync, before customer metrics).
+cron.schedule('10 6 * * *', () => {
+  runServiceClassification().catch(e => console.error('[service-classification] cron failed:', e.message));
 }, { timezone: 'Europe/Madrid' });
 
 // Customer Intelligence metrics — daily at 06:30 Madrid.

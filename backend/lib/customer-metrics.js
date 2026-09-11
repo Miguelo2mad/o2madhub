@@ -144,7 +144,7 @@ async function recalculateAllMetrics() {
   for (let from = 0; ; from += PAGE) {
     const { data: page, error: iErr } = await supabase
       .from('fd_invoices')
-      .select('fd_contact_id, invoice_date, total')
+      .select('fd_invoice_id, fd_contact_id, invoice_date, total')
       .eq('state', 'issued')
       .range(from, from + PAGE - 1);
     if (iErr) throw new Error(iErr.message);
@@ -153,10 +153,31 @@ async function recalculateAllMetrics() {
   }
 
   const byContact = {};
+  // Also build invoice_id → contact_id for services join
+  const invoiceToContact = {};
   for (const inv of allInvoices) {
     if (!inv.fd_contact_id) continue;
     if (!byContact[inv.fd_contact_id]) byContact[inv.fd_contact_id] = [];
     byContact[inv.fd_contact_id].push(inv);
+    if (inv.fd_invoice_id) invoiceToContact[inv.fd_invoice_id] = inv.fd_contact_id;
+  }
+
+  // Build services_used per contact from classified invoice lines
+  const servicesByContact = {};
+  for (let from = 0; ; from += PAGE) {
+    const { data: sPage, error: sErr } = await supabase
+      .from('fd_invoice_lines')
+      .select('fd_invoice_id, service_category')
+      .not('service_category', 'is', null)
+      .range(from, from + PAGE - 1);
+    if (sErr) throw new Error(sErr.message);
+    for (const line of (sPage || [])) {
+      const contactId = invoiceToContact[line.fd_invoice_id];
+      if (!contactId) continue;
+      if (!servicesByContact[contactId]) servicesByContact[contactId] = new Set();
+      servicesByContact[contactId].add(line.service_category);
+    }
+    if (!sPage || sPage.length < PAGE) break;
   }
 
   const rows = [];
@@ -165,8 +186,11 @@ async function recalculateAllMetrics() {
     const invoices = byContact[contact.fd_contact_id] || [];
     if (!invoices.length) { skipped++; continue; }
     const metrics = calcMetricsForContact(contact, invoices, config);
-    if (metrics) rows.push(metrics);
-    else skipped++;
+    if (!metrics) { skipped++; continue; }
+    const servSet = servicesByContact[contact.fd_contact_id];
+    metrics.services_used  = servSet && servSet.size ? [...servSet].sort() : null;
+    metrics.services_count = servSet && servSet.size ? servSet.size          : null;
+    rows.push(metrics);
   }
 
   const BATCH = 100;
