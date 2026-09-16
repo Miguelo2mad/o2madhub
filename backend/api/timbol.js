@@ -6,6 +6,7 @@ const crypto  = require('crypto');
 const { supabase } = require('../lib/supabase');
 const { client } = require('../lib/claude');
 const { ensureFolderPath, uploadFile, deleteFile } = require('../lib/google');
+const { createFichajeRouter } = require('./fichaje');
 
 const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
@@ -61,6 +62,10 @@ function requireRole(...roles) {
     next();
   };
 }
+
+// Fichaje de personal — módulo reutilizable (ver backend/api/fichaje.js).
+// Queda montado en /timbol/fichaje/*, con el login/roles de Timbol.
+router.use('/fichaje', createFichajeRouter({ cliente: 'timbol', requireAuth, requireRole }));
 
 // ── Claude Vision extraction ────────────────────────────────────────────────
 

@@ -71,6 +71,11 @@ const HUB_PAGE = path.join(__dirname, 'frontend', 'pages', 'index.html');
 app.get(['/', '/hub'], (_req, res) => res.sendFile(HUB_PAGE));
 app.get('/content', (_req, res) => res.sendFile(path.join(__dirname, 'frontend', 'pages', 'content.html')));
 app.get('/timbol-app',       (_req, res) => res.sendFile(path.join(__dirname, 'frontend', 'pages', 'timbol.html')));
+// Pantalla pública de fichaje: una sola plantilla para cualquier cliente
+// (Timbol, Comarea, futuros restaurantes). El cliente y el token van en la
+// URL; el shell los lee de location.pathname. No colisiona con la API
+// JSON — esa vive en /<cliente>/fichaje/<token>/estado (con sufijo).
+app.get('/:cliente/fichaje/:token', (_req, res) => res.sendFile(path.join(__dirname, 'frontend', 'pages', 'fichaje.html')));
 app.get('/grupo-app',        (_req, res) => res.sendFile(path.join(__dirname, 'frontend', 'pages', 'grupo.html')));
 app.get('/presupuestos-app', (_req, res) => res.sendFile(path.join(__dirname, 'frontend', 'pages', 'presupuestos.html')));
 app.get('/campanas', (_req, res) => res.sendFile(path.join(__dirname, 'frontend', 'pages', 'campanas.html')));
