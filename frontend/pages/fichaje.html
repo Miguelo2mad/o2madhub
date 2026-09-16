@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#F1F3F0">
+<title>Fichaje</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+:root{
+  --paper:#F1F3F0; --card:#FFFFFF; --ink:#16221C; --ink-2:#4A5A51; --ink-3:#7C8A81;
+  --line:#D9DED8; --line-2:#E9ECE7;
+  --turno:#2F7A4D; --turno-soft:#E4F0E7;
+  --extra:#A9531B; --extra-soft:#F6EADF;
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --paper:#0F1512; --card:#161E19; --ink:#E8EDE9; --ink-2:#A3B1A8; --ink-3:#77857C;
+    --line:#26312B; --line-2:#1E2822; --turno:#5DBF86; --turno-soft:#172E20;
+    --extra:#D9975A; --extra-soft:#2C2117;
+  }
+}
+:root[data-theme="dark"]{
+  --paper:#0F1512; --card:#161E19; --ink:#E8EDE9; --ink-2:#A3B1A8; --ink-3:#77857C;
+  --line:#26312B; --line-2:#1E2822; --turno:#5DBF86; --turno-soft:#172E20;
+  --extra:#D9975A; --extra-soft:#2C2117;
+}
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+html,body{height:100%;background:var(--paper)}
+body{
+  font-family:'Archivo',system-ui,-apple-system,'Segoe UI',sans-serif;
+  color:var(--ink); -webkit-font-smoothing:antialiased;
+  display:flex; align-items:center; justify-content:center;
+  padding:24px 16px; line-height:1.45;
+}
+[hidden]{display:none!important}
+.tnum{font-variant-numeric:tabular-nums}
+button{font:inherit;cursor:pointer}
+
+.phone{
+  width:100%; max-width:380px; background:var(--card);
+  border:1px solid var(--line); border-radius:22px;
+  box-shadow:0 1px 2px rgba(22,34,28,.06), 0 8px 24px rgba(22,34,28,.08);
+  overflow:hidden;
+}
+.phone-bar{ padding:14px 20px; border-bottom:1px solid var(--line-2); display:flex; align-items:center; justify-content:space-between; }
+.brand{font-size:14px;font-weight:700;letter-spacing:-.01em}
+.brand span{color:var(--ink-3);font-weight:500}
+.clock{font-size:13px;color:var(--ink-3);font-weight:600}
+.screen{padding:24px 22px 28px}
+.center{text-align:center;padding:40px 20px;color:var(--ink-3);font-size:14px}
+
+/* PIN */
+.pin-title{font-size:17px;font-weight:600;text-align:center}
+.pin-sub{font-size:13.5px;color:var(--ink-3);text-align:center;margin-top:4px}
+.dots{display:flex;gap:11px;justify-content:center;margin:22px 0 20px}
+.dot{width:13px;height:13px;border-radius:50%;border:1.5px solid var(--line);background:transparent;transition:transform .12s}
+.dot.on{background:var(--turno);border-color:var(--turno);transform:scale(1.12)}
+.pad{display:grid;grid-template-columns:repeat(3,1fr);gap:9px}
+.key{
+  font-size:21px;font-weight:600;color:var(--ink);
+  background:var(--paper);border:1px solid var(--line);border-radius:13px;
+  padding:15px 0;
+}
+.key:active{background:var(--line-2)}
+.key.ghost{background:transparent;border-color:transparent;font-size:13px;color:var(--ink-3);font-weight:600}
+.pin-err{color:var(--extra);font-size:13px;text-align:center;height:34px;margin-top:11px;font-weight:600;display:flex;align-items:center;justify-content:center}
+.pin-cancel{display:block;margin:16px auto 0;background:none;border:0;color:var(--ink-3);font-size:13px;font-weight:600;text-decoration:underline;text-underline-offset:3px}
+
+/* estado */
+.who{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.who h2{font-size:19px;font-weight:700;letter-spacing:-.01em}
+.who p{font-size:13px;color:var(--ink-3);margin-top:1px}
+
+.state{ margin-top:18px;border-radius:16px;padding:20px 18px;text-align:center; background:var(--paper);border:1px solid var(--line); }
+.state.in{background:var(--turno-soft);border-color:transparent}
+.state.incidencia{background:var(--extra-soft);border-color:transparent}
+.state-label{font-size:13px;font-weight:600;color:var(--ink-2)}
+.state.in .state-label{color:var(--turno)}
+.state.incidencia .state-label{color:var(--extra)}
+.big{font-size:44px;font-weight:800;letter-spacing:-.035em;line-height:1.05;margin-top:6px}
+.state.in .big{color:var(--turno)}
+.state-note{font-size:12.5px;color:var(--ink-3);margin-top:5px}
+
+.act{
+  width:100%;margin-top:16px;font-size:19px;font-weight:700;letter-spacing:.01em;
+  border:0;border-radius:15px;padding:21px 0;color:#fff;background:var(--turno);
+}
+.act.out{background:var(--ink)}
+.act:disabled{opacity:.5}
+.act:active{transform:translateY(1px)}
+
+.tramos{margin-top:22px;border-top:1px solid var(--line-2);padding-top:14px}
+.tramos h3{font-size:12.5px;font-weight:700;color:var(--ink-3);text-transform:uppercase;letter-spacing:.5px}
+.tramo{display:flex;justify-content:space-between;align-items:baseline;padding:9px 0;border-bottom:1px solid var(--line-2);font-size:15px}
+.tramo:last-child{border-bottom:0}
+.tramo b{font-weight:600}
+.tramo.incidencia b{color:var(--extra)}
+.tramo .dur{color:var(--ink-3);font-size:13.5px;font-weight:600}
+.empty{font-size:13.5px;color:var(--ink-3);padding:10px 0}
+
+.week{margin-top:16px;background:var(--paper);border:1px solid var(--line);border-radius:13px;padding:14px 16px;display:flex;justify-content:space-between;align-items:center}
+.week div:first-child{font-size:13px;color:var(--ink-2);font-weight:600}
+.week .v{font-size:17px;font-weight:700}
+</style>
+</head>
+<body>
+
+<div class="phone">
+  <div class="phone-bar">
+    <div class="brand" id="brand">Fichaje</div>
+    <div class="clock tnum" id="clock">—</div>
+  </div>
+
+  <div class="screen" id="s-loading"><div class="center">Cargando…</div></div>
+
+  <div class="screen" id="s-notfound" hidden>
+    <div class="center">Este enlace no es válido o el empleado no está activo. Contacta con tu gestor.</div>
+  </div>
+
+  <!-- ESTADO -->
+  <div class="screen" id="s-state" hidden>
+    <div class="who">
+      <div>
+        <h2 id="emp-name">—</h2>
+        <p id="emp-sub">—</p>
+      </div>
+    </div>
+
+    <div class="state" id="state">
+      <div class="state-label" id="state-label">—</div>
+      <div class="big tnum" id="state-big">—</div>
+      <div class="state-note" id="state-note"></div>
+    </div>
+
+    <button class="act" id="act">Entrar</button>
+
+    <div class="tramos">
+      <h3 id="tramos-title">Hoy</h3>
+      <div id="tramos"></div>
+    </div>
+
+    <div class="week">
+      <div>Esta semana</div>
+      <div class="v tnum" id="week-total">—</div>
+    </div>
+  </div>
+
+  <!-- PIN -->
+  <div class="screen" id="s-pin" hidden>
+    <div class="pin-title" id="pin-title">Introduce tu PIN</div>
+    <div class="pin-sub">Cinco cifras</div>
+    <div class="dots" id="dots"></div>
+    <div class="pad" id="pad">
+      <button class="key" data-k="1">1</button><button class="key" data-k="2">2</button><button class="key" data-k="3">3</button>
+      <button class="key" data-k="4">4</button><button class="key" data-k="5">5</button><button class="key" data-k="6">6</button>
+      <button class="key" data-k="7">7</button><button class="key" data-k="8">8</button><button class="key" data-k="9">9</button>
+      <button class="key ghost" data-act="clear">Borrar</button>
+      <button class="key" data-k="0">0</button>
+      <span></span>
+    </div>
+    <div class="pin-err" id="pin-err"></div>
+    <button class="pin-cancel" id="pin-cancel">Cancelar</button>
+  </div>
+</div>
+
+<script>
+// Shell genérico: el cliente y el token vienen de la URL
+// (/<cliente>/fichaje/<token>), así sirve igual para Timbol, Comarea o
+// cualquier restaurante que active el módulo. La API vive en
+// /<cliente>/fichaje/<token>/estado|entrada|salida (nunca en la URL
+// desnuda, que aquí sirve esta misma página).
+const partes = location.pathname.split('/').filter(Boolean); // [cliente, 'fichaje', token]
+const CLIENTE = partes[0] || '';
+const TOKEN   = partes[2] || '';
+const API = `${location.origin}/${CLIENTE}/fichaje/${TOKEN}`;
+
+let pendingAction = null; // 'entrada' | 'salida'
+let pin = '';
+let liveTimer = null;
+let turnoAbiertoDesde = null;
+
+function pad2(n){ return String(n).padStart(2, '0'); }
+function hhmm(iso){
+  const d = new Date(iso);
+  return pad2(d.getHours()) + ':' + pad2(d.getMinutes());
+}
+function horasStr(h){
+  const totalMin = Math.round(h * 60);
+  return Math.floor(totalMin / 60) + ':' + pad2(totalMin % 60);
+}
+function esc(s){ return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function cap(s){ return s ? s.charAt(0).toUpperCase() + s.slice(1) : s; }
+
+function tickClock(){
+  const d = new Date();
+  document.getElementById('clock').textContent = pad2(d.getHours()) + ':' + pad2(d.getMinutes());
+}
+tickClock(); setInterval(tickClock, 10000);
+
+async function cargarEstado(){
+  const r = await fetch(API + '/estado');
+  if (r.status === 404) throw Object.assign(new Error('No encontrado'), { notFound: true });
+  if (!r.ok) throw new Error('Error al cargar');
+  return r.json();
+}
+
+async function enviarAccion(accion, pinValor){
+  const r = await fetch(`${API}/${accion}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ pin: pinValor }),
+  });
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(d.error || 'Error');
+  return d;
+}
+
+function renderEstado(d){
+  document.getElementById('brand').innerHTML = `${cap(CLIENTE)} <span>· Fichaje</span>`;
+  document.getElementById('emp-name').textContent = d.nombre;
+  document.getElementById('emp-sub').textContent = `${d.puesto || 'Sin puesto asignado'} · ${d.horas_semana} h semanales`;
+
+  const stateEl = document.getElementById('state');
+  const lbl = document.getElementById('state-label');
+  const big = document.getElementById('state-big');
+  const note = document.getElementById('state-note');
+  const act = document.getElementById('act');
+
+  stateEl.classList.remove('in', 'incidencia');
+  clearInterval(liveTimer); liveTimer = null;
+
+  if (d.turno_abierto && d.turno_abierto.incidencia) {
+    stateEl.classList.add('incidencia');
+    lbl.textContent = 'Turno pendiente de revisar';
+    big.textContent = '—';
+    note.textContent = `Llevas abierto desde las ${hhmm(d.turno_abierto.desde)} más de 12 horas. Avisa a tu gestor o vuelve a fichar entrada.`;
+    act.textContent = 'Entrar'; act.classList.remove('out');
+  } else if (d.turno_abierto) {
+    stateEl.classList.add('in');
+    lbl.textContent = 'En turno';
+    turnoAbiertoDesde = new Date(d.turno_abierto.desde);
+    const pintar = () => { big.textContent = horasStr((Date.now() - turnoAbiertoDesde) / 3600000); };
+    pintar();
+    liveTimer = setInterval(pintar, 1000);
+    note.textContent = `Entraste a las ${hhmm(d.turno_abierto.desde)}`;
+    act.textContent = 'Salir'; act.classList.add('out');
+  } else {
+    lbl.textContent = 'Fuera de turno';
+    const totalHoy = (d.tramos_hoy || []).filter(t => !t.incidencia).reduce((s, t) => s + t.horas, 0);
+    big.textContent = horasStr(totalHoy);
+    note.textContent = d.tramos_hoy?.length ? `Total de hoy en ${d.tramos_hoy.length} tramo${d.tramos_hoy.length !== 1 ? 's' : ''}` : 'Hoy no has fichado todavía';
+    act.textContent = 'Entrar'; act.classList.remove('out');
+  }
+
+  const tramosEl = document.getElementById('tramos');
+  const tramos = d.tramos_hoy || [];
+  if (!tramos.length) {
+    tramosEl.innerHTML = '<div class="empty">Sin tramos registrados hoy.</div>';
+  } else {
+    tramosEl.innerHTML = tramos.map(t => `
+      <div class="tramo${t.incidencia ? ' incidencia' : ''}">
+        <b>${hhmm(t.entrada)} – ${t.salida ? hhmm(t.salida) : 'en curso'}</b>
+        <span class="dur tnum">${t.incidencia ? 'revisar' : horasStr(t.horas)}</span>
+      </div>`).join('');
+  }
+
+  document.getElementById('week-total').textContent = horasStr(d.total_semana_horas || 0) + ' de ' + horasStr(d.horas_semana);
+}
+
+async function refrescar(){
+  try {
+    const d = await cargarEstado();
+    document.getElementById('s-loading').hidden = true;
+    document.getElementById('s-notfound').hidden = true;
+    document.getElementById('s-state').hidden = false;
+    renderEstado(d);
+  } catch (e) {
+    document.getElementById('s-loading').hidden = true;
+    document.getElementById('s-state').hidden = true;
+    document.getElementById('s-notfound').hidden = false;
+  }
+}
+
+// ── PIN pad ──────────────────────────────────────────────────────────────
+function pintarDots(){
+  const dotsEl = document.getElementById('dots');
+  dotsEl.innerHTML = '';
+  for (let i = 0; i < 5; i++) {
+    const d = document.createElement('span');
+    d.className = 'dot' + (i < pin.length ? ' on' : '');
+    dotsEl.appendChild(d);
+  }
+}
+
+function abrirPin(accion){
+  pendingAction = accion;
+  pin = '';
+  pintarDots();
+  document.getElementById('pin-err').textContent = '';
+  document.getElementById('pin-title').textContent = accion === 'entrada' ? 'PIN para entrar' : 'PIN para salir';
+  document.getElementById('s-state').hidden = true;
+  document.getElementById('s-pin').hidden = false;
+}
+
+function cerrarPin(){
+  pendingAction = null; pin = '';
+  document.getElementById('s-pin').hidden = true;
+  document.getElementById('s-state').hidden = false;
+}
+
+async function completarPin(){
+  const valor = pin;
+  const accion = pendingAction;
+  pin = ''; pintarDots();
+  try {
+    await enviarAccion(accion, valor);
+    cerrarPin();
+    await refrescar();
+  } catch (e) {
+    document.getElementById('pin-err').textContent = e.message;
+  }
+}
+
+document.getElementById('pad').addEventListener('click', (e) => {
+  const btn = e.target.closest('.key');
+  if (!btn) return;
+  if (btn.dataset.act === 'clear') { pin = pin.slice(0, -1); pintarDots(); return; }
+  if (pin.length >= 5) return;
+  pin += btn.dataset.k;
+  pintarDots();
+  if (pin.length === 5) setTimeout(completarPin, 150);
+});
+document.getElementById('pin-cancel').addEventListener('click', cerrarPin);
+document.getElementById('act').addEventListener('click', () => {
+  const accion = document.getElementById('act').textContent === 'Salir' ? 'salida' : 'entrada';
+  abrirPin(accion);
+});
+
+if (!CLIENTE || !TOKEN) {
+  document.getElementById('s-loading').hidden = true;
+  document.getElementById('s-notfound').hidden = false;
+} else {
+  refrescar();
+}
+</script>
+</body>
+</html>

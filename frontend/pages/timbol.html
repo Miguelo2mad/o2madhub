@@ -277,6 +277,26 @@
     .ia-stat .value { font-size: 18px; font-weight: 700; color: var(--accent); }
     .ia-stat .sub   { font-size: 11px; color: var(--muted); margin-top: 2px; }
 
+    /* ─── TAB FICHAJE ────────────────────────────────── */
+    .fichaje-live { display: flex; align-items: center; margin-bottom: 14px; }
+    .badge-off { background: var(--surface2); color: var(--muted); }
+    .fichaje-tabla-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 14px; margin-bottom: 16px; }
+    .fichaje-tabla { width: 100%; border-collapse: collapse; font-size: 13px; min-width: 640px; }
+    .fichaje-tabla th { text-align: left; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: .5px; font-size: 10px; padding: 10px 10px; border-bottom: 1px solid var(--border); background: var(--surface2); }
+    .fichaje-tabla td { padding: 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
+    .fichaje-tabla tr:last-child td { border-bottom: none; }
+    .fichaje-tabla td.num { text-align: right; white-space: nowrap; }
+    .fichaje-tabla .puesto { font-size: 11px; color: var(--muted); display: block; margin-top: 2px; }
+    .fichaje-edit { background: transparent; border: none; color: var(--accent); font-size: 14px; cursor: pointer; padding: 2px 4px; }
+    .fichaje-revisar { cursor: pointer; }
+    .btn-secondary { background: transparent; border: 1px solid var(--border); color: var(--text); padding: 10px 16px; }
+    .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 12px; }
+    .form-actions { display: flex; gap: 10px; margin-top: 6px; }
+    .form-actions button { flex: 1; }
+    .incidencia-row { background: rgba(217,164,65,.08); border-radius: 10px; padding: 10px 12px; margin-bottom: 8px; }
+    .incidencia-row .fi-meta { margin-bottom: 8px; font-size: 12px; color: var(--muted); }
+    .link-copy { font-size: 12px; color: var(--accent); word-break: break-all; display: block; margin-top: 6px; }
+
     /* hidden file inputs */
     input[type="file"] { display: none; }
   </style>
@@ -430,6 +450,42 @@
       <div class="card" id="precios-list"><div class="empty">Cargando…</div></div>
     </div>
 
+    <!-- TAB FICHAJE -->
+    <div class="tab-panel" id="panel-fichaje">
+      <div class="fichaje-live" id="fichaje-live"><span class="badge badge-off">Cargando…</span></div>
+
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+        <p class="section-title" style="margin:0">Empleados</p>
+        <button class="btn-drive" id="btn-nuevo-empleado">+ Nuevo empleado</button>
+      </div>
+
+      <div id="fichaje-empleado-form" class="card hidden"></div>
+      <div id="fichaje-incidencias-panel" class="card hidden"></div>
+
+      <div class="fichaje-tabla-wrap">
+        <table class="fichaje-tabla">
+          <thead><tr>
+            <th>Empleado</th><th>Estado</th><th class="num">Hoy</th><th class="num">Semana</th>
+            <th class="num">Contrato</th><th class="num">Extras mes</th><th class="num">A pagar</th><th></th>
+          </tr></thead>
+          <tbody id="fichaje-rows"><tr><td colspan="8" class="empty">Cargando…</td></tr></tbody>
+        </table>
+      </div>
+
+      <p class="section-title">Cierre mensual</p>
+      <div class="card">
+        <div class="field" style="margin-bottom:12px">
+          <label>Mes</label>
+          <select class="filter-select" id="fichaje-mes-select" style="width:100%"></select>
+        </div>
+        <div class="form-actions">
+          <button class="btn-drive" id="btn-generar-informe">Ver informe</button>
+          <button class="btn-drive" id="btn-descargar-informe">Descargar CSV</button>
+        </div>
+        <div id="fichaje-informe-result" style="margin-top:14px"></div>
+      </div>
+    </div>
+
     <!-- TAB GESTOR -->
     <div class="tab-panel" id="panel-gestor">
       <div id="gestor-ia-wrap" class="hidden">
@@ -455,6 +511,10 @@
     <button class="nav-btn" data-tab="analytics">
       <svg viewBox="0 0 24 24"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
       Análisis
+    </button>
+    <button class="nav-btn" data-tab="fichaje" id="nav-fichaje" style="display:none">
+      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+      Fichaje
     </button>
     <button class="nav-btn" data-tab="gestor" id="nav-gestor" style="display:none">
       <svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M20 21a8 8 0 1 0-16 0"/></svg>
@@ -816,6 +876,8 @@ function resetScan() {
 }
 
 // ── Tab switching ─────────────────────────────────────────────────────────
+let fichajeAutoRefresh = null;
+
 function switchTab(tab) {
   currentTab = tab;
   document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
@@ -826,6 +888,12 @@ function switchTab(tab) {
   if (tab === 'facturas') refreshFacturas();
   if (tab === 'analytics') refreshAnalytics();
   if (tab === 'gestor') refreshGestor();
+
+  clearInterval(fichajeAutoRefresh); fichajeAutoRefresh = null;
+  if (tab === 'fichaje') {
+    refreshFichaje();
+    fichajeAutoRefresh = setInterval(refreshFichaje, 60000);
+  }
 }
 
 // ── Data refresh ──────────────────────────────────────────────────────────
@@ -897,6 +965,283 @@ async function refreshGestor() {
   }
 }
 
+// ── Fichaje ───────────────────────────────────────────────────────────────
+let fichajeUltimoEstado = null; // última respuesta de /fichaje/estado, para abrir el panel de incidencias sin re-pedirla
+
+function horasFmt(h) {
+  const totalMin = Math.round((h || 0) * 60);
+  return `${Math.floor(totalMin / 60)}:${pad(totalMin % 60)}`;
+}
+function hhmm(iso) {
+  const d = new Date(iso);
+  return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+function toDatetimeLocal(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  const off = d.getTimezoneOffset();
+  return new Date(d.getTime() - off * 60000).toISOString().slice(0, 16);
+}
+
+function mesActualStr() {
+  const n = new Date();
+  return `${n.getFullYear()}-${pad(n.getMonth() + 1)}`;
+}
+
+function buildFichajeMesSelect() {
+  const sel = document.getElementById('fichaje-mes-select');
+  if (sel.options.length) return;
+  const now = new Date();
+  for (let i = 0; i < 6; i++) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    const opt = document.createElement('option');
+    opt.value = `${d.getFullYear()}-${pad(d.getMonth() + 1)}`;
+    opt.textContent = `${MESES[d.getMonth()]} ${d.getFullYear()}`;
+    sel.appendChild(opt);
+  }
+}
+
+async function loadFichajeEstado() {
+  const r = await apiFetch('/fichaje/estado');
+  const d = await r.json();
+  if (!r.ok) throw new Error(d.error || 'Error al cargar fichaje');
+  return d;
+}
+
+function renderFichajeEstado(d) {
+  fichajeUltimoEstado = d;
+  document.getElementById('fichaje-live').innerHTML = d.personas_dentro > 0
+    ? `<span class="badge badge-ok">${d.personas_dentro} persona${d.personas_dentro !== 1 ? 's' : ''} en turno ahora</span>`
+    : `<span class="badge badge-off">Nadie en turno ahora</span>`;
+
+  const rowsEl = document.getElementById('fichaje-rows');
+  if (!d.empleados.length) {
+    rowsEl.innerHTML = '<tr><td colspan="8" class="empty">Sin empleados activos. Da de alta el primero.</td></tr>';
+    return;
+  }
+  rowsEl.innerHTML = d.empleados.map(e => {
+    const estadoBadge = e.incidencias.length
+      ? `<span class="badge badge-alert fichaje-revisar" onclick="mostrarIncidencias(${e.id}, '${esc(e.nombre)}')">⚠ revisar (${e.incidencias.length})</span>`
+      : e.dentro
+        ? `<span class="badge badge-ok">Dentro · ${hhmm(e.desde)}</span>`
+        : `<span class="badge badge-off">Fuera</span>`;
+    return `<tr>
+      <td>${esc(e.nombre)}<span class="puesto">${esc(e.puesto || '')}</span></td>
+      <td>${estadoBadge}</td>
+      <td class="num">${horasFmt(e.horas_hoy)}</td>
+      <td class="num">${horasFmt(e.horas_semana)}</td>
+      <td class="num" style="color:var(--muted)">${horasFmt(e.horas_contrato)}</td>
+      <td class="num" style="${e.extras_mes ? 'color:var(--accent);font-weight:700' : 'color:var(--muted)'}">${e.extras_mes ? '+' + horasFmt(e.extras_mes) : '—'}</td>
+      <td class="num" style="${e.importe_mes ? 'color:var(--accent);font-weight:700' : 'color:var(--muted)'}">${e.importe_mes ? eur(e.importe_mes) : '—'}</td>
+      <td><button class="fichaje-edit" onclick="editarEmpleado(${e.id})" title="Editar">✎</button></td>
+    </tr>`;
+  }).join('');
+}
+
+async function refreshFichaje() {
+  buildFichajeMesSelect();
+  if (!document.getElementById('fichaje-mes-select').value) {
+    document.getElementById('fichaje-mes-select').value = mesActualStr();
+  }
+  try {
+    renderFichajeEstado(await loadFichajeEstado());
+  } catch (e) {
+    document.getElementById('fichaje-rows').innerHTML = `<tr><td colspan="8" class="empty">${esc(e.message)}</td></tr>`;
+  }
+}
+
+// ── Fichaje: alta / edición de empleado ─────────────────────────────────
+let fichajeEmpleados = []; // caché para editar (rellenar el form)
+
+function formEmpleadoHtml(emp) {
+  const editando = !!emp;
+  return `
+    <div class="section-title" style="margin-top:0">${editando ? 'Editar empleado' : 'Nuevo empleado'}</div>
+    <div class="form-grid">
+      <div class="field"><label>Nombre</label><input id="fe-nombre" value="${editando ? esc(emp.nombre) : ''}"></div>
+      <div class="field"><label>Puesto</label><input id="fe-puesto" value="${editando ? esc(emp.puesto || '') : ''}"></div>
+      <div class="field"><label>Horas semana</label><input id="fe-horas" type="number" step="0.5" min="0" value="${editando ? emp.horas_semana : ''}"></div>
+      <div class="field"><label>Precio hora extra (€)</label><input id="fe-precio" type="number" step="0.01" min="0" value="${editando ? emp.precio_hora_extra : ''}"></div>
+    </div>
+    <div class="field"><label>${editando ? 'Nuevo PIN (dejar en blanco para no cambiarlo)' : 'PIN (5 cifras)'}</label><input id="fe-pin" inputmode="numeric" maxlength="5" placeholder="•••••"></div>
+    ${editando ? `<div class="field"><label>Activo</label><select id="fe-activo"><option value="true" ${emp.activo ? 'selected' : ''}>Sí</option><option value="false" ${!emp.activo ? 'selected' : ''}>No</option></select></div>` : ''}
+    ${editando ? `<a class="link-copy" href="${emp.fichaje_url}" target="_blank">${emp.fichaje_url}</a>` : ''}
+    <div id="fe-error" style="color:var(--alert);font-size:13px;margin-top:8px"></div>
+    ${editando ? `<div id="fe-nueva-url" style="display:none;margin-top:8px"><div style="font-size:12px;color:var(--ok)">Enlace regenerado:</div><span class="link-copy" id="fe-nueva-url-text"></span></div>` : ''}
+    <div class="form-actions">
+      <button class="btn-primary" style="margin-top:0" id="fe-guardar">Guardar</button>
+      ${editando ? `<button class="btn-secondary" id="fe-regenerar">Regenerar enlace</button>` : ''}
+      <button class="btn-secondary" id="fe-cancelar">Cancelar</button>
+    </div>
+  `;
+}
+
+function cerrarFormEmpleado() {
+  const el = document.getElementById('fichaje-empleado-form');
+  el.classList.add('hidden');
+  el.innerHTML = '';
+}
+
+function abrirFormEmpleado(emp = null) {
+  const el = document.getElementById('fichaje-empleado-form');
+  el.innerHTML = formEmpleadoHtml(emp);
+  el.classList.remove('hidden');
+  document.getElementById('fe-cancelar').addEventListener('click', cerrarFormEmpleado);
+
+  document.getElementById('fe-guardar').addEventListener('click', async () => {
+    const errEl = document.getElementById('fe-error');
+    errEl.textContent = '';
+    const body = {
+      nombre: document.getElementById('fe-nombre').value.trim(),
+      puesto: document.getElementById('fe-puesto').value.trim(),
+      horas_semana: document.getElementById('fe-horas').value,
+      precio_hora_extra: document.getElementById('fe-precio').value,
+    };
+    const pin = document.getElementById('fe-pin').value.trim();
+    if (pin || !emp) body.pin = pin;
+    if (emp) body.activo = document.getElementById('fe-activo').value === 'true';
+
+    try {
+      const url = emp ? `/fichaje/empleados/${emp.id}` : '/fichaje/empleados';
+      const r = await apiFetch(url, {
+        method: emp ? 'PATCH' : 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || 'Error al guardar');
+      cerrarFormEmpleado();
+      await refreshFichaje();
+      if (!emp) alert(`Empleado creado. Enlace de fichaje:\n${d.fichaje_url}`);
+    } catch (e) {
+      errEl.textContent = e.message;
+    }
+  });
+
+  if (emp) {
+    document.getElementById('fe-regenerar').addEventListener('click', async () => {
+      if (!confirm('El enlace anterior dejará de funcionar. ¿Regenerar?')) return;
+      try {
+        const r = await apiFetch(`/fichaje/empleados/${emp.id}`, {
+          method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ regenerar_token: true }),
+        });
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.error || 'Error al regenerar');
+        document.getElementById('fe-nueva-url-text').textContent = d.fichaje_url;
+        document.getElementById('fe-nueva-url').style.display = '';
+      } catch (e) {
+        document.getElementById('fe-error').textContent = e.message;
+      }
+    });
+  }
+}
+
+async function editarEmpleado(id) {
+  try {
+    const r = await apiFetch('/fichaje/empleados');
+    const lista = await r.json();
+    if (!r.ok) throw new Error(lista.error || 'Error al cargar empleados');
+    fichajeEmpleados = lista;
+    const emp = lista.find(e => e.id === id);
+    if (emp) abrirFormEmpleado(emp);
+  } catch (e) {
+    alert(e.message);
+  }
+}
+
+// ── Fichaje: incidencias (turnos >12h a revisar) ────────────────────────
+function mostrarIncidencias(empleadoId, nombre) {
+  const emp = (fichajeUltimoEstado?.empleados || []).find(e => String(e.id) === String(empleadoId));
+  const panel = document.getElementById('fichaje-incidencias-panel');
+  if (!emp || !emp.incidencias.length) { panel.classList.add('hidden'); return; }
+
+  panel.innerHTML = `
+    <div class="section-title" style="margin-top:0">Turnos a revisar — ${esc(nombre)}</div>
+    ${emp.incidencias.map(inc => `
+      <div class="incidencia-row" data-id="${inc.id}">
+        <div class="fi-meta">Fichaje #${inc.id} · entrada original ${esc(inc.entrada_at)}</div>
+        <div class="form-grid">
+          <div class="field"><label>Entrada corregida</label><input type="datetime-local" class="corr-entrada" value="${toDatetimeLocal(inc.entrada_at)}"></div>
+          <div class="field"><label>Salida corregida</label><input type="datetime-local" class="corr-salida" value="${toDatetimeLocal(inc.salida_at)}"></div>
+        </div>
+        <div class="field"><label>Motivo</label><input class="corr-motivo" placeholder="Ej: olvidó fichar salida, salió a las 23:30"></div>
+        <button class="btn-drive corr-guardar">Guardar corrección</button>
+      </div>
+    `).join('')}
+    <button class="btn-secondary" id="btn-cerrar-incidencias">Cerrar</button>
+  `;
+  panel.classList.remove('hidden');
+
+  document.getElementById('btn-cerrar-incidencias').addEventListener('click', () => panel.classList.add('hidden'));
+  panel.querySelectorAll('.incidencia-row').forEach(row => {
+    row.querySelector('.corr-guardar').addEventListener('click', async () => {
+      const id = row.dataset.id;
+      const motivo = row.querySelector('.corr-motivo').value.trim();
+      if (!motivo) { alert('El motivo es obligatorio'); return; }
+      const entrada = row.querySelector('.corr-entrada').value;
+      const salida = row.querySelector('.corr-salida').value;
+      try {
+        const r = await apiFetch(`/fichaje/${id}`, {
+          method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            entrada_at: entrada ? new Date(entrada).toISOString() : undefined,
+            salida_at: salida ? new Date(salida).toISOString() : undefined,
+            motivo,
+          }),
+        });
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.error || 'Error al corregir');
+        panel.classList.add('hidden');
+        await refreshFichaje();
+      } catch (e) {
+        alert(e.message);
+      }
+    });
+  });
+}
+
+// ── Fichaje: informe mensual ─────────────────────────────────────────────
+async function verInformeMensual() {
+  const mes = document.getElementById('fichaje-mes-select').value;
+  const resultEl = document.getElementById('fichaje-informe-result');
+  resultEl.innerHTML = '<div class="empty">Generando…</div>';
+  try {
+    const r = await apiFetch(`/fichaje/informe?mes=${mes}`);
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || 'Error al generar el informe');
+    if (!d.empleados.length) { resultEl.innerHTML = '<div class="empty">Sin empleados activos ese mes</div>'; return; }
+    resultEl.innerHTML = `
+      <div class="fi-comment" style="margin-bottom:10px">Periodo real cubierto: ${d.rango_inicio} a ${d.rango_fin} (semanas completas, lunes a domingo)</div>
+      ${d.empleados.map(e => `
+        <div class="mes-item">
+          <div class="mes-info"><div class="mes-label">${esc(e.nombre)}</div>
+          <div class="mes-count">${horasFmt(e.extras_horas)} extra · ${eur(e.precio_hora_extra)}/h${e.incidencias_excluidas ? ` · ${e.incidencias_excluidas} turno(s) excluido(s) por revisar` : ''}</div></div>
+          <div class="rank-total">${eur(e.importe_extras)}</div>
+        </div>`).join('')}
+      <div class="mes-item"><div class="mes-info"><div class="mes-label">TOTAL</div></div><div class="rank-total">${eur(d.total_importe)}</div></div>
+    `;
+  } catch (e) {
+    resultEl.innerHTML = `<div class="empty">${esc(e.message)}</div>`;
+  }
+}
+
+async function descargarInformeCsv() {
+  const mes = document.getElementById('fichaje-mes-select').value;
+  try {
+    const r = await apiFetch(`/fichaje/informe.csv?mes=${mes}`);
+    if (!r.ok) { const d = await r.json().catch(() => ({})); throw new Error(d.error || 'Error al generar el informe'); }
+    const blob = await r.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = `fichaje-${mes}.csv`;
+    document.body.appendChild(a); a.click(); a.remove();
+    URL.revokeObjectURL(url);
+  } catch (e) {
+    alert(e.message);
+  }
+}
+
 // ── File upload handler ───────────────────────────────────────────────────
 async function handleFile(file) {
   if (!file) return;
@@ -929,6 +1274,7 @@ function showApp() {
   document.getElementById('topbar-email').textContent = userEmail || '';
   const isGestor = ['gestor', 'admin'].includes(userRole);
   document.getElementById('nav-gestor').style.display = isGestor ? '' : 'none';
+  document.getElementById('nav-fichaje').style.display = isGestor ? '' : 'none';
 }
 
 function boot() {
@@ -1000,6 +1346,11 @@ function boot() {
     });
   });
 
+  // Fichaje
+  document.getElementById('btn-nuevo-empleado').addEventListener('click', () => abrirFormEmpleado(null));
+  document.getElementById('btn-generar-informe').addEventListener('click', verInformeMensual);
+  document.getElementById('btn-descargar-informe').addEventListener('click', descargarInformeCsv);
+
   // Estado filter
   document.getElementById('filter-estado').addEventListener('change', () => {
     const activeChip = document.querySelector('.filter-chip.active');
@@ -1013,7 +1364,9 @@ function boot() {
     apiFetch('/tokens').then(r => {
       userRole = r.ok ? 'admin' : 'gestor';
       localStorage.setItem('timbol_role', userRole);
-      document.getElementById('nav-gestor').style.display = ['gestor','admin'].includes(userRole) ? '' : 'none';
+      const isGestor = ['gestor','admin'].includes(userRole);
+      document.getElementById('nav-gestor').style.display = isGestor ? '' : 'none';
+      document.getElementById('nav-fichaje').style.display = isGestor ? '' : 'none';
     }).catch(() => {});
   }
 }
