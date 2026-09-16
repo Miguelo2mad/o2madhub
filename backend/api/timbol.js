@@ -2,6 +2,7 @@
 // Mount in index.js with: app.use('/timbol', require('./backend/api/timbol'))
 const express = require('express');
 const multer  = require('multer');
+const crypto  = require('crypto');
 const { supabase } = require('../lib/supabase');
 const { client } = require('../lib/claude');
 const { ensureFolderPath, uploadFile, deleteFile } = require('../lib/google');
@@ -17,10 +18,27 @@ const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
 // Sin defaults: si la env var no está, pass es undefined y el login falla siempre.
 
 const TIMBOL_USERS = {
-  restaurante: { pass: process.env.TIMBOL_PASS_RESTAURANTE, role: 'restaurante' },
-  gestor:      { pass: process.env.TIMBOL_PASS_GESTOR,      role: 'gestor' },
-  admin:       { pass: process.env.TIMBOL_PASS_ADMIN,       role: 'admin' },
+  restaurante: { pass: process.env.TIMBOL_PASS_RESTAURANTE?.trim(), role: 'restaurante' },
+  gestor:      { pass: process.env.TIMBOL_PASS_GESTOR?.trim(),      role: 'gestor' },
+  admin:       { pass: process.env.TIMBOL_PASS_ADMIN?.trim(),       role: 'admin' },
 };
+
+// Diagnóstico de arranque: solo la longitud, nunca el valor. Un 0/undefined
+// aquí delata al instante una env var que falta o llegó vacía en Railway.
+console.log('[timbol] pass len:', {
+  restaurante: TIMBOL_USERS.restaurante.pass?.length ?? 0,
+  gestor:      TIMBOL_USERS.gestor.pass?.length ?? 0,
+  admin:       TIMBOL_USERS.admin.pass?.length ?? 0,
+});
+
+// Comparación en tiempo constante para evitar timing attacks sobre la contraseña.
+function safeCompare(a, b) {
+  if (typeof a !== 'string' || typeof b !== 'string') return false;
+  const bufA = Buffer.from(a);
+  const bufB = Buffer.from(b);
+  if (bufA.length !== bufB.length) return false;
+  return crypto.timingSafeEqual(bufA, bufB);
+}
 
 function requireAuth(req, res, next) {
   const raw = (req.headers.authorization || '').replace(/^Bearer\s+/, '');
@@ -124,7 +142,7 @@ router.post('/login', (req, res) => {
   const { usuario, password } = req.body || {};
   if (!usuario || !password) return res.status(400).json({ ok: false, error: 'Usuario y contraseña requeridos' });
   const u = TIMBOL_USERS[usuario.toLowerCase()];
-  if (!u || !u.pass || u.pass !== password) return res.status(401).json({ ok: false, error: 'Credenciales incorrectas' });
+  if (!u || !u.pass || !safeCompare(u.pass, password.trim())) return res.status(401).json({ ok: false, error: 'Credenciales incorrectas' });
   const token = Buffer.from(`${usuario}:${Date.now()}`).toString('base64');
   res.json({ ok: true, token, role: u.role, usuario });
 });
