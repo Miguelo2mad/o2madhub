@@ -243,6 +243,7 @@
     select.filter-select:focus { outline: none; border-color: var(--accent); }
     .filtro-proveedor-pill { display: inline-flex; align-items: center; gap: 8px; background: rgba(196,168,130,.15); border: 1px solid var(--accent); color: var(--accent); border-radius: 20px; padding: 6px 12px; font-size: 12px; font-weight: 600; margin-bottom: 12px; }
     .filtro-proveedor-pill button { background: transparent; border: none; color: var(--accent); font-size: 13px; cursor: pointer; line-height: 1; padding: 0; }
+    .facturas-contador { font-size: 12px; color: var(--muted); margin-bottom: 10px; }
 
     /* ─── TAB ANÁLISIS ───────────────────────────────── */
     .kpi-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 4px; }
@@ -458,9 +459,11 @@
           <option value="ticket">Ticket</option>
           <option value="albaran">Albarán</option>
           <option value="revisar">Revisar</option>
+          <option value="incompletos">Incompletos</option>
         </select>
       </div>
       <div id="filtro-proveedor-chip" class="hidden"></div>
+      <div id="facturas-contador" class="facturas-contador"></div>
       <div id="facturas-list"><div class="empty">Cargando facturas…</div></div>
     </div>
 
@@ -675,11 +678,20 @@ function renderTokenUsage(t, totalFacturas) {
 const TIPO_LABEL = { factura: 'Factura', ticket: 'Ticket', albaran: 'Albarán', revisar: 'Revisar' };
 const TIPO_BADGE_CLASS = { factura: 'badge-ok', ticket: 'badge-ok', albaran: 'badge-pend', revisar: 'badge-alert' };
 
-function renderFacturas(list, estado = '', tipoFiltro = '') {
+// "incompletos" no es un tipo real de la BD: cruza cualquier tipo y filtra
+// por fecha_factura/numero_factura vacíos — se calcula aparte tanto para
+// pintar la lista como para el contador de resultados.
+function filtrarFacturas(list, estado, tipoFiltro) {
   let filtered = estado === 'ok'    ? list.filter(f => !f.desviacion || f.desviacion === 0)
                : estado === 'alert' ? list.filter(f => f.desviacion && f.desviacion !== 0)
                : list;
-  if (tipoFiltro) filtered = filtered.filter(f => (f.tipo || 'factura') === tipoFiltro);
+  if (tipoFiltro === 'incompletos') filtered = filtered.filter(f => !f.fecha_factura || !f.numero_factura);
+  else if (tipoFiltro) filtered = filtered.filter(f => (f.tipo || 'factura') === tipoFiltro);
+  return filtered;
+}
+
+function renderFacturas(list, estado = '', tipoFiltro = '') {
+  const filtered = filtrarFacturas(list, estado, tipoFiltro);
 
   if (!filtered.length) return '<div class="empty">Sin facturas</div>';
 
@@ -1006,6 +1018,8 @@ function renderFacturasList() {
   const estado = document.getElementById('filter-estado').value;
   const tipo = document.getElementById('filter-tipo').value;
   document.getElementById('facturas-list').innerHTML = renderFacturas(filtered, estado, tipo);
+  const n = filtrarFacturas(filtered, estado, tipo).length;
+  document.getElementById('facturas-contador').textContent = `${n} documento${n !== 1 ? 's' : ''}`;
   renderFiltroProveedorChip();
 }
 
