@@ -114,23 +114,35 @@ router.post('/facturas/upload', requireAuth, upload.single('factura'), async (re
     const { data, usage } = await extraerFactura(buffer, mimetype, { cliente: 'timbol' });
     trackTokens('upload_factura', usage, req.user.email);
 
-    // Evita duplicados (p. ej. reintentos de subida del mismo PDF): si ya existe
-    // una factura con mismo proveedor+número+importe+fecha, no se vuelve a guardar.
-    if (data.proveedor && data.numero_factura) {
-      const { data: existing } = await supabase
-        .from('timbol_facturas').select('id')
-        .eq('proveedor', data.proveedor)
-        .eq('numero_factura', data.numero_factura)
-        .eq('importe_total', data.importe_total)
-        .eq('fecha_factura', data.fecha_factura)
-        .maybeSingle();
+    // Duplicado EXACTO: mismo cif_proveedor + importe + fecha (o ambas sin
+    // fecha) + número (o ambas sin número). Se bloquea, no se guarda.
+    if (data.cif_proveedor && data.importe_total != null) {
+      let qDup = supabase.from('timbol_facturas').select('id')
+        .eq('cif_proveedor', data.cif_proveedor)
+        .eq('importe_total', data.importe_total);
+      qDup = data.fecha_factura ? qDup.eq('fecha_factura', data.fecha_factura) : qDup.is('fecha_factura', null);
+      qDup = data.numero_factura ? qDup.eq('numero_factura', data.numero_factura) : qDup.is('numero_factura', null);
+      const { data: existing } = await qDup.maybeSingle();
       if (existing) {
         return res.status(409).json({
           ok: false,
-          error: `Ya existe esta factura (${data.numero_factura} — ${data.proveedor}), no se ha vuelto a guardar.`,
+          error: 'Esta factura ya está subida.',
           duplicate_id: existing.id,
         });
       }
+    }
+
+    // Posible duplicado (no bloquea): mismo proveedor e importe, pero
+    // fecha o número distintos — se guarda, pero marcada para revisar.
+    let posibleDuplicado = false;
+    if (data.proveedor && data.importe_total != null) {
+      const { data: posibles } = await supabase
+        .from('timbol_facturas').select('fecha_factura, numero_factura')
+        .eq('proveedor', data.proveedor)
+        .eq('importe_total', data.importe_total)
+        .limit(5);
+      posibleDuplicado = !!(posibles && posibles.some(p =>
+        p.fecha_factura !== data.fecha_factura || p.numero_factura !== data.numero_factura));
     }
 
     const d = data.fecha_factura ? new Date(data.fecha_factura) : new Date();
@@ -188,6 +200,7 @@ router.post('/facturas/upload', requireAuth, upload.single('factura'), async (re
       tipo_confianza:   data.tipo_confianza || null,
       numero_albaranes: Array.isArray(data.numero_albaranes) ? data.numero_albaranes : [],
       total_sobreprecio_eur: data.total_sobreprecio_eur || 0,
+      posible_duplicado: posibleDuplicado,
     };
 
     const { data: saved, error: dbError } = await supabase

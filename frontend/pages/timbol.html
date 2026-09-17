@@ -674,6 +674,7 @@ async function uploadFactura(file) {
   if (!r.ok) {
     const err = new Error(d.error || 'Error al subir la factura');
     err.duplicate = r.status === 409;
+    err.duplicateId = d.duplicate_id;
     throw err;
   }
   return d.factura;
@@ -783,6 +784,7 @@ function renderFacturas(list, estado = '', tipoFiltro = '') {
       ? `<button class="fi-lineas-toggle" onclick="toggleLineasFactura('${f.id}')">▾ líneas (${f.lineas.length})</button>` : '';
     const sinFechaBadge  = !f.fecha_factura  ? '<span class="badge badge-alert">Sin fecha</span>'  : '';
     const sinNumeroBadge = !f.numero_factura ? '<span class="badge badge-alert">Sin número</span>' : '';
+    const duplicadoBadge = f.posible_duplicado ? '<span class="badge badge-pend">Posible duplicado</span>' : '';
     const numeroCampo = canCorregir
       ? `<input type="text" class="fi-numero-input" placeholder="Nº factura" value="${esc(f.numero_factura || '')}" onblur="actualizarCampoFactura('${f.id}','numero_factura',this.value,this)">`
       : `<span class="fi-ref">${esc(f.numero_factura || '—')}</span>`;
@@ -800,6 +802,7 @@ function renderFacturas(list, estado = '', tipoFiltro = '') {
         ${sobreprecio}
         ${sinFechaBadge}
         ${sinNumeroBadge}
+        ${duplicadoBadge}
         ${numeroCampo}
         ${fechaCampo}
         ${drive}
@@ -1521,7 +1524,9 @@ async function handleFile(file) {
     document.getElementById('scan-loading').classList.add('hidden');
     document.getElementById('scan-home').classList.remove('hidden');
     if (e.duplicate) {
-      warnEl.innerHTML = `<div class="alert-box"><svg viewBox="0 0 24 24"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>${e.message}</div>`;
+      const verEnlace = e.duplicateId
+        ? ` <span class="rank-revisar-link" onclick="irAFactura('${e.duplicateId}')">Ver factura</span>` : '';
+      warnEl.innerHTML = `<div class="alert-box"><svg viewBox="0 0 24 24"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg><span>Esta factura ya está subida.${verEnlace}</span></div>`;
       warnEl.classList.remove('hidden');
     } else {
       alert(e.message);
