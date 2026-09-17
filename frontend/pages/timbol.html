@@ -405,6 +405,16 @@
             </div>
             <div class="chevron"><svg viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg></div>
           </button>
+          <button class="btn-scan" id="btn-cierre-caja">
+            <div class="icon">
+              <svg viewBox="0 0 24 24"><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>
+            </div>
+            <div>
+              <div class="label">Cierre de caja</div>
+              <div class="sub">Sube el informe Z del día (una o varias fotos)</div>
+            </div>
+            <div class="chevron"><svg viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg></div>
+          </button>
         </div>
       </div>
 
@@ -417,6 +427,16 @@
       </div>
 
       <div id="scan-result" class="hidden"></div>
+
+      <div id="venta-loading" class="hidden">
+        <div id="upload-loading">
+          <div class="spinner"></div>
+          <div style="font-size:15px;font-weight:600;margin-bottom:6px">Procesando cierre de caja…</div>
+          <div style="font-size:13px;color:var(--muted)">La IA está extrayendo los datos</div>
+        </div>
+      </div>
+      <div id="venta-preview" class="hidden"></div>
+      <input type="file" id="input-cierre-caja" accept="image/*,application/pdf" multiple class="hidden">
     </div>
 
     <!-- TAB FACTURAS -->
@@ -462,6 +482,13 @@
       <div class="card" id="precios-list"><div class="empty">Cargando…</div></div>
       <p class="section-title">Sobreprecio del mes</p>
       <div id="sobreprecios-block"><div class="empty">Cargando…</div></div>
+      <p class="section-title">Food cost</p>
+      <div id="foodcost-block"><div class="empty">Cargando…</div></div>
+    </div>
+
+    <!-- TAB VENTAS -->
+    <div class="tab-panel" id="panel-ventas">
+      <div id="ventas-calendario"><div class="empty">Cargando…</div></div>
     </div>
 
     <!-- TAB TARIFAS -->
@@ -539,6 +566,10 @@
     <button class="nav-btn" data-tab="analytics">
       <svg viewBox="0 0 24 24"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
       Análisis
+    </button>
+    <button class="nav-btn" data-tab="ventas" id="nav-ventas" style="display:none">
+      <svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+      Ventas
     </button>
     <button class="nav-btn" data-tab="tarifas" id="nav-tarifas" style="display:none">
       <svg viewBox="0 0 24 24"><path d="M12 1v22M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
@@ -961,9 +992,10 @@ function switchTab(tab) {
   document.querySelector(`.nav-btn[data-tab="${tab}"]`).classList.add('active');
 
   if (tab === 'facturas') refreshFacturas();
-  if (tab === 'analytics') { refreshAnalytics(); refreshSobreprecios(); }
+  if (tab === 'analytics') { refreshAnalytics(); refreshSobreprecios(); refreshFoodcost(); }
   if (tab === 'gestor') refreshGestor();
   if (tab === 'tarifas') refreshTarifasTab();
+  if (tab === 'ventas') refreshVentasTab();
 
   clearInterval(fichajeAutoRefresh); fichajeAutoRefresh = null;
   if (tab === 'fichaje') {
@@ -1358,6 +1390,7 @@ function showApp() {
   document.getElementById('nav-gestor').style.display = isGestor ? '' : 'none';
   document.getElementById('nav-fichaje').style.display = isGestor ? '' : 'none';
   document.getElementById('nav-tarifas').style.display = isGestor ? '' : 'none';
+  document.getElementById('nav-ventas').style.display = isGestor ? '' : 'none';
 }
 
 function boot() {
@@ -1447,6 +1480,7 @@ function boot() {
       document.getElementById('nav-gestor').style.display = isGestor ? '' : 'none';
       document.getElementById('nav-fichaje').style.display = isGestor ? '' : 'none';
       document.getElementById('nav-tarifas').style.display = isGestor ? '' : 'none';
+      document.getElementById('nav-ventas').style.display = isGestor ? '' : 'none';
     }).catch(() => {});
   }
 }
@@ -1454,5 +1488,6 @@ function boot() {
 document.addEventListener('DOMContentLoaded', boot);
 </script>
 <script src="tarifas-shared.js"></script>
+<script src="ventas-shared.js"></script>
 </body>
 </html>
