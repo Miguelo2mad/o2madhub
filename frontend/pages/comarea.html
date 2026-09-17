@@ -219,6 +219,8 @@
     .fi-meta { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
     .fi-ref  { font-size: 12px; color: var(--muted); }
     .fi-date { font-size: 12px; color: var(--muted); }
+    .fi-numero-input, .fi-fecha-input { font-size: 12px; color: var(--text); background: var(--surface2); border: 1px solid var(--border); border-radius: 6px; padding: 3px 6px; }
+    .fi-numero-input { width: 90px; }
     .fi-drive { font-size: 12px; color: var(--accent); text-decoration: none; }
     .fi-delete { margin-left: auto; background: transparent; border: none; color: var(--alert); font-size: 12px; cursor: pointer; padding: 2px 4px; line-height: 1; }
     .fi-delete:disabled { opacity: .4; cursor: default; }
@@ -469,6 +471,7 @@
 
     <!-- TAB ANÁLISIS -->
     <div class="tab-panel" id="panel-analytics">
+      <div id="analytics-aviso-sin-fecha" class="hidden"></div>
       <div class="kpi-grid" id="kpi-grid">
         <div class="kpi-card"><div class="kpi-label">Total mes</div><div class="kpi-value kpi-accent">—</div></div>
         <div class="kpi-card"><div class="kpi-label">Facturas</div><div class="kpi-value">—</div></div>
@@ -718,6 +721,14 @@ function renderFacturas(list, estado = '', tipoFiltro = '') {
       ? `<span class="badge badge-alert">Sobreprecio ${eur(f.total_sobreprecio_eur)}</span>` : '';
     const lineasToggle = tieneLineas
       ? `<button class="fi-lineas-toggle" onclick="toggleLineasFactura('${f.id}')">▾ líneas (${f.lineas.length})</button>` : '';
+    const sinFechaBadge  = !f.fecha_factura  ? '<span class="badge badge-alert">Sin fecha</span>'  : '';
+    const sinNumeroBadge = !f.numero_factura ? '<span class="badge badge-alert">Sin número</span>' : '';
+    const numeroCampo = canCorregir
+      ? `<input type="text" class="fi-numero-input" placeholder="Nº factura" value="${esc(f.numero_factura || '')}" onblur="actualizarCampoFactura('${f.id}','numero_factura',this.value,this)">`
+      : `<span class="fi-ref">${esc(f.numero_factura || '—')}</span>`;
+    const fechaCampo = canCorregir
+      ? `<input type="date" class="fi-fecha-input" value="${f.fecha_factura ? f.fecha_factura.slice(0,10) : ''}" onchange="actualizarCampoFactura('${f.id}','fecha_factura',this.value,this)">`
+      : `<span class="fi-date">${f.fecha_factura ? f.fecha_factura.slice(0,10) : '—'}</span>`;
     return `<div class="factura-item ${tipo === 'revisar' ? 'revisar' : ''}" data-factura-id="${f.id}">
       <div class="fi-top">
         <div class="fi-proveedor">${esc(f.proveedor)}</div>
@@ -727,8 +738,10 @@ function renderFacturas(list, estado = '', tipoFiltro = '') {
         ${tipoBadge}
         ${badge}
         ${sobreprecio}
-        <span class="fi-ref">${esc(f.numero_factura || '—')}</span>
-        <span class="fi-date">${f.fecha_factura ? f.fecha_factura.slice(0,10) : '—'}</span>
+        ${sinFechaBadge}
+        ${sinNumeroBadge}
+        ${numeroCampo}
+        ${fechaCampo}
         ${drive}
         ${tipoSelect}
         ${del}
@@ -761,6 +774,30 @@ async function corregirTipo(id, tipo, selectEl) {
   }
 }
 
+// Edición en línea de fecha_factura/numero_factura desde el listado
+// (documentos incompletos). Guarda al salir del campo (blur en el texto,
+// change en la fecha). Revierte al valor anterior si falla.
+async function actualizarCampoFactura(id, campo, valor, inputEl) {
+  const prev = inputEl.defaultValue;
+  inputEl.disabled = true;
+  try {
+    const r = await apiFetch(`/facturas/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ [campo]: valor || null }),
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || 'No se pudo guardar el cambio');
+    const f = facturas.find(x => String(x.id) === String(id));
+    if (f) f[campo] = d.factura[campo];
+    renderFacturasList();
+  } catch (e) {
+    alert(e.message);
+    inputEl.value = prev;
+    inputEl.disabled = false;
+  }
+}
+
 async function deleteFactura(id, btn) {
   const f = facturas.find(x => String(x.id) === String(id));
   if (!f) return;
@@ -783,6 +820,18 @@ async function deleteFactura(id, btn) {
 }
 
 function renderAnalytics(a) {
+  const avisoEl = document.getElementById('analytics-aviso-sin-fecha');
+  if (a.documentos_sin_fecha > 0) {
+    avisoEl.classList.remove('hidden');
+    avisoEl.innerHTML = `<div class="alert-box">
+      <svg viewBox="0 0 24 24"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+      <span>${a.documentos_sin_fecha} documento${a.documentos_sin_fecha !== 1 ? 's' : ''} sin fecha no se incluyen — <span class="rank-revisar-link" onclick="irAFacturasIncompletos()">ver listado</span></span>
+    </div>`;
+  } else {
+    avisoEl.classList.add('hidden');
+    avisoEl.innerHTML = '';
+  }
+
   // KPIs — current month
   const now = new Date();
   const mesActual = a.por_mes.find(m => m.mes === now.getMonth() + 1 && m.anyo === now.getFullYear());
@@ -1032,6 +1081,15 @@ async function irAFacturasProveedorRevisar(proveedor) {
   await refreshFacturas();
   filtroProveedorActivo = proveedor;
   document.getElementById('filter-tipo').value = 'revisar';
+  renderFacturasList();
+}
+
+// Desde el aviso de documentos sin fecha en Análisis: salta a Facturas
+// filtrado por "Incompletos".
+async function irAFacturasIncompletos() {
+  switchTab('facturas');
+  await refreshFacturas();
+  document.getElementById('filter-tipo').value = 'incompletos';
   renderFacturasList();
 }
 

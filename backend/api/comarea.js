@@ -292,6 +292,28 @@ router.patch('/facturas/:id/tipo', requireAuth, requireRole('gestor', 'admin'), 
   }
 });
 
+// PATCH /comarea/facturas/:id — edición en línea de fecha/número desde el
+// listado (documentos incompletos). Solo gestor/admin.
+router.patch('/facturas/:id', requireAuth, requireRole('gestor', 'admin'), async (req, res) => {
+  const { id } = req.params;
+  const { fecha_factura, numero_factura } = req.body || {};
+  const patch = {};
+  if (fecha_factura !== undefined) patch.fecha_factura = fecha_factura || null;
+  if (numero_factura !== undefined) patch.numero_factura = numero_factura || null;
+  if (!Object.keys(patch).length) return res.status(400).json({ error: 'Nada que actualizar' });
+  try {
+    const { data: saved, error } = await supabase
+      .from('comarea_facturas').update(patch).eq('id', id).select().single();
+    if (error) throw new Error(`Supabase: ${error.message}`);
+    if (!saved) return res.status(404).json({ error: 'Factura no encontrada' });
+    console.log(`[comarea] campo corregido manualmente: factura ${id} (${req.user.email})`);
+    res.json({ ok: true, factura: saved });
+  } catch (e) {
+    console.error('[comarea] corregir campo error:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // PATCH /comarea/facturas/:id/lineas/:lineaId/emparejar — corrección manual
 // del emparejamiento con la tarifa. Recalcula el estado de la línea contra
 // la tarifa vigente en la fecha de la factura y confirma el alias para que
@@ -388,6 +410,11 @@ router.get('/analytics', requireAuth, async (req, res) => {
   const rangoFechas = fechasConDato.length
     ? { desde: fechasConDato[0], hasta: fechasConDato[fechasConDato.length - 1] } : null;
 
+  // Documentos sin fecha_factura: no entran en por_mes/rango_fechas ni en
+  // ningún cálculo por fecha — se avisa en el frontend en vez de dejarlos
+  // desaparecer en silencio.
+  const documentosSinFecha = data.filter(f => !f.fecha_factura).length;
+
   // Comparativa por proveedor: mes en curso vs mes anterior (calendario real,
   // independiente del filtro ?anyo, para que enero se compare con diciembre).
   const now = new Date();
@@ -419,6 +446,7 @@ router.get('/analytics', requireAuth, async (req, res) => {
       .sort((a, b) => b.total - a.total),
     comparativa_proveedores: comparativaProveedores,
     rango_fechas: rangoFechas,
+    documentos_sin_fecha: documentosSinFecha,
   });
 });
 
