@@ -196,4 +196,7 @@ function clasificarTipoFactura({ tipoModelo = null, tipoConfianza = null, import
   return tipoModelo || 'revisar';
 }
 
-module.exports = { extraerFactura, clasificarTipoFactura, FACTURA_SCHEMA, FACTURA_PROMPT };
+module.exports = {
+  extraerFactura, clasificarTipoFactura, FACTURA_SCHEMA, FACTURA_PROMPT,
+  reintentarFechaYNumero,
+};
