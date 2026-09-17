@@ -496,7 +496,7 @@ router.get('/analytics/precios', requireAuth, async (req, res) => {
     const anterior = compras[compras.length - 2];
     if (!(anterior.precio > 0)) continue;
     const variacionPct = ((actual.precio - anterior.precio) / anterior.precio) * 100;
-    if (variacionPct > 3) { // ignora ruido de redondeo; solo subidas relevantes
+    if (Math.abs(variacionPct) > 3) { // ignora ruido de redondeo; solo variaciones relevantes (subida o bajada)
       subidas.push({
         producto: actual.producto,
         unidad: actual.unidad,
@@ -513,6 +513,76 @@ router.get('/analytics/precios', requireAuth, async (req, res) => {
 
   subidas.sort((a, b) => b.variacion_pct - a.variacion_pct);
   res.json({ subidas });
+});
+
+// GET /timbol/analytics/precios/historial?producto=&unidad=&proveedor= —
+// todo el histórico de compras de ese producto a ese proveedor, para el
+// desplegable de "Subidas de precio detectadas". El emparejamiento usa
+// normalizarTextoProducto() (igual que /analytics/precios de arriba): dos
+// facturas pueden escribir el mismo producto con matices de mayúsculas o
+// espacios y deben contar como el mismo.
+router.get('/analytics/precios/historial', requireAuth, async (req, res) => {
+  const { producto, unidad, proveedor } = req.query;
+  if (!producto || !proveedor) return res.status(400).json({ error: 'Se requiere producto y proveedor' });
+  try {
+    const { data: facturasProveedor, error: errF } = await supabase
+      .from('timbol_facturas').select('id, fecha_factura, numero_factura, cif_proveedor')
+      .eq('proveedor', proveedor);
+    if (errF) throw new Error(`Supabase: ${errF.message}`);
+    if (!facturasProveedor.length) return res.json({ producto, unidad: unidad || null, proveedor, historial: [], precio_pactado: null });
+
+    const facturaPorId = new Map(facturasProveedor.map(f => [f.id, f]));
+    const { data: lineas, error: errL } = await supabase
+      .from('timbol_factura_lineas')
+      .select('factura_id, producto, unidad, cantidad, precio_unitario')
+      .in('factura_id', facturasProveedor.map(f => f.id))
+      .not('precio_unitario', 'is', null)
+      .not('producto', 'is', null);
+    if (errL) throw new Error(`Supabase: ${errL.message}`);
+
+    const normObjetivo = tarifasLib.normalizarTextoProducto(producto);
+    const historial = lineas
+      .filter(l => tarifasLib.normalizarTextoProducto(l.producto) === normObjetivo && (!unidad || (l.unidad || '') === unidad))
+      .map(l => {
+        const f = facturaPorId.get(l.factura_id);
+        return {
+          factura_id:      l.factura_id,
+          fecha_factura:   f?.fecha_factura || null,
+          numero_factura:  f?.numero_factura || null,
+          precio_unitario: Number(l.precio_unitario),
+          cantidad:        l.cantidad != null ? Number(l.cantidad) : null,
+        };
+      })
+      .filter(h => h.fecha_factura)
+      .sort((a, b) => new Date(a.fecha_factura) - new Date(b.fecha_factura));
+
+    for (let i = 0; i < historial.length; i++) {
+      historial[i].variacion_pct = (i > 0 && historial[i - 1].precio_unitario > 0)
+        ? Number((((historial[i].precio_unitario - historial[i - 1].precio_unitario) / historial[i - 1].precio_unitario) * 100).toFixed(2))
+        : null;
+    }
+
+    // Precio pactado: proveedor (por cif) -> tarifa vigente -> producto
+    // emparejado por nombre normalizado. null si no hay tarifa o no casa.
+    let precioPactado = null;
+    const cifProveedor = facturasProveedor.find(f => f.cif_proveedor)?.cif_proveedor;
+    if (cifProveedor) {
+      const nifNorm = tarifasLib.normalizarNif(cifProveedor);
+      const { data: prov } = await supabase
+        .from('proveedores').select('id').eq('cliente', 'timbol').eq('nif', nifNorm).maybeSingle();
+      if (prov) {
+        const tarifa = await tarifasLib.tarifaVigente('timbol', prov.id);
+        const productoTarifa = tarifa?.tarifa_productos?.find(
+          p => tarifasLib.normalizarTextoProducto(p.producto) === normObjetivo);
+        if (productoTarifa) precioPactado = Number(productoTarifa.precio);
+      }
+    }
+
+    res.json({ producto, unidad: unidad || null, proveedor, historial, precio_pactado: precioPactado });
+  } catch (e) {
+    console.error('[timbol] analytics/precios/historial error:', e.message);
+    res.status(500).json({ error: e.message });
+  }
 });
 
 // GET /timbol/analytics/sobreprecios?mes=YYYY-MM — total y desglose de

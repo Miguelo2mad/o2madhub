@@ -244,6 +244,12 @@
     }
     select.filter-select:focus { outline: none; border-color: var(--accent); }
     .facturas-contador { font-size: 12px; color: var(--muted); margin-bottom: 10px; }
+    .precio-item { cursor: pointer; }
+    .precio-chevron { color: var(--muted); font-size: 12px; margin-left: 6px; }
+    .precio-historial { padding: 10px 0 14px; border-bottom: 1px solid var(--border); }
+    .precio-frase { font-size: 12px; color: var(--muted); line-height: 1.6; margin-bottom: 10px; }
+    .historial-row { cursor: pointer; }
+    .historial-row:hover { background: var(--surface2); }
 
     /* ─── TAB ANÁLISIS ───────────────────────────────── */
     .kpi-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 4px; }
@@ -490,7 +496,7 @@
       <div class="card" id="ranking-list"><div class="empty">Cargando…</div></div>
       <p class="section-title">Comparativa vs mes anterior</p>
       <div class="card" id="comparativa-list"><div class="empty">Cargando…</div></div>
-      <p class="section-title">Subidas de precio detectadas</p>
+      <p class="section-title">Variaciones de precio detectadas</p>
       <div class="card" id="precios-list"><div class="empty">Cargando…</div></div>
       <p class="section-title">Sobreprecio del mes</p>
       <div id="sobreprecios-block"><div class="empty">Cargando…</div></div>
@@ -931,19 +937,107 @@ function renderComparativaProveedores(list) {
   }).join('');
 }
 
+let subidasPrecioActuales = [];
+
 function renderSubidasPrecio(list) {
   const el = document.getElementById('precios-list');
-  if (!list || !list.length) { el.innerHTML = '<div class="empty">Sin subidas de precio detectadas</div>'; return; }
-  const top = list.slice(0, 10);
-  el.innerHTML = top.map(s => `
-    <div class="mes-item">
+  if (!list || !list.length) { el.innerHTML = '<div class="empty">Sin variaciones de precio detectadas</div>'; return; }
+  subidasPrecioActuales = list.slice(0, 10);
+  el.innerHTML = subidasPrecioActuales.map((s, i) => {
+    const subida = s.variacion_pct >= 0;
+    const signo = subida ? '+' : '';
+    return `
+    <div class="mes-item precio-item" onclick="togglePrecioHistorial(${i})">
       <div class="mes-info">
         <div class="mes-label">${esc(s.producto)}${s.unidad ? ` (${esc(s.unidad)})` : ''}</div>
         <div class="mes-count">${eur(s.precio_anterior)} → ${eur(s.precio_actual)} · ${esc(s.proveedor_actual)}</div>
       </div>
-      <span class="badge badge-alert">+${Math.round(s.variacion_pct)}%</span>
+      <span class="badge ${subida ? 'badge-alert' : 'badge-ok'}">${signo}${Math.round(s.variacion_pct)}%</span>
+      <span class="precio-chevron">▾</span>
     </div>
-  `).join('');
+    <div class="precio-historial hidden" id="precio-historial-${i}"></div>`;
+  }).join('');
+}
+
+function fmtDiaMes(iso) {
+  const d = new Date(iso);
+  return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}`;
+}
+function fmtFechaCorta(iso) {
+  const d = new Date(iso);
+  return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()}`;
+}
+function fmtPct(n) {
+  if (n == null) return '—';
+  return `${n >= 0 ? '+' : ''}${n.toFixed(1).replace('.', ',')} %`;
+}
+function fmtPctAbs(n) {
+  return `${Math.abs(n).toFixed(1).replace('.', ',')} %`;
+}
+function fmtPrecioUnidad(precio, unidad) {
+  const num = new Intl.NumberFormat('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(precio);
+  return `${num} €${unidad ? '/' + unidad : ''}`;
+}
+
+// "El 28/08 pagaste patata a 0,90 €/kg (FAC/26/002780). El 16/09 a
+// 1,23 €/kg (FAC/26/004444). +36,7 % en 19 días." + el precio pactado si
+// hay tarifa vigente con ese producto emparejado.
+function construirFraseContexto(d) {
+  const h = d.historial;
+  if (h.length < 2) return '';
+  const anterior = h[h.length - 2];
+  const actual = h[h.length - 1];
+  const dias = Math.round((new Date(actual.fecha_factura) - new Date(anterior.fecha_factura)) / 86400000);
+  let frase = `El ${fmtDiaMes(anterior.fecha_factura)} pagaste ${esc(d.producto.toLowerCase())} a ${fmtPrecioUnidad(anterior.precio_unitario, d.unidad)} (${esc(anterior.numero_factura || 's/n')}). `
+    + `El ${fmtDiaMes(actual.fecha_factura)} a ${fmtPrecioUnidad(actual.precio_unitario, d.unidad)} (${esc(actual.numero_factura || 's/n')}). `
+    + `${fmtPct(actual.variacion_pct)} en ${dias} día${dias !== 1 ? 's' : ''}.`;
+  if (d.precio_pactado != null) {
+    const pctVsPactado = ((actual.precio_unitario - d.precio_pactado) / d.precio_pactado) * 100;
+    const rel = pctVsPactado > 0 ? 'por encima' : 'por debajo';
+    frase += ` Precio pactado: ${fmtPrecioUnidad(d.precio_pactado, d.unidad)}. La última factura está un ${fmtPctAbs(pctVsPactado)} ${rel}.`;
+  }
+  return frase;
+}
+
+function renderTablaHistorial(d) {
+  return `<table class="lineas-table">
+    <thead><tr><th>Fecha</th><th>Nº factura</th><th class="num">Precio</th><th class="num">Cantidad</th><th class="num">Variación</th></tr></thead>
+    <tbody>${d.historial.map(h => `
+      <tr class="historial-row" onclick="irAFactura('${h.factura_id}')">
+        <td>${fmtFechaCorta(h.fecha_factura)}</td>
+        <td>${esc(h.numero_factura || '—')}</td>
+        <td class="num">${fmtPrecioUnidad(h.precio_unitario, d.unidad)}</td>
+        <td class="num">${h.cantidad ?? '—'}</td>
+        <td class="num">${h.variacion_pct != null ? fmtPct(h.variacion_pct) : '—'}</td>
+      </tr>`).join('')}</tbody>
+  </table>`;
+}
+
+async function togglePrecioHistorial(i) {
+  const cont = document.getElementById(`precio-historial-${i}`);
+  if (!cont) return;
+  if (!cont.classList.contains('hidden')) { cont.classList.add('hidden'); return; }
+  document.querySelectorAll('.precio-historial').forEach(el => el.classList.add('hidden'));
+  cont.classList.remove('hidden');
+  if (cont.dataset.cargado) return;
+  cont.innerHTML = '<div class="empty">Cargando…</div>';
+  const s = subidasPrecioActuales[i];
+  try {
+    const params = new URLSearchParams({ producto: s.producto, proveedor: s.proveedor_actual });
+    if (s.unidad) params.set('unidad', s.unidad);
+    const r = await apiFetch(`/analytics/precios/historial?${params.toString()}`);
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || 'Error al cargar el historial');
+    if (!d.historial.length) {
+      cont.innerHTML = '<div class="empty">Sin historial de compras para este producto y proveedor</div>';
+    } else {
+      const frase = construirFraseContexto(d);
+      cont.innerHTML = `${frase ? `<div class="precio-frase">${frase}</div>` : ''}${renderTablaHistorial(d)}`;
+    }
+    cont.dataset.cargado = '1';
+  } catch (e) {
+    cont.innerHTML = `<div class="empty">${esc(e.message)}</div>`;
+  }
 }
 
 function renderDriveMeses(list) {
