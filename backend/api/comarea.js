@@ -4,7 +4,7 @@ const express = require('express');
 const multer  = require('multer');
 const crypto  = require('crypto');
 const { supabase } = require('../lib/supabase');
-const { extraerFactura } = require('../lib/extraccion');
+const { extraerFactura, clasificarTipoFactura } = require('../lib/extraccion');
 const { ensureFolderPath, uploadFile, deleteFile } = require('../lib/google');
 const { createFichajeRouter } = require('./fichaje');
 
@@ -146,6 +146,15 @@ router.post('/facturas/upload', requireAuth, upload.single('factura'), async (re
     const lineasVerificadas = lineas.length > 0 && base > 0
       && Math.abs(sumaLineas - base) <= base * 0.02;
 
+    // Clasificación determinista (ver backend/lib/extraccion.js): no nos fiamos
+    // solo de lo que diga el modelo en "tipo".
+    const tipo = clasificarTipoFactura({
+      tipoModelo:     data.tipo,
+      tipoConfianza:  data.tipo_confianza,
+      importeBase:    data.importe_base,
+      ivaPorcentaje:  data.iva_porcentaje,
+    });
+
     const row = {
       proveedor:      data.proveedor,
       numero_factura: data.numero_factura,
@@ -162,6 +171,10 @@ router.post('/facturas/upload', requireAuth, upload.single('factura'), async (re
       subido_por:     req.user.email,
       lineas_verificadas: lineasVerificadas,
       comentario:     req.body.comentario || null,
+      tipo,
+      tipo_evidencia:   data.tipo_evidencia || null,
+      tipo_confianza:   data.tipo_confianza || null,
+      numero_albaranes: Array.isArray(data.numero_albaranes) ? data.numero_albaranes : [],
     };
 
     const { data: saved, error: dbError } = await supabase
@@ -235,10 +248,36 @@ router.delete('/facturas/:id', requireAuth, requireRole('gestor', 'admin'), asyn
   }
 });
 
+const TIPOS_VALIDOS = ['factura', 'albaran', 'ticket', 'revisar'];
+
+// PATCH /comarea/facturas/:id/tipo — corrección manual del tipo, solo gestor/admin
+router.patch('/facturas/:id/tipo', requireAuth, requireRole('gestor', 'admin'), async (req, res) => {
+  const { id } = req.params;
+  const { tipo } = req.body || {};
+  if (!TIPOS_VALIDOS.includes(tipo)) {
+    return res.status(400).json({ error: `tipo debe ser uno de: ${TIPOS_VALIDOS.join(', ')}` });
+  }
+  try {
+    const { data: saved, error } = await supabase
+      .from('comarea_facturas')
+      .update({ tipo, tipo_confianza: 'alta', tipo_evidencia: `Corregido manualmente por ${req.user.email}` })
+      .eq('id', id).select().single();
+    if (error) throw new Error(`Supabase: ${error.message}`);
+    if (!saved) return res.status(404).json({ error: 'Factura no encontrada' });
+    console.log(`[comarea] tipo corregido manualmente: factura ${id} → ${tipo} (${req.user.email})`);
+    res.json({ ok: true, factura: saved });
+  } catch (e) {
+    console.error('[comarea] corregir tipo error:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // GET /comarea/analytics
+// Los albaranes quedan fuera del cálculo de costes: solo suman tipo factura y ticket.
 router.get('/analytics', requireAuth, async (req, res) => {
   const { anyo } = req.query;
-  let q = supabase.from('comarea_facturas').select('mes, anyo, importe_total, importe_base, proveedor').limit(10000);
+  let q = supabase.from('comarea_facturas').select('mes, anyo, importe_total, importe_base, proveedor')
+    .in('tipo', ['factura', 'ticket']).limit(10000);
   if (anyo) q = q.eq('anyo', Number(anyo));
   const { data, error } = await q;
   if (error) return res.status(500).json({ error: error.message });
