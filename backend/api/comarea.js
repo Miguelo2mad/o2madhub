@@ -342,17 +342,22 @@ router.patch('/facturas/:id/lineas/:lineaId/emparejar', requireAuth, requireRole
 // Los albaranes quedan fuera del cálculo de costes: solo suman tipo factura y ticket.
 router.get('/analytics', requireAuth, async (req, res) => {
   const { anyo } = req.query;
-  let q = supabase.from('comarea_facturas').select('mes, anyo, importe_total, importe_base, proveedor')
-    .in('tipo', ['factura', 'ticket']).limit(10000);
+  // Sin filtro de tipo en la query: hace falta el dato completo (incluidos
+  // albaranes y revisar) para el desglose por proveedor. Los totales en
+  // euros siguen sumando solo factura/ticket — ver el filtro de `data` a
+  // `facturaTicket` justo abajo.
+  let q = supabase.from('comarea_facturas').select('mes, anyo, importe_total, importe_base, proveedor, tipo, fecha_factura').limit(10000);
   if (anyo) q = q.eq('anyo', Number(anyo));
   const { data, error } = await q;
   if (error) return res.status(500).json({ error: error.message });
+
+  const facturaTicket = data.filter(f => f.tipo === 'factura' || f.tipo === 'ticket');
 
   const byMes = {};
   const byProveedor = {};
   const byProveedorMes = {};
 
-  for (const f of data) {
+  for (const f of facturaTicket) {
     const key = `${f.anyo}-${String(f.mes).padStart(2, '0')}`;
     if (!byMes[key]) byMes[key] = { mes: f.mes, anyo: f.anyo, total: 0, base: 0, count: 0 };
     byMes[key].total += Number(f.importe_total) || 0;
@@ -366,6 +371,22 @@ router.get('/analytics', requireAuth, async (req, res) => {
     const pmKey = `${f.proveedor}||${key}`;
     byProveedorMes[pmKey] = (byProveedorMes[pmKey] || 0) + (Number(f.importe_total) || 0);
   }
+
+  // Desglose por tipo de TODOS los documentos del proveedor (no solo
+  // factura/ticket) — para que el ranking muestre también los albaranes
+  // excluidos del gasto y los que quedan por revisar.
+  const byProveedorTipo = {};
+  for (const f of data) {
+    if (!byProveedorTipo[f.proveedor]) byProveedorTipo[f.proveedor] = { factura: 0, ticket: 0, albaran: 0, revisar: 0 };
+    const tipo = f.tipo || 'factura';
+    if (byProveedorTipo[f.proveedor][tipo] !== undefined) byProveedorTipo[f.proveedor][tipo]++;
+  }
+
+  // Rango de fechas cubierto por el resumen (todos los documentos
+  // devueltos, cualquier tipo — depende de si se filtró por ?anyo o no).
+  const fechasConDato = data.map(f => f.fecha_factura).filter(Boolean).sort();
+  const rangoFechas = fechasConDato.length
+    ? { desde: fechasConDato[0], hasta: fechasConDato[fechasConDato.length - 1] } : null;
 
   // Comparativa por proveedor: mes en curso vs mes anterior (calendario real,
   // independiente del filtro ?anyo, para que enero se compare con diciembre).
@@ -390,13 +411,14 @@ router.get('/analytics', requireAuth, async (req, res) => {
   }).sort((a, b) => b.variacion_eur - a.variacion_eur);
 
   res.json({
-    total_facturas: data.length,
-    total_importe:  data.reduce((s, f) => s + (Number(f.importe_total) || 0), 0),
+    total_facturas: facturaTicket.length,
+    total_importe:  facturaTicket.reduce((s, f) => s + (Number(f.importe_total) || 0), 0),
     por_mes: Object.values(byMes).sort((a, b) => a.anyo - b.anyo || a.mes - b.mes),
     por_proveedor: Object.entries(byProveedor)
-      .map(([proveedor, v]) => ({ proveedor, ...v }))
+      .map(([proveedor, v]) => ({ proveedor, ...v, tipos: byProveedorTipo[proveedor] || { factura: 0, ticket: 0, albaran: 0, revisar: 0 } }))
       .sort((a, b) => b.total - a.total),
     comparativa_proveedores: comparativaProveedores,
+    rango_fechas: rangoFechas,
   });
 });
 

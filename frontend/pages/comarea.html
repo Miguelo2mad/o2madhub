@@ -241,6 +241,8 @@
       flex: 1; min-width: 0;
     }
     select.filter-select:focus { outline: none; border-color: var(--accent); }
+    .filtro-proveedor-pill { display: inline-flex; align-items: center; gap: 8px; background: rgba(196,168,130,.15); border: 1px solid var(--accent); color: var(--accent); border-radius: 20px; padding: 6px 12px; font-size: 12px; font-weight: 600; margin-bottom: 12px; }
+    .filtro-proveedor-pill button { background: transparent; border: none; color: var(--accent); font-size: 13px; cursor: pointer; line-height: 1; padding: 0; }
 
     /* ─── TAB ANÁLISIS ───────────────────────────────── */
     .kpi-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 4px; }
@@ -262,7 +264,10 @@
     .rank-item { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--border); }
     .rank-item:last-child { border-bottom: none; }
     .rank-num { font-size: 13px; font-weight: 700; color: var(--muted); width: 20px; flex-shrink: 0; text-align: center; }
-    .rank-name { font-size: 14px; font-weight: 500; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .rank-name { font-size: 14px; font-weight: 500; flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+    .rank-name-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .rank-desglose { font-size: 11px; font-weight: 400; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .rank-revisar-link { color: var(--alert); cursor: pointer; text-decoration: underline; font-weight: 600; }
     .rank-bar-wrap { width: 80px; height: 5px; background: var(--surface2); border-radius: 3px; flex-shrink: 0; }
     .rank-bar-fill { height: 100%; border-radius: 3px; background: var(--accent); }
     .rank-total { font-size: 14px; font-weight: 600; color: var(--accent); flex-shrink: 0; }
@@ -455,6 +460,7 @@
           <option value="revisar">Revisar</option>
         </select>
       </div>
+      <div id="filtro-proveedor-chip" class="hidden"></div>
       <div id="facturas-list"><div class="empty">Cargando facturas…</div></div>
     </div>
 
@@ -471,7 +477,10 @@
         <div class="chart-title">Importe total por mes</div>
         <div class="bar-chart" id="bar-chart"><div style="color:var(--muted);font-size:13px;width:100%;text-align:center">Cargando…</div></div>
       </div>
-      <p class="section-title">Ranking proveedores</p>
+      <div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px">
+        <p class="section-title" style="margin-bottom:10px">Ranking proveedores</p>
+        <span id="ranking-rango-fechas" style="font-size:11px;color:var(--muted);white-space:nowrap"></span>
+      </div>
       <div class="card" id="ranking-list"><div class="empty">Cargando…</div></div>
       <p class="section-title">Comparativa vs mes anterior</p>
       <div class="card" id="comparativa-list"><div class="empty">Cargando…</div></div>
@@ -800,18 +809,35 @@ function renderAnalytics(a) {
   document.getElementById('bar-chart').innerHTML = meses.length ? bars : '<div style="color:var(--muted);font-size:13px;width:100%;text-align:center">Sin datos</div>';
 
   // Ranking
+  document.getElementById('ranking-rango-fechas').textContent = a.rango_fechas
+    ? `${a.rango_fechas.desde} → ${a.rango_fechas.hasta}` : '';
+
   const top = a.por_proveedor.slice(0, 8);
   const maxT = top[0]?.total || 1;
   const rows = top.map((p, i) => {
     const pct = Math.round((p.total / maxT) * 100);
+    const t = p.tipos || { factura: 0, ticket: 0, albaran: 0, revisar: 0 };
+    const partes = [];
+    if (t.factura) partes.push(`${t.factura} factura${t.factura !== 1 ? 's' : ''}`);
+    if (t.ticket)  partes.push(`${t.ticket} ticket${t.ticket !== 1 ? 's' : ''}`);
+    if (t.albaran) partes.push(`${t.albaran} albarán${t.albaran !== 1 ? 'es' : ''} (no contados)`);
+    const revisarTxt = t.revisar
+      ? `<span class="rank-revisar-link" data-proveedor="${esc(p.proveedor)}">${t.revisar} por revisar</span>` : '';
+    const desglose = [...partes, revisarTxt].filter(Boolean).join(' · ');
     return `<div class="rank-item">
       <div class="rank-num">${i + 1}</div>
-      <div class="rank-name">${esc(p.proveedor)}</div>
+      <div class="rank-name">
+        <div class="rank-name-text">${esc(p.proveedor)}</div>
+        ${desglose ? `<div class="rank-desglose">${desglose}</div>` : ''}
+      </div>
       <div class="rank-bar-wrap"><div class="rank-bar-fill" style="width:${pct}%"></div></div>
       <div class="rank-total">${eur(p.total)}</div>
     </div>`;
   }).join('');
   document.getElementById('ranking-list').innerHTML = top.length ? rows : '<div class="empty">Sin datos</div>';
+  document.querySelectorAll('#ranking-list .rank-revisar-link').forEach(el => {
+    el.addEventListener('click', () => irAFacturasProveedorRevisar(el.dataset.proveedor));
+  });
 
   renderComparativaProveedores(a.comparativa_proveedores || []);
 }
@@ -941,6 +967,7 @@ function resetScan() {
 // ── Tab switching ─────────────────────────────────────────────────────────
 function switchTab(tab) {
   currentTab = tab;
+  filtroProveedorActivo = null; // cada navegación de pestaña limpia el filtro; irAFacturasProveedorRevisar() lo vuelve a fijar después
   document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
   document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
   document.getElementById(`panel-${tab}`).classList.add('active');
@@ -954,13 +981,44 @@ function switchTab(tab) {
 }
 
 // ── Data refresh ──────────────────────────────────────────────────────────
+let filtroProveedorActivo = null;
+
+function limpiarFiltroProveedor() {
+  filtroProveedorActivo = null;
+  renderFacturasList();
+}
+
+function renderFiltroProveedorChip() {
+  const cont = document.getElementById('filtro-proveedor-chip');
+  if (!filtroProveedorActivo) { cont.classList.add('hidden'); cont.innerHTML = ''; return; }
+  cont.classList.remove('hidden');
+  cont.innerHTML = `<span class="filtro-proveedor-pill">Proveedor: ${esc(filtroProveedorActivo)} <button onclick="limpiarFiltroProveedor()">✕</button></span>`;
+}
+
 function renderFacturasList() {
   const activeChip = document.querySelector('.filter-chip.active');
   const mes = activeChip?.dataset.mes ? parseInt(activeChip.dataset.mes) : null;
-  const filtered = mes ? facturas.filter(f => f.mes === mes) : facturas;
+  let filtered = mes ? facturas.filter(f => f.mes === mes) : facturas;
+  if (filtroProveedorActivo) {
+    const norm = filtroProveedorActivo.toLowerCase();
+    filtered = filtered.filter(f => (f.proveedor || '').toLowerCase().includes(norm));
+  }
   const estado = document.getElementById('filter-estado').value;
   const tipo = document.getElementById('filter-tipo').value;
   document.getElementById('facturas-list').innerHTML = renderFacturas(filtered, estado, tipo);
+  renderFiltroProveedorChip();
+}
+
+// Desde el desglose de tipos del ranking de proveedores en Análisis: salta
+// a Facturas ya filtrado por ese proveedor y por tipo "revisar". Refresca
+// explícitamente en vez de fiarse del refreshFacturas() que ya dispara
+// switchTab(), para no depender de una carrera con él.
+async function irAFacturasProveedorRevisar(proveedor) {
+  switchTab('facturas');
+  await refreshFacturas();
+  filtroProveedorActivo = proveedor;
+  document.getElementById('filter-tipo').value = 'revisar';
+  renderFacturasList();
 }
 
 async function refreshFacturas(mes = '') {
