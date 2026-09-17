@@ -9,6 +9,7 @@ const { ensureFolderPath, uploadFile, deleteFile } = require('../lib/google');
 const { createFichajeRouter } = require('./fichaje');
 const { createTarifasRouter } = require('./tarifas');
 const tarifasLib = require('../lib/tarifas');
+const { createVentasRouter } = require('./ventas');
 
 const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
@@ -72,6 +73,10 @@ router.use('/fichaje', createFichajeRouter({ cliente: 'timbol', requireAuth, req
 // Tarifas pactadas por proveedor — módulo reutilizable (ver backend/api/tarifas.js).
 // Sin prefijo: las rutas ya incluyen /tarifas y /proveedores.
 router.use(createTarifasRouter({ cliente: 'timbol', requireAuth, requireRole }));
+
+// Ventas diarias — módulo reutilizable (ver backend/api/ventas.js).
+// Sin prefijo: las rutas ya incluyen /ventas.
+router.use(createVentasRouter({ cliente: 'timbol', requireAuth, requireRole }));
 
 // ── Claude Vision extraction ────────────────────────────────────────────────
 // La extracción y su esquema viven en backend/lib/extraccion.js, compartidos
