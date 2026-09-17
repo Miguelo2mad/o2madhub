@@ -3,7 +3,7 @@
 // Comarea: antes cada cliente tenía su propia copia de esta función con el
 // mismo esquema y el mismo prompt — quedaba duplicada y con riesgo de que
 // cada uno acabara clasificando con criterios distintos.
-const { client } = require('./claude');
+const { buildFileBlock, extraerJson } = require('./claude-json');
 const { compararConTarifa } = require('./tarifas');
 
 const FACTURA_LINEA_SCHEMA = {
@@ -78,26 +78,6 @@ const FACTURA_PROMPT = 'Extrae los datos de esta factura de proveedor. fecha_fac
 // mitad — origen del bug "Unexpected end of JSON input" visto en producción.
 const MAX_TOKENS = 4096;
 
-async function callClaude(buffer, mimeType) {
-  const isImage = mimeType.startsWith('image/');
-  const fileBlock = isImage
-    ? { type: 'image', source: { type: 'base64', media_type: mimeType, data: buffer.toString('base64') } }
-    : { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: buffer.toString('base64') } };
-
-  return client.messages.create({
-    model: 'claude-opus-4-8',
-    max_tokens: MAX_TOKENS,
-    output_config: {
-      effort: 'medium',
-      format: { type: 'json_schema', schema: FACTURA_SCHEMA },
-    },
-    messages: [{
-      role: 'user',
-      content: [fileBlock, { type: 'text', text: FACTURA_PROMPT }],
-    }],
-  });
-}
-
 // Marca todas las líneas como sin_tarifa — estado de partida antes de
 // intentar comparar, y también el que queda si la comparación falla o no
 // aplica (sin cliente, sin NIF, sin proveedor de tarifas para ese NIF).
@@ -111,8 +91,8 @@ function lineasSinTarifa(lineas) {
 // punto de llamada a Claude para este flujo — Timbol y Comarea comparten el
 // mismo esquema y los mismos criterios de clasificación, así no hay dos
 // interpretaciones distintas de qué es una factura según el cliente.
-// Si la respuesta llega truncada (JSON.parse falla) reintenta una vez la
-// llamada completa antes de rendirse con un error legible.
+// La llamada en sí (con su reintento ante JSON truncado) vive en
+// backend/lib/claude-json.js, compartida con tarifas.js.
 //
 // `cliente` es opcional: si se pasa, tras extraer se intenta comparar cada
 // línea con la tarifa vigente del proveedor (backend/lib/tarifas.js). La
@@ -122,21 +102,13 @@ function lineasSinTarifa(lineas) {
 // devuelve igualmente, con todas las líneas en sin_tarifa. Guardar la
 // factura nunca depende de que la comparación funcione.
 async function extraerFactura(buffer, mimeType, { cliente } = {}) {
-  let res = await callClaude(buffer, mimeType);
-  let text = res.content.find(b => b.type === 'text')?.text || '';
-  let data;
-  try {
-    data = JSON.parse(text);
-  } catch (e) {
-    console.warn('[extraccion] JSON.parse falló en el primer intento, reintentando:', e.message);
-    res = await callClaude(buffer, mimeType);
-    text = res.content.find(b => b.type === 'text')?.text || '';
-    try {
-      data = JSON.parse(text);
-    } catch (e2) {
-      throw new Error('La IA devolvió una respuesta incompleta al leer el documento. Vuelve a intentar la subida.');
-    }
-  }
+  const fileBlock = buildFileBlock(buffer, mimeType);
+  const { data, usage } = await extraerJson({
+    maxTokens: MAX_TOKENS,
+    schema: FACTURA_SCHEMA,
+    content: [fileBlock, { type: 'text', text: FACTURA_PROMPT }],
+    mensajeError: 'La IA devolvió una respuesta incompleta al leer el documento. Vuelve a intentar la subida.',
+  });
 
   if (cliente && data.cif_proveedor) {
     try {
@@ -158,7 +130,7 @@ async function extraerFactura(buffer, mimeType, { cliente } = {}) {
     data.total_sobreprecio_eur = 0;
   }
 
-  return { data, usage: res.usage };
+  return { data, usage };
 }
 
 // ── Clasificación determinista (punto 3) ────────────────────────────────────

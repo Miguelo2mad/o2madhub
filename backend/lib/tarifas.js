@@ -11,7 +11,7 @@
 const ExcelJS = require('exceljs');
 const { parse: parseCsv } = require('csv-parse/sync');
 const { supabase } = require('./supabase');
-const { client } = require('./claude');
+const { extraerJson } = require('./claude-json');
 
 // NIF/CIF de proveedor: "B-12345678", "ES B12345678", "b12345678", con o
 // sin espacios, todos deben normalizar al mismo valor para que el join con
@@ -174,29 +174,12 @@ Reglas:
 async function extraerBloqueTarifa(textoTabular, nombreHoja) {
   const contexto = nombreHoja ? `Nombre de la hoja: "${nombreHoja}"\n\n` : '';
   const texto = `${TARIFA_IMPORT_PROMPT}\n\n${contexto}${textoTabular}`;
-
-  const llamar = () => client.messages.create({
-    model: 'claude-opus-4-8',
-    max_tokens: 4096,
-    output_config: { effort: 'medium', format: { type: 'json_schema', schema: TARIFA_IMPORT_SCHEMA } },
-    messages: [{ role: 'user', content: [{ type: 'text', text: texto }] }],
+  return extraerJson({
+    maxTokens: 4096,
+    schema: TARIFA_IMPORT_SCHEMA,
+    content: [{ type: 'text', text: texto }],
+    mensajeError: 'La IA devolvió una respuesta incompleta al leer el listado de precios.',
   });
-
-  let res = await llamar();
-  let out = res.content.find(b => b.type === 'text')?.text || '';
-  try {
-    return { data: JSON.parse(out), usage: res.usage };
-  } catch (e) {
-    console.warn('[tarifas] JSON.parse falló en un bloque, reintentando:', e.message);
-  }
-
-  res = await llamar();
-  out = res.content.find(b => b.type === 'text')?.text || '';
-  try {
-    return { data: JSON.parse(out), usage: res.usage };
-  } catch (e) {
-    throw new Error('La IA devolvió una respuesta incompleta al leer el listado de precios.');
-  }
 }
 
 // Agrupa por (hoja, proveedor detectado) para que la vista previa se
@@ -448,28 +431,14 @@ ${listaProductos}
 Líneas de la factura a emparejar:
 ${listaLineas}`;
 
-  const llamar = () => client.messages.create({
-    model: 'claude-opus-4-8',
-    max_tokens: 2048,
-    output_config: { effort: 'low', format: { type: 'json_schema', schema: EMPAREJAMIENTO_SCHEMA } },
-    messages: [{ role: 'user', content: [{ type: 'text', text: texto }] }],
+  const { data } = await extraerJson({
+    maxTokens: 2048,
+    effort: 'low',
+    schema: EMPAREJAMIENTO_SCHEMA,
+    content: [{ type: 'text', text: texto }],
+    mensajeError: 'La IA devolvió una respuesta incompleta al emparejar líneas con la tarifa.',
   });
-
-  let res = await llamar();
-  let out = res.content.find(b => b.type === 'text')?.text || '';
-  try {
-    return JSON.parse(out).emparejamientos || [];
-  } catch (e) {
-    console.warn('[tarifas] JSON.parse falló al emparejar líneas, reintentando:', e.message);
-  }
-
-  res = await llamar();
-  out = res.content.find(b => b.type === 'text')?.text || '';
-  try {
-    return JSON.parse(out).emparejamientos || [];
-  } catch (e) {
-    throw new Error('La IA devolvió una respuesta incompleta al emparejar líneas con la tarifa.');
-  }
+  return data.emparejamientos || [];
 }
 
 function lineaSinTarifa(l) {
