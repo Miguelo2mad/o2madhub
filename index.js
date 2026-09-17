@@ -22,6 +22,7 @@ const { syncFacturaDirecta }         = require('./backend/jobs/facturadirecta-sy
 const { runCustomerMetricsJob }      = require('./backend/jobs/customer-metrics-job');
 const { importarContactosFD }        = require('./backend/jobs/crm-import-fd');
 const { runServiceClassification }   = require('./backend/jobs/service-classification-job');
+const { runVentasPosSync }           = require('./backend/jobs/ventas-pos-sync');
 
 const app = express();
 app.use(cors());
@@ -129,6 +130,12 @@ cron.schedule('45 6 * * *', () => {
 // Campañas Google Ads sync — daily at 07:00 Madrid.
 cron.schedule('0 7 * * *', () => {
   syncGoogleAds().catch(e => console.error('[campanas] cron failed:', e.message));
+}, { timezone: 'Europe/Madrid' });
+
+// Ventas TPV sync — daily at 02:00 Madrid. Sin ruido si ningún cliente
+// tiene un adaptador de TPV activo (ver runVentasPosSync).
+cron.schedule('0 2 * * *', () => {
+  runVentasPosSync().catch(e => console.error('[ventas-pos-sync] cron failed:', e.message));
 }, { timezone: 'Europe/Madrid' });
 
 app.listen(PORT, () => {
