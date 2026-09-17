@@ -4,7 +4,7 @@ const express = require('express');
 const multer  = require('multer');
 const crypto  = require('crypto');
 const { supabase } = require('../lib/supabase');
-const { client } = require('../lib/claude');
+const { extraerFactura } = require('../lib/extraccion');
 const { ensureFolderPath, uploadFile, deleteFile } = require('../lib/google');
 const { createFichajeRouter } = require('./fichaje');
 
@@ -68,68 +68,8 @@ function requireRole(...roles) {
 router.use('/fichaje', createFichajeRouter({ cliente: 'comarea', requireAuth, requireRole }));
 
 // ── Claude Vision extraction ────────────────────────────────────────────────
-
-const COMAREA_SCHEMA = {
-  type: 'object',
-  additionalProperties: false,
-  properties: {
-    proveedor:      { type: 'string' },
-    numero_factura: { type: ['string', 'null'] },
-    fecha_factura:  { type: ['string', 'null'], description: 'YYYY-MM-DD o null' },
-    importe_total:  { type: ['number', 'null'], description: 'Importe total con IVA en EUR' },
-    importe_base:   { type: ['number', 'null'], description: 'Base imponible en EUR' },
-    iva_porcentaje: { type: ['number', 'null'], description: 'Porcentaje de IVA (ej: 21 para 21%)' },
-    concepto:       { type: ['string', 'null'] },
-    cif_proveedor:  { type: ['string', 'null'], description: 'CIF/NIF del emisor exactamente como aparece' },
-    lineas: {
-      type: 'array',
-      description: 'Desglose de líneas de producto de la factura. Array vacío [] si no hay una tabla de productos clara (p.ej. servicios).',
-      items: {
-        type: 'object',
-        additionalProperties: false,
-        properties: {
-          producto:        { type: ['string', 'null'], description: 'Nombre del producto tal como aparece' },
-          cantidad:        { type: ['number', 'null'] },
-          unidad:          { type: ['string', 'null'], description: 'Unidad de medida en minúsculas: kg, l, ud, caja...' },
-          precio_unitario: { type: ['number', 'null'], description: 'Precio por unidad, sin IVA si es posible' },
-        },
-        required: ['producto', 'cantidad', 'unidad', 'precio_unitario'],
-      },
-    },
-  },
-  required: ['proveedor', 'numero_factura', 'fecha_factura', 'importe_total',
-    'importe_base', 'iva_porcentaje', 'concepto', 'cif_proveedor'],
-};
-
-async function extractComarea(buffer, mimeType) {
-  const isImage = mimeType.startsWith('image/');
-  const fileBlock = isImage
-    ? { type: 'image', source: { type: 'base64', media_type: mimeType, data: buffer.toString('base64') } }
-    : { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: buffer.toString('base64') } };
-
-  const res = await client.messages.create({
-    model: 'claude-opus-4-8',
-    max_tokens: 1024,
-    output_config: {
-      effort: 'medium',
-      format: { type: 'json_schema', schema: COMAREA_SCHEMA },
-    },
-    messages: [{
-      role: 'user',
-      content: [
-        fileBlock,
-        { type: 'text', text: 'Extrae los datos de esta factura de proveedor. fecha_factura en YYYY-MM-DD. iva_porcentaje como número (ej: 21). Si no encuentras un campo devuelve null. '
-          + 'Además, en "lineas" desglosa cada línea de producto: producto (nombre tal cual), cantidad, unidad de medida en minúsculas (kg, l, ud, caja...) y precio_unitario. '
-          + 'Si la factura no tiene una tabla de productos clara (por ejemplo es un servicio), devuelve "lineas" como array vacío []. No inventes líneas ni valores.' },
-      ],
-    }],
-  });
-
-  return {
-    data:  JSON.parse(res.content.find(b => b.type === 'text')?.text || '{}'),
-    usage: res.usage,
-  };
-}
+// La extracción y su esquema viven en backend/lib/extraccion.js, compartidos
+// con Timbol — ver extraerFactura().
 
 // Precios Sonnet: input 0.000003 €/token, output 0.000015 €/token
 async function trackTokens(operacion, usage, usuario) {
@@ -159,7 +99,7 @@ router.post('/facturas/upload', requireAuth, upload.single('factura'), async (re
   try {
     const { buffer, originalname, mimetype } = req.file;
 
-    const { data, usage } = await extractComarea(buffer, mimetype);
+    const { data, usage } = await extraerFactura(buffer, mimetype);
     trackTokens('upload_factura', usage, req.user.email);
 
     // Evita duplicados (p. ej. reintentos de subida del mismo PDF): si ya existe
