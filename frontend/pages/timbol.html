@@ -243,8 +243,6 @@
       flex: 1; min-width: 0;
     }
     select.filter-select:focus { outline: none; border-color: var(--accent); }
-    .filtro-proveedor-pill { display: inline-flex; align-items: center; gap: 8px; background: rgba(196,168,130,.15); border: 1px solid var(--accent); color: var(--accent); border-radius: 20px; padding: 6px 12px; font-size: 12px; font-weight: 600; margin-bottom: 12px; }
-    .filtro-proveedor-pill button { background: transparent; border: none; color: var(--accent); font-size: 13px; cursor: pointer; line-height: 1; padding: 0; }
     .facturas-contador { font-size: 12px; color: var(--muted); margin-bottom: 10px; }
 
     /* ─── TAB ANÁLISIS ───────────────────────────────── */
@@ -469,7 +467,7 @@
       <div class="filter-bar" id="filter-mes-bar">
         <button class="filter-chip active" data-mes="">Todos</button>
       </div>
-      <div style="display:flex;gap:8px;margin-bottom:14px">
+      <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap">
         <select class="filter-select" id="filter-estado">
           <option value="">Todos los estados</option>
           <option value="ok">OK</option>
@@ -483,8 +481,10 @@
           <option value="revisar">Revisar</option>
           <option value="incompletos">Incompletos</option>
         </select>
+        <select class="filter-select" id="filter-proveedor" style="flex-basis:100%">
+          <option value="">Todos los proveedores</option>
+        </select>
       </div>
-      <div id="filtro-proveedor-chip" class="hidden"></div>
       <div id="facturas-contador" class="facturas-contador"></div>
       <div id="facturas-list"><div class="empty">Cargando facturas…</div></div>
     </div>
@@ -1093,7 +1093,6 @@ let fichajeAutoRefresh = null;
 
 function switchTab(tab) {
   currentTab = tab;
-  filtroProveedorActivo = null; // cada navegación de pestaña limpia el filtro; irAFacturasProveedorRevisar() lo vuelve a fijar después
   document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
   document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
   document.getElementById(`panel-${tab}`).classList.add('active');
@@ -1113,44 +1112,28 @@ function switchTab(tab) {
 }
 
 // ── Data refresh ──────────────────────────────────────────────────────────
-let filtroProveedorActivo = null;
-
-function limpiarFiltroProveedor() {
-  filtroProveedorActivo = null;
-  renderFacturasList();
-}
-
-function renderFiltroProveedorChip() {
-  const cont = document.getElementById('filtro-proveedor-chip');
-  if (!filtroProveedorActivo) { cont.classList.add('hidden'); cont.innerHTML = ''; return; }
-  cont.classList.remove('hidden');
-  cont.innerHTML = `<span class="filtro-proveedor-pill">Proveedor: ${esc(filtroProveedorActivo)} <button onclick="limpiarFiltroProveedor()">✕</button></span>`;
-}
-
 function renderFacturasList() {
   const activeChip = document.querySelector('.filter-chip.active');
   const mes = activeChip?.dataset.mes ? parseInt(activeChip.dataset.mes) : null;
   let filtered = mes ? facturas.filter(f => f.mes === mes) : facturas;
-  if (filtroProveedorActivo) {
-    const norm = filtroProveedorActivo.toLowerCase();
-    filtered = filtered.filter(f => (f.proveedor || '').toLowerCase().includes(norm));
-  }
+  const proveedor = document.getElementById('filter-proveedor').value;
+  if (proveedor) filtered = filtered.filter(f => (f.proveedor || '') === proveedor);
   const estado = document.getElementById('filter-estado').value;
   const tipo = document.getElementById('filter-tipo').value;
   document.getElementById('facturas-list').innerHTML = renderFacturas(filtered, estado, tipo);
   const n = filtrarFacturas(filtered, estado, tipo).length;
   document.getElementById('facturas-contador').textContent = `${n} documento${n !== 1 ? 's' : ''}`;
-  renderFiltroProveedorChip();
 }
 
 // Desde el desglose de tipos del ranking de proveedores en Análisis: salta
-// a Facturas ya filtrado por ese proveedor y por tipo "revisar". Refresca
-// explícitamente en vez de fiarse del refreshFacturas() que ya dispara
-// switchTab(), para no depender de una carrera con él.
+// a Facturas ya filtrado por ese proveedor (mismo desplegable de la
+// pestaña Facturas) y por tipo "revisar". Refresca explícitamente en vez
+// de fiarse del refreshFacturas() que ya dispara switchTab(), para no
+// depender de una carrera con él.
 async function irAFacturasProveedorRevisar(proveedor) {
   switchTab('facturas');
   await refreshFacturas();
-  filtroProveedorActivo = proveedor;
+  document.getElementById('filter-proveedor').value = proveedor;
   document.getElementById('filter-tipo').value = 'revisar';
   renderFacturasList();
 }
@@ -1168,10 +1151,25 @@ async function refreshFacturas(mes = '') {
   try {
     facturas = await loadFacturas(mes);
     buildMesFilterBar(facturas);
+    buildProveedorFilterBar(facturas);
     renderFacturasList();
   } catch(e) {
     document.getElementById('facturas-list').innerHTML = `<div class="empty">${esc(e.message)}</div>`;
   }
+}
+
+// Proveedores distintos de los documentos cargados, alfabético y con el
+// nº de documentos entre paréntesis — mismo desplegable que usa
+// irAFacturasProveedorRevisar() para saltar aquí desde Análisis.
+function buildProveedorFilterBar(list) {
+  const counts = {};
+  for (const f of list) {
+    const p = f.proveedor || '(sin proveedor)';
+    counts[p] = (counts[p] || 0) + 1;
+  }
+  const nombres = Object.keys(counts).sort((a, b) => a.localeCompare(b, 'es'));
+  document.getElementById('filter-proveedor').innerHTML = `<option value="">Todos los proveedores</option>`
+    + nombres.map(n => `<option value="${esc(n)}">${esc(n)} (${counts[n]})</option>`).join('');
 }
 
 function buildMesFilterBar(list) {
@@ -1622,6 +1620,7 @@ function boot() {
   // Estado / tipo filters
   document.getElementById('filter-estado').addEventListener('change', renderFacturasList);
   document.getElementById('filter-tipo').addEventListener('change', renderFacturasList);
+  document.getElementById('filter-proveedor').addEventListener('change', renderFacturasList);
 
   // Si ya hay sesión, detectar rol consultando /tokens (admin-only)
   if (token) {
