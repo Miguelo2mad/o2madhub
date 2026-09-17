@@ -223,6 +223,11 @@
     .fi-delete { margin-left: auto; background: transparent; border: none; color: var(--alert); font-size: 12px; cursor: pointer; padding: 2px 4px; line-height: 1; }
     .fi-delete:disabled { opacity: .4; cursor: default; }
     .fi-comment { font-size: 12px; color: var(--muted); font-style: italic; margin-top: 6px; }
+    .factura-item.revisar { background: rgba(217,107,82,.08); border-radius: 10px; padding-left: 10px; padding-right: 10px; }
+    .fi-tipo-select {
+      background: var(--surface2); border: 1px solid var(--border);
+      border-radius: 8px; color: var(--text); font-size: 11px; padding: 3px 6px;
+    }
     .lineas-table { width: 100%; border-collapse: collapse; font-size: 12px; }
     .lineas-table th { text-align: left; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: .5px; font-size: 10px; padding: 6px 8px; border-bottom: 1px solid var(--border); }
     .lineas-table td { padding: 6px 8px; border-bottom: 1px solid var(--border); }
@@ -405,6 +410,13 @@
           <option value="ok">OK</option>
           <option value="alert">Alerta</option>
         </select>
+        <select class="filter-select" id="filter-tipo">
+          <option value="">Todos los tipos</option>
+          <option value="factura">Factura</option>
+          <option value="ticket">Ticket</option>
+          <option value="albaran">Albarán</option>
+          <option value="revisar">Revisar</option>
+        </select>
       </div>
       <div id="facturas-list"><div class="empty">Cargando facturas…</div></div>
     </div>
@@ -583,38 +595,73 @@ function renderTokenUsage(t, totalFacturas) {
 }
 
 // ── Render helpers ────────────────────────────────────────────────────────
-function renderFacturas(list, estado = '') {
-  const filtered = estado === 'ok'    ? list.filter(f => !f.desviacion || f.desviacion === 0)
-                 : estado === 'alert' ? list.filter(f => f.desviacion && f.desviacion !== 0)
-                 : list;
+const TIPO_LABEL = { factura: 'Factura', ticket: 'Ticket', albaran: 'Albarán', revisar: 'Revisar' };
+const TIPO_BADGE_CLASS = { factura: 'badge-ok', ticket: 'badge-ok', albaran: 'badge-pend', revisar: 'badge-alert' };
+
+function renderFacturas(list, estado = '', tipoFiltro = '') {
+  let filtered = estado === 'ok'    ? list.filter(f => !f.desviacion || f.desviacion === 0)
+               : estado === 'alert' ? list.filter(f => f.desviacion && f.desviacion !== 0)
+               : list;
+  if (tipoFiltro) filtered = filtered.filter(f => (f.tipo || 'factura') === tipoFiltro);
 
   if (!filtered.length) return '<div class="empty">Sin facturas</div>';
 
   const canDelete = userRole === 'gestor' || userRole === 'admin';
+  const canCorregir = userRole === 'gestor' || userRole === 'admin';
   return filtered.map(f => {
     const hasAlert = f.desviacion && f.desviacion !== 0;
     const badge = hasAlert
       ? '<span class="badge badge-alert">Alerta</span>'
       : '<span class="badge badge-ok">OK</span>';
+    const tipo = f.tipo || 'factura';
+    const tipoBadge = `<span class="badge ${TIPO_BADGE_CLASS[tipo] || 'badge-pend'}">${TIPO_LABEL[tipo] || tipo}</span>`;
+    const tipoSelect = canCorregir
+      ? `<select class="fi-tipo-select" onchange="corregirTipo('${f.id}', this.value, this)">
+          ${Object.entries(TIPO_LABEL).map(([v, label]) => `<option value="${v}" ${v === tipo ? 'selected' : ''}>${label}</option>`).join('')}
+        </select>`
+      : '';
     const drive = f.drive_url
       ? `<a class="fi-drive" href="${f.drive_url}" target="_blank">Ver PDF →</a>` : '';
     const del = canDelete
       ? `<button class="fi-delete" onclick="deleteFactura('${f.id}', this)" title="Borrar factura">🗑</button>` : '';
-    return `<div class="factura-item">
+    return `<div class="factura-item ${tipo === 'revisar' ? 'revisar' : ''}">
       <div class="fi-top">
         <div class="fi-proveedor">${esc(f.proveedor)}</div>
         <div class="fi-importe">${eur(f.importe_total)}</div>
       </div>
       <div class="fi-meta">
+        ${tipoBadge}
         ${badge}
         <span class="fi-ref">${esc(f.numero_factura || '—')}</span>
         <span class="fi-date">${f.fecha_factura ? f.fecha_factura.slice(0,10) : '—'}</span>
         ${drive}
+        ${tipoSelect}
         ${del}
       </div>
       ${f.comentario ? `<div class="fi-comment">${esc(f.comentario)}</div>` : ''}
     </div>`;
   }).join('');
+}
+
+async function corregirTipo(id, tipo, selectEl) {
+  const prev = selectEl.dataset.prev ?? selectEl.value;
+  selectEl.disabled = true;
+  try {
+    const r = await apiFetch(`/facturas/${id}/tipo`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tipo }),
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || 'No se pudo actualizar el tipo');
+    const f = facturas.find(x => String(x.id) === String(id));
+    if (f) { f.tipo = tipo; f.tipo_confianza = 'alta'; }
+    renderFacturasList();
+  } catch (e) {
+    alert(e.message);
+    selectEl.value = prev;
+    selectEl.disabled = false;
+  }
 }
 
 async function deleteFactura(id, btn) {
@@ -829,12 +876,20 @@ function switchTab(tab) {
 }
 
 // ── Data refresh ──────────────────────────────────────────────────────────
+function renderFacturasList() {
+  const activeChip = document.querySelector('.filter-chip.active');
+  const mes = activeChip?.dataset.mes ? parseInt(activeChip.dataset.mes) : null;
+  const filtered = mes ? facturas.filter(f => f.mes === mes) : facturas;
+  const estado = document.getElementById('filter-estado').value;
+  const tipo = document.getElementById('filter-tipo').value;
+  document.getElementById('facturas-list').innerHTML = renderFacturas(filtered, estado, tipo);
+}
+
 async function refreshFacturas(mes = '') {
   try {
     facturas = await loadFacturas(mes);
     buildMesFilterBar(facturas);
-    const estado = document.getElementById('filter-estado').value;
-    document.getElementById('facturas-list').innerHTML = renderFacturas(facturas, estado);
+    renderFacturasList();
   } catch(e) {
     document.getElementById('facturas-list').innerHTML = `<div class="empty">${esc(e.message)}</div>`;
   }
@@ -857,9 +912,7 @@ function buildMesFilterBar(list) {
     b.addEventListener('click', () => {
       bar.querySelectorAll('.filter-chip').forEach(c => c.classList.remove('active'));
       b.classList.add('active');
-      const estado = document.getElementById('filter-estado').value;
-      const filtered = b.dataset.mes ? facturas.filter(f => f.mes === parseInt(b.dataset.mes)) : facturas;
-      document.getElementById('facturas-list').innerHTML = renderFacturas(filtered, estado);
+      renderFacturasList();
     });
   });
 }
@@ -1001,12 +1054,8 @@ function boot() {
   });
 
   // Estado filter
-  document.getElementById('filter-estado').addEventListener('change', () => {
-    const activeChip = document.querySelector('.filter-chip.active');
-    const mes = activeChip?.dataset.mes ? parseInt(activeChip.dataset.mes) : null;
-    const filtered = mes ? facturas.filter(f => f.mes === mes) : facturas;
-    document.getElementById('facturas-list').innerHTML = renderFacturas(filtered, document.getElementById('filter-estado').value);
-  });
+  document.getElementById('filter-estado').addEventListener('change', renderFacturasList);
+  document.getElementById('filter-tipo').addEventListener('change', renderFacturasList);
 
   // Si ya hay sesión, detectar rol consultando /tokens (admin-only)
   if (token) {
