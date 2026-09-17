@@ -8,6 +8,7 @@ const { extraerFactura, clasificarTipoFactura } = require('../lib/extraccion');
 const { ensureFolderPath, uploadFile, deleteFile } = require('../lib/google');
 const { createFichajeRouter } = require('./fichaje');
 const { createTarifasRouter } = require('./tarifas');
+const tarifasLib = require('../lib/tarifas');
 
 const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
@@ -104,7 +105,7 @@ router.post('/facturas/upload', requireAuth, upload.single('factura'), async (re
   try {
     const { buffer, originalname, mimetype } = req.file;
 
-    const { data, usage } = await extraerFactura(buffer, mimetype);
+    const { data, usage } = await extraerFactura(buffer, mimetype, { cliente: 'timbol' });
     trackTokens('upload_factura', usage, req.user.email);
 
     // Evita duplicados (p. ej. reintentos de subida del mismo PDF): si ya existe
@@ -180,6 +181,7 @@ router.post('/facturas/upload', requireAuth, upload.single('factura'), async (re
       tipo_evidencia:   data.tipo_evidencia || null,
       tipo_confianza:   data.tipo_confianza || null,
       numero_albaranes: Array.isArray(data.numero_albaranes) ? data.numero_albaranes : [],
+      total_sobreprecio_eur: data.total_sobreprecio_eur || 0,
     };
 
     const { data: saved, error: dbError } = await supabase
@@ -196,6 +198,11 @@ router.post('/facturas/upload', requireAuth, upload.single('factura'), async (re
       precio_unitario: l.precio_unitario ?? null,
       importe_linea:   (l.cantidad != null && l.precio_unitario != null)
         ? Number((l.cantidad * l.precio_unitario).toFixed(2)) : null,
+      producto_tarifa: l.producto_tarifa ?? null,
+      precio_pactado:  l.precio_pactado ?? null,
+      desviacion_eur:  l.desviacion_eur ?? null,
+      desviacion_pct:  l.desviacion_pct ?? null,
+      estado_precio:   l.estado_precio ?? null,
     }));
     if (rows.length) {
       const { error: lineasError } = await supabase.from('timbol_factura_lineas').insert(rows);
@@ -273,6 +280,52 @@ router.patch('/facturas/:id/tipo', requireAuth, requireRole('gestor', 'admin'), 
     res.json({ ok: true, factura: saved });
   } catch (e) {
     console.error('[timbol] corregir tipo error:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// PATCH /timbol/facturas/:id/lineas/:lineaId/emparejar — corrección manual
+// del emparejamiento con la tarifa. Recalcula el estado de la línea contra
+// la tarifa vigente en la fecha de la factura y confirma el alias para que
+// futuras facturas casen solas. Solo gestor/admin.
+router.patch('/facturas/:id/lineas/:lineaId/emparejar', requireAuth, requireRole('gestor', 'admin'), async (req, res) => {
+  const { id, lineaId } = req.params;
+  const { producto_tarifa } = req.body || {};
+  if (!producto_tarifa) return res.status(400).json({ error: 'Se requiere producto_tarifa' });
+  try {
+    const { data: factura, error: errFactura } = await supabase
+      .from('timbol_facturas').select('id, cif_proveedor, fecha_factura').eq('id', id).single();
+    if (errFactura || !factura) return res.status(404).json({ error: 'Factura no encontrada' });
+
+    const { data: linea, error: errLinea } = await supabase
+      .from('timbol_factura_lineas').select('*').eq('id', lineaId).eq('factura_id', id).single();
+    if (errLinea || !linea) return res.status(404).json({ error: 'Línea no encontrada' });
+
+    const patch = await tarifasLib.corregirEmparejamiento({
+      cliente: 'timbol',
+      cifProveedor: factura.cif_proveedor,
+      fechaFactura: factura.fecha_factura,
+      linea,
+      productoTarifa: producto_tarifa,
+    });
+
+    const { data: actualizada, error: errUpdate } = await supabase
+      .from('timbol_factura_lineas').update(patch).eq('id', lineaId).select().single();
+    if (errUpdate) throw new Error(`Supabase: ${errUpdate.message}`);
+
+    // Recalcula el total de sobreprecio de la factura tras la corrección.
+    const { data: todasLineas } = await supabase
+      .from('timbol_factura_lineas').select('desviacion_eur, estado_precio').eq('factura_id', id);
+    const totalSobreprecio = (todasLineas || [])
+      .filter(l => l.estado_precio === 'sobreprecio' && l.desviacion_eur > 0)
+      .reduce((s, l) => s + Number(l.desviacion_eur), 0);
+    await supabase.from('timbol_facturas')
+      .update({ total_sobreprecio_eur: Number(totalSobreprecio.toFixed(2)) }).eq('id', id);
+
+    console.log(`[timbol] emparejamiento corregido: línea ${lineaId} → ${producto_tarifa} (${req.user.email})`);
+    res.json({ ok: true, linea: actualizada });
+  } catch (e) {
+    console.error('[timbol] corregir emparejamiento error:', e.message);
     res.status(500).json({ error: e.message });
   }
 });
@@ -389,6 +442,53 @@ router.get('/analytics/precios', requireAuth, async (req, res) => {
 
   subidas.sort((a, b) => b.variacion_pct - a.variacion_pct);
   res.json({ subidas });
+});
+
+// GET /timbol/analytics/sobreprecios?mes=YYYY-MM — total y desglose de
+// sobreprecio vs tarifa pactada, para el bloque "Sobreprecio del mes".
+router.get('/analytics/sobreprecios', requireAuth, async (req, res) => {
+  try {
+    let q = supabase.from('timbol_facturas')
+      .select('id, proveedor, fecha_factura, total_sobreprecio_eur')
+      .gt('total_sobreprecio_eur', 0);
+    const mes = req.query.mes;
+    if (/^\d{4}-\d{2}$/.test(mes || '')) {
+      const fin = tarifasLib.primerDiaSiguienteMes(mes);
+      q = q.gte('fecha_factura', `${mes}-01`).lt('fecha_factura', fin);
+    }
+    const { data: facturas, error } = await q;
+    if (error) throw new Error(`Supabase: ${error.message}`);
+
+    const facturaIds = facturas.map(f => f.id);
+    let lineas = [];
+    if (facturaIds.length) {
+      const { data, error: errL } = await supabase
+        .from('timbol_factura_lineas')
+        .select('factura_id, producto_tarifa, desviacion_eur')
+        .eq('estado_precio', 'sobreprecio')
+        .in('factura_id', facturaIds);
+      if (errL) throw new Error(`Supabase: ${errL.message}`);
+      lineas = data;
+    }
+
+    const porProveedor = {};
+    for (const f of facturas) porProveedor[f.proveedor] = (porProveedor[f.proveedor] || 0) + (Number(f.total_sobreprecio_eur) || 0);
+    const porProducto = {};
+    for (const l of lineas) {
+      const key = l.producto_tarifa || '(sin producto)';
+      porProducto[key] = (porProducto[key] || 0) + (Number(l.desviacion_eur) || 0);
+    }
+
+    res.json({
+      total_sobreprecio_eur: facturas.reduce((s, f) => s + (Number(f.total_sobreprecio_eur) || 0), 0),
+      facturas_afectadas: facturas.map(f => ({ id: f.id, proveedor: f.proveedor, fecha_factura: f.fecha_factura, total_sobreprecio_eur: f.total_sobreprecio_eur })),
+      por_proveedor: Object.entries(porProveedor).map(([proveedor, total]) => ({ proveedor, total })).sort((a, b) => b.total - a.total),
+      por_producto: Object.entries(porProducto).map(([producto, total]) => ({ producto, total })).sort((a, b) => b.total - a.total),
+    });
+  } catch (e) {
+    console.error('[timbol] analytics/sobreprecios error:', e.message);
+    res.status(500).json({ error: e.message });
+  }
 });
 
 // GET /timbol/tokens — solo admin

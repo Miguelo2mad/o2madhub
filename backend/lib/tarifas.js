@@ -366,7 +366,252 @@ async function listarProveedores(cliente) {
   });
 }
 
+// Primer día del mes siguiente a "YYYY-MM", para filtros de rango
+// [inicio, fin) por mes. Reutilizado por /analytics/sobreprecios de Timbol
+// y Comarea — evita duplicar la aritmética de fechas en los dos.
+function primerDiaSiguienteMes(mesStr) {
+  const m = /^(\d{4})-(\d{2})$/.exec(mesStr || '');
+  if (!m) return null;
+  return new Date(Date.UTC(Number(m[1]), Number(m[2]), 1)).toISOString().slice(0, 10);
+}
+
+// ── Comparación en la extracción ─────────────────────────────────────────
+
+// Estado de una línea YA emparejada con un producto de la tarifa (no
+// decide sin_tarifa — eso lo hace el caller cuando no hay producto_tarifa
+// en absoluto). Pura y testeada aparte: confianza baja es la prioridad más
+// alta porque comparar precio/unidad contra un emparejamiento en el que ni
+// el propio modelo confía no aporta nada, solo ruido.
+function calcularEstadoLinea({ precioLinea, cantidadLinea, unidadLinea, precioPactado, unidadPactada, confianza, toleranciaPct }) {
+  if (confianza === 'baja') {
+    return { estado: 'revisar', desviacionPct: null, desviacionEur: null };
+  }
+  if (unidadLinea && unidadPactada && unidadLinea !== unidadPactada) {
+    return { estado: 'unidad_distinta', desviacionPct: null, desviacionEur: null };
+  }
+
+  const pPactado = Number(precioPactado);
+  const pLinea = Number(precioLinea);
+  if (!(pPactado > 0) || !Number.isFinite(pLinea)) {
+    return { estado: 'revisar', desviacionPct: null, desviacionEur: null };
+  }
+
+  const desviacionPct = ((pLinea - pPactado) / pPactado) * 100;
+  const tolerancia = Math.abs(Number(toleranciaPct) || 0);
+  const cantidad = Number(cantidadLinea) || 0;
+  const desviacionEur = Number(((pLinea - pPactado) * cantidad).toFixed(2));
+
+  let estado;
+  if (Math.abs(desviacionPct) <= tolerancia) estado = 'ok';
+  else if (desviacionPct > tolerancia) estado = 'sobreprecio';
+  else estado = 'bajo_precio';
+
+  return { estado, desviacionPct: Number(desviacionPct.toFixed(2)), desviacionEur };
+}
+
+const EMPAREJAMIENTO_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    emparejamientos: {
+      type: 'array',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          linea:           { type: 'integer', description: 'Índice de la línea, tal cual en la lista de líneas' },
+          producto_tarifa: { type: ['string', 'null'], description: 'Nombre EXACTO del producto de la tarifa que mejor casa, o null si ninguno' },
+          confianza:       { type: 'string', enum: ['alta', 'media', 'baja'] },
+        },
+        required: ['linea', 'producto_tarifa', 'confianza'],
+      },
+    },
+  },
+  required: ['emparejamientos'],
+};
+
+// Segunda llamada, corta: una sola por factura para TODAS las líneas sin
+// alias, no una por línea. Puede lanzar (truncado tras el reintento) — el
+// caller (compararConTarifa) decide qué hacer.
+async function emparejarLineas({ lineas, indices, productosTarifa }) {
+  const listaProductos = productosTarifa.map(p => `- ${p.producto} (${p.unidad})`).join('\n');
+  const listaLineas = lineas.map((l, k) => `${indices[k]}: ${l.producto || '(sin nombre)'} — ${l.cantidad ?? '?'} ${l.unidad || ''}`).join('\n');
+  const texto = `Empareja cada línea de factura con el producto de la tarifa que mejor corresponda.
+Devuelve SOLO { emparejamientos: [{ linea, producto_tarifa, confianza }] }, uno por cada línea, en el
+mismo orden. "linea" es el índice tal cual aparece en la lista. "producto_tarifa" debe ser el nombre
+EXACTO tal como aparece en la lista de productos de la tarifa, o null si ninguno corresponde
+razonablemente. "confianza": alta | media | baja.
+
+Productos de la tarifa:
+${listaProductos}
+
+Líneas de la factura a emparejar:
+${listaLineas}`;
+
+  const llamar = () => client.messages.create({
+    model: 'claude-opus-4-8',
+    max_tokens: 2048,
+    output_config: { effort: 'low', format: { type: 'json_schema', schema: EMPAREJAMIENTO_SCHEMA } },
+    messages: [{ role: 'user', content: [{ type: 'text', text: texto }] }],
+  });
+
+  let res = await llamar();
+  let out = res.content.find(b => b.type === 'text')?.text || '';
+  try {
+    return JSON.parse(out).emparejamientos || [];
+  } catch (e) {
+    console.warn('[tarifas] JSON.parse falló al emparejar líneas, reintentando:', e.message);
+  }
+
+  res = await llamar();
+  out = res.content.find(b => b.type === 'text')?.text || '';
+  try {
+    return JSON.parse(out).emparejamientos || [];
+  } catch (e) {
+    throw new Error('La IA devolvió una respuesta incompleta al emparejar líneas con la tarifa.');
+  }
+}
+
+function lineaSinTarifa(l) {
+  return { ...l, producto_tarifa: null, precio_pactado: null, desviacion_eur: null, desviacion_pct: null, estado_precio: 'sin_tarifa' };
+}
+
+// Compara las líneas de una factura recién extraída con la tarifa vigente
+// del proveedor (por NIF del emisor) a la fecha de la factura. A propósito
+// PUEDE LANZAR — es extraccion.js quien decide, al llamarla, que un fallo
+// aquí nunca debe bloquear el guardado de la factura; esta función no se
+// traga errores en silencio, para que se puedan depurar de verdad.
+async function compararConTarifa({ cliente, cifProveedor, fechaFactura, lineas }) {
+  const nifNorm = normalizarNif(cifProveedor);
+  if (!nifNorm) return { lineas: lineas.map(lineaSinTarifa), totalSobreprecioEur: 0 };
+
+  const { data: proveedor, error: errProv } = await supabase
+    .from('proveedores').select('id, tolerancia_pct')
+    .eq('cliente', cliente).eq('nif', nifNorm).maybeSingle();
+  if (errProv) throw new Error(`Supabase (buscar proveedor): ${errProv.message}`);
+  if (!proveedor) return { lineas: lineas.map(lineaSinTarifa), totalSobreprecioEur: 0 };
+
+  const tarifa = await tarifaVigente(cliente, proveedor.id, fechaFactura);
+  if (!tarifa || !tarifa.tarifa_productos?.length) {
+    return { lineas: lineas.map(lineaSinTarifa), totalSobreprecioEur: 0 };
+  }
+  const productosTarifa = tarifa.tarifa_productos;
+  const buscarProducto = (nombre) => {
+    const norm = normalizarTextoProducto(nombre);
+    return productosTarifa.find(p => normalizarTextoProducto(p.producto) === norm) || null;
+  };
+
+  // 1. Alias ya confirmados — sin llamar al modelo.
+  const resueltos = new Map(); // índice de línea -> { productoTarifa, confianza }
+  const sinAlias = [];
+  for (let i = 0; i < lineas.length; i++) {
+    const texto = normalizarTextoProducto(lineas[i].producto);
+    if (!texto) { sinAlias.push(i); continue; }
+    const { data: alias, error: errAlias } = await supabase
+      .from('producto_alias').select('producto_tarifa')
+      .eq('cliente', cliente).eq('proveedor_id', proveedor.id).eq('texto_factura', texto).maybeSingle();
+    if (errAlias) throw new Error(`Supabase (buscar alias): ${errAlias.message}`);
+    if (alias) resueltos.set(i, { productoTarifa: alias.producto_tarifa, confianza: 'alta' });
+    else sinAlias.push(i);
+  }
+
+  // 2. Líneas sin alias: una sola llamada de emparejamiento para toda la factura.
+  if (sinAlias.length) {
+    const emparejamientos = await emparejarLineas({
+      lineas: sinAlias.map(i => lineas[i]),
+      indices: sinAlias,
+      productosTarifa,
+    });
+    for (const e of emparejamientos) {
+      if (typeof e.linea === 'number') resueltos.set(e.linea, { productoTarifa: e.producto_tarifa || null, confianza: e.confianza || 'baja' });
+    }
+  }
+
+  // 3. Estado por línea + total de sobreprecio de la factura.
+  let totalSobreprecioEur = 0;
+  const lineasEnriquecidas = lineas.map((l, i) => {
+    const r = resueltos.get(i);
+    if (!r || !r.productoTarifa) return lineaSinTarifa(l);
+
+    const productoTarifa = buscarProducto(r.productoTarifa);
+    if (!productoTarifa) return { ...lineaSinTarifa(l), producto_tarifa: r.productoTarifa };
+
+    const { estado, desviacionPct, desviacionEur } = calcularEstadoLinea({
+      precioLinea:   l.precio_unitario,
+      cantidadLinea: l.cantidad,
+      unidadLinea:   normalizarUnidad(l.unidad),
+      precioPactado: productoTarifa.precio,
+      unidadPactada: productoTarifa.unidad,
+      confianza:     r.confianza,
+      toleranciaPct: proveedor.tolerancia_pct,
+    });
+    if (estado === 'sobreprecio' && desviacionEur > 0) totalSobreprecioEur += desviacionEur;
+
+    return {
+      ...l,
+      producto_tarifa: productoTarifa.producto,
+      precio_pactado:  productoTarifa.precio,
+      desviacion_eur:  desviacionEur,
+      desviacion_pct:  desviacionPct,
+      estado_precio:   estado,
+    };
+  });
+
+  return { lineas: lineasEnriquecidas, totalSobreprecioEur: Number(totalSobreprecioEur.toFixed(2)) };
+}
+
+// Corrección manual de un emparejamiento desde la UI (PATCH .../emparejar).
+// Recalcula contra la tarifa vigente EN LA FECHA DE LA FACTURA (no hoy) y
+// confirma el alias para que futuras facturas casen solas. A diferencia de
+// compararConTarifa, aquí un fallo SÍ debe verse — es una acción explícita
+// del usuario, no el flujo automático de subida.
+async function corregirEmparejamiento({ cliente, cifProveedor, fechaFactura, linea, productoTarifa }) {
+  const nifNorm = normalizarNif(cifProveedor);
+  if (!nifNorm) throw new Error('La factura no tiene NIF de proveedor reconocible');
+
+  const { data: proveedor, error: errProv } = await supabase
+    .from('proveedores').select('id, tolerancia_pct').eq('cliente', cliente).eq('nif', nifNorm).maybeSingle();
+  if (errProv) throw new Error(`Supabase (buscar proveedor): ${errProv.message}`);
+  if (!proveedor) throw new Error('No hay proveedor de tarifas para el NIF de esta factura');
+
+  const tarifa = await tarifaVigente(cliente, proveedor.id, fechaFactura);
+  const productoResuelto = tarifa?.tarifa_productos?.find(
+    p => normalizarTextoProducto(p.producto) === normalizarTextoProducto(productoTarifa)
+  );
+  if (!productoResuelto) throw new Error(`"${productoTarifa}" no existe en la tarifa vigente de este proveedor`);
+
+  const { estado, desviacionPct, desviacionEur } = calcularEstadoLinea({
+    precioLinea:   linea.precio_unitario,
+    cantidadLinea: linea.cantidad,
+    unidadLinea:   normalizarUnidad(linea.unidad),
+    precioPactado: productoResuelto.precio,
+    unidadPactada: productoResuelto.unidad,
+    confianza:     'alta', // corrección manual: máxima confianza
+    toleranciaPct: proveedor.tolerancia_pct,
+  });
+
+  const texto = normalizarTextoProducto(linea.producto);
+  if (texto) {
+    const { error: errAlias } = await supabase
+      .from('producto_alias')
+      .upsert(
+        { cliente, proveedor_id: proveedor.id, texto_factura: texto, producto_tarifa: productoResuelto.producto },
+        { onConflict: 'cliente,proveedor_id,texto_factura' }
+      );
+    if (errAlias) throw new Error(`Supabase (guardar alias): ${errAlias.message}`);
+  }
+
+  return {
+    producto_tarifa: productoResuelto.producto,
+    precio_pactado:  productoResuelto.precio,
+    desviacion_eur:  desviacionEur,
+    desviacion_pct:  desviacionPct,
+    estado_precio:   estado,
+  };
+}
+
 module.exports = {
   normalizarNif, normalizarUnidad, normalizarTextoProducto,
   extraerTarifasDeArchivo, confirmarTarifas, tarifaVigente, listarProveedores,
+  calcularEstadoLinea, compararConTarifa, corregirEmparejamiento, primerDiaSiguienteMes,
 };

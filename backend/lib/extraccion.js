@@ -4,6 +4,7 @@
 // mismo esquema y el mismo prompt — quedaba duplicada y con riesgo de que
 // cada uno acabara clasificando con criterios distintos.
 const { client } = require('./claude');
+const { compararConTarifa } = require('./tarifas');
 
 const FACTURA_LINEA_SCHEMA = {
   type: 'object',
@@ -97,28 +98,67 @@ async function callClaude(buffer, mimeType) {
   });
 }
 
+// Marca todas las líneas como sin_tarifa — estado de partida antes de
+// intentar comparar, y también el que queda si la comparación falla o no
+// aplica (sin cliente, sin NIF, sin proveedor de tarifas para ese NIF).
+function lineasSinTarifa(lineas) {
+  return (Array.isArray(lineas) ? lineas : []).map(l => ({
+    ...l, producto_tarifa: null, precio_pactado: null, desviacion_eur: null, desviacion_pct: null, estado_precio: 'sin_tarifa',
+  }));
+}
+
 // Extrae los datos de una factura/albarán/ticket subido manualmente. Único
 // punto de llamada a Claude para este flujo — Timbol y Comarea comparten el
 // mismo esquema y los mismos criterios de clasificación, así no hay dos
 // interpretaciones distintas de qué es una factura según el cliente.
 // Si la respuesta llega truncada (JSON.parse falla) reintenta una vez la
 // llamada completa antes de rendirse con un error legible.
-async function extraerFactura(buffer, mimeType) {
+//
+// `cliente` es opcional: si se pasa, tras extraer se intenta comparar cada
+// línea con la tarifa vigente del proveedor (backend/lib/tarifas.js). La
+// comparación es un enriquecimiento OPCIONAL — cualquier fallo ahí (NIF sin
+// proveedor, Supabase caído, la llamada de emparejamiento truncada tras su
+// propio reintento, lo que sea) se captura y se loguea aquí; la factura se
+// devuelve igualmente, con todas las líneas en sin_tarifa. Guardar la
+// factura nunca depende de que la comparación funcione.
+async function extraerFactura(buffer, mimeType, { cliente } = {}) {
   let res = await callClaude(buffer, mimeType);
   let text = res.content.find(b => b.type === 'text')?.text || '';
+  let data;
   try {
-    return { data: JSON.parse(text), usage: res.usage };
+    data = JSON.parse(text);
   } catch (e) {
     console.warn('[extraccion] JSON.parse falló en el primer intento, reintentando:', e.message);
+    res = await callClaude(buffer, mimeType);
+    text = res.content.find(b => b.type === 'text')?.text || '';
+    try {
+      data = JSON.parse(text);
+    } catch (e2) {
+      throw new Error('La IA devolvió una respuesta incompleta al leer el documento. Vuelve a intentar la subida.');
+    }
   }
 
-  res = await callClaude(buffer, mimeType);
-  text = res.content.find(b => b.type === 'text')?.text || '';
-  try {
-    return { data: JSON.parse(text), usage: res.usage };
-  } catch (e) {
-    throw new Error('La IA devolvió una respuesta incompleta al leer el documento. Vuelve a intentar la subida.');
+  if (cliente && data.cif_proveedor) {
+    try {
+      const { lineas, totalSobreprecioEur } = await compararConTarifa({
+        cliente,
+        cifProveedor: data.cif_proveedor,
+        fechaFactura: data.fecha_factura,
+        lineas: Array.isArray(data.lineas) ? data.lineas : [],
+      });
+      data.lineas = lineas;
+      data.total_sobreprecio_eur = totalSobreprecioEur;
+    } catch (e) {
+      console.error('[extraccion] comparación con tarifa falló, se guarda sin comparar:', e.message);
+      data.lineas = lineasSinTarifa(data.lineas);
+      data.total_sobreprecio_eur = 0;
+    }
+  } else {
+    data.lineas = lineasSinTarifa(data.lineas);
+    data.total_sobreprecio_eur = 0;
   }
+
+  return { data, usage: res.usage };
 }
 
 // ── Clasificación determinista (punto 3) ────────────────────────────────────
