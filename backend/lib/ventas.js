@@ -151,4 +151,32 @@ async function guardarVentaDiaria(cliente, venta) {
   return { ...saved, lineas };
 }
 
-module.exports = { extraerVentaDiaria, guardarVentaDiaria };
+// ── Analytics fase 1 ─────────────────────────────────────────────────────
+
+// Food cost diario y acumulado a partir de compras (ya filtradas a tipo
+// factura/ticket, sin albaranes) y ventas netas, ambos agregados por
+// fecha. Pura — sin Supabase — para no duplicar esta aritmética entre
+// Timbol y Comarea, que sí necesitan cada uno su propio fetch porque las
+// tablas de facturas se llaman distinto por cliente.
+function calcularFoodcost(comprasPorFecha, ventasPorFecha, fechas) {
+  const dias = fechas.map(fecha => {
+    const compras = comprasPorFecha.get(fecha) || 0;
+    const ventasNeto = ventasPorFecha.get(fecha) || 0;
+    const foodcostPct = ventasNeto > 0 ? Number(((compras / ventasNeto) * 100).toFixed(2)) : null;
+    return { fecha, compras, ventas_neto: ventasNeto, foodcost_pct: foodcostPct };
+  });
+
+  for (let i = 0; i < dias.length; i++) {
+    const ventana = dias.slice(Math.max(0, i - 6), i + 1).map(d => d.foodcost_pct).filter(v => v != null);
+    dias[i].media_movil_7d = ventana.length
+      ? Number((ventana.reduce((s, v) => s + v, 0) / ventana.length).toFixed(2)) : null;
+  }
+
+  const totalCompras = dias.reduce((s, d) => s + d.compras, 0);
+  const totalVentas = dias.reduce((s, d) => s + d.ventas_neto, 0);
+  const acumuladoPct = totalVentas > 0 ? Number(((totalCompras / totalVentas) * 100).toFixed(2)) : null;
+
+  return { dias, acumulado: { compras: totalCompras, ventas_neto: totalVentas, foodcost_pct: acumuladoPct } };
+}
+
+module.exports = { extraerVentaDiaria, guardarVentaDiaria, calcularFoodcost };

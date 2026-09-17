@@ -10,6 +10,7 @@ const { createFichajeRouter } = require('./fichaje');
 const { createTarifasRouter } = require('./tarifas');
 const tarifasLib = require('../lib/tarifas');
 const { createVentasRouter } = require('./ventas');
+const ventasLib = require('../lib/ventas');
 
 const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
@@ -494,6 +495,47 @@ router.get('/analytics/sobreprecios', requireAuth, async (req, res) => {
     });
   } catch (e) {
     console.error('[comarea] analytics/sobreprecios error:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// GET /comarea/analytics/foodcost?desde=&hasta= — compras (factura+ticket,
+// sin albaranes) / ventas netas, por día y acumulado, con media móvil de 7 días.
+router.get('/analytics/foodcost', requireAuth, async (req, res) => {
+  const { desde, hasta } = req.query;
+  if (!desde || !hasta) return res.status(400).json({ error: 'Se requiere desde y hasta (YYYY-MM-DD)' });
+  try {
+    const { data: facturas, error: errF } = await supabase
+      .from('comarea_facturas').select('fecha_factura, importe_total')
+      .in('tipo', ['factura', 'ticket'])
+      .gte('fecha_factura', desde).lte('fecha_factura', hasta);
+    if (errF) throw new Error(`Supabase: ${errF.message}`);
+
+    const { data: ventas, error: errV } = await supabase
+      .from('ventas_diarias').select('fecha, total_neto')
+      .eq('cliente', 'comarea').gte('fecha', desde).lte('fecha', hasta);
+    if (errV) throw new Error(`Supabase: ${errV.message}`);
+
+    const comprasPorFecha = new Map();
+    for (const f of facturas) {
+      if (!f.fecha_factura) continue;
+      const k = f.fecha_factura.slice(0, 10);
+      comprasPorFecha.set(k, (comprasPorFecha.get(k) || 0) + (Number(f.importe_total) || 0));
+    }
+    const ventasPorFecha = new Map();
+    for (const v of ventas) ventasPorFecha.set(v.fecha, Number(v.total_neto) || 0);
+
+    const fechas = [];
+    const cursor = new Date(`${desde}T00:00:00Z`);
+    const fin = new Date(`${hasta}T00:00:00Z`);
+    while (cursor <= fin) {
+      fechas.push(cursor.toISOString().slice(0, 10));
+      cursor.setUTCDate(cursor.getUTCDate() + 1);
+    }
+
+    res.json(ventasLib.calcularFoodcost(comprasPorFecha, ventasPorFecha, fechas));
+  } catch (e) {
+    console.error('[comarea] analytics/foodcost error:', e.message);
     res.status(500).json({ error: e.message });
   }
 });

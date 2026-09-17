@@ -82,6 +82,40 @@ function createVentasRouter({ cliente, requireAuth, requireRole }) {
     }
   });
 
+  // GET /analytics/ventas-producto?desde=&hasta= — unidades e importe por
+  // producto, ordenado por importe. Vive aquí y no en timbol.js/comarea.js
+  // porque ventas_lineas ya tiene columna `cliente` — no depende del
+  // nombre de ninguna tabla específica de cliente.
+  router.get('/analytics/ventas-producto', requireAuth, async (req, res) => {
+    const { desde, hasta } = req.query;
+    try {
+      let qVentas = supabase.from('ventas_diarias').select('id').eq('cliente', cliente);
+      if (desde) qVentas = qVentas.gte('fecha', desde);
+      if (hasta) qVentas = qVentas.lte('fecha', hasta);
+      const { data: ventas, error: errVentas } = await qVentas;
+      if (errVentas) throw new Error(`Supabase: ${errVentas.message}`);
+      if (!ventas.length) return res.json([]);
+
+      const { data: lineas, error: errLineas } = await supabase
+        .from('ventas_lineas')
+        .select('producto, producto_norm, cantidad, importe')
+        .in('venta_id', ventas.map(v => v.id));
+      if (errLineas) throw new Error(`Supabase: ${errLineas.message}`);
+
+      const porProducto = {};
+      for (const l of lineas) {
+        const key = l.producto_norm || l.producto || '(sin nombre)';
+        if (!porProducto[key]) porProducto[key] = { producto: l.producto, unidades: 0, importe: 0 };
+        porProducto[key].unidades += Number(l.cantidad) || 0;
+        porProducto[key].importe += Number(l.importe) || 0;
+      }
+      res.json(Object.values(porProducto).sort((a, b) => b.importe - a.importe));
+    } catch (e) {
+      console.error(`[ventas:${cliente}] analytics/ventas-producto error:`, e.message);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
   return router;
 }
 
