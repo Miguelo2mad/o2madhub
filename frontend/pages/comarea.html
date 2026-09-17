@@ -440,6 +440,22 @@
       <div class="card" id="comparativa-list"><div class="empty">Cargando…</div></div>
       <p class="section-title">Subidas de precio detectadas</p>
       <div class="card" id="precios-list"><div class="empty">Cargando…</div></div>
+      <p class="section-title">Sobreprecio del mes</p>
+      <div id="sobreprecios-block"><div class="empty">Cargando…</div></div>
+    </div>
+
+    <!-- TAB TARIFAS -->
+    <div class="tab-panel" id="panel-tarifas">
+      <div id="tarifas-upload-box" class="card">
+        <p style="margin:0 0 10px;font-size:13px;color:var(--muted)">Sube el listado de precios pactados (Excel o CSV). La IA lo normaliza y te muestra una vista previa antes de guardar nada.</p>
+        <button class="btn-drive" id="btn-subir-tarifa">Subir listado de precios</button>
+        <input type="file" id="tarifa-archivo-input" accept=".xlsx,.xls,.csv" class="hidden">
+      </div>
+      <div id="tarifas-upload-status" class="empty hidden">Analizando archivo…</div>
+      <div id="tarifas-preview" class="hidden"></div>
+
+      <p class="section-title">Proveedores con tarifa</p>
+      <div id="tarifas-listado"><div class="empty">Cargando…</div></div>
     </div>
 
     <!-- TAB GESTOR -->
@@ -467,6 +483,10 @@
     <button class="nav-btn" data-tab="analytics">
       <svg viewBox="0 0 24 24"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
       Análisis
+    </button>
+    <button class="nav-btn" data-tab="tarifas" id="nav-tarifas" style="display:none">
+      <svg viewBox="0 0 24 24"><path d="M12 1v22M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+      Tarifas
     </button>
     <button class="nav-btn" data-tab="gestor" id="nav-gestor" style="display:none">
       <svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M20 21a8 8 0 1 0-16 0"/></svg>
@@ -624,7 +644,12 @@ function renderFacturas(list, estado = '', tipoFiltro = '') {
       ? `<a class="fi-drive" href="${f.drive_url}" target="_blank">Ver PDF →</a>` : '';
     const del = canDelete
       ? `<button class="fi-delete" onclick="deleteFactura('${f.id}', this)" title="Borrar factura">🗑</button>` : '';
-    return `<div class="factura-item ${tipo === 'revisar' ? 'revisar' : ''}">
+    const tieneLineas = Array.isArray(f.lineas) && f.lineas.length > 0;
+    const sobreprecio = Number(f.total_sobreprecio_eur) > 0
+      ? `<span class="badge badge-alert">Sobreprecio ${eur(f.total_sobreprecio_eur)}</span>` : '';
+    const lineasToggle = tieneLineas
+      ? `<button class="fi-lineas-toggle" onclick="toggleLineasFactura('${f.id}')">▾ líneas (${f.lineas.length})</button>` : '';
+    return `<div class="factura-item ${tipo === 'revisar' ? 'revisar' : ''}" data-factura-id="${f.id}">
       <div class="fi-top">
         <div class="fi-proveedor">${esc(f.proveedor)}</div>
         <div class="fi-importe">${eur(f.importe_total)}</div>
@@ -632,6 +657,7 @@ function renderFacturas(list, estado = '', tipoFiltro = '') {
       <div class="fi-meta">
         ${tipoBadge}
         ${badge}
+        ${sobreprecio}
         <span class="fi-ref">${esc(f.numero_factura || '—')}</span>
         <span class="fi-date">${f.fecha_factura ? f.fecha_factura.slice(0,10) : '—'}</span>
         ${drive}
@@ -639,6 +665,8 @@ function renderFacturas(list, estado = '', tipoFiltro = '') {
         ${del}
       </div>
       ${f.comentario ? `<div class="fi-comment">${esc(f.comentario)}</div>` : ''}
+      ${lineasToggle}
+      ${tieneLineas ? `<div class="fi-lineas hidden" id="fi-lineas-${f.id}"></div>` : ''}
     </div>`;
   }).join('');
 }
@@ -871,8 +899,9 @@ function switchTab(tab) {
   document.querySelector(`.nav-btn[data-tab="${tab}"]`).classList.add('active');
 
   if (tab === 'facturas') refreshFacturas();
-  if (tab === 'analytics') refreshAnalytics();
+  if (tab === 'analytics') { refreshAnalytics(); refreshSobreprecios(); }
   if (tab === 'gestor') refreshGestor();
+  if (tab === 'tarifas') refreshTarifasTab();
 }
 
 // ── Data refresh ──────────────────────────────────────────────────────────
@@ -982,6 +1011,7 @@ function showApp() {
   document.getElementById('topbar-email').textContent = userEmail || '';
   const isGestor = ['gestor', 'admin'].includes(userRole);
   document.getElementById('nav-gestor').style.display = isGestor ? '' : 'none';
+  document.getElementById('nav-tarifas').style.display = isGestor ? '' : 'none';
 }
 
 function boot() {
@@ -1062,12 +1092,15 @@ function boot() {
     apiFetch('/tokens').then(r => {
       userRole = r.ok ? 'admin' : 'gestor';
       localStorage.setItem('comarea_role', userRole);
-      document.getElementById('nav-gestor').style.display = ['gestor','admin'].includes(userRole) ? '' : 'none';
+      const isGestor = ['gestor','admin'].includes(userRole);
+      document.getElementById('nav-gestor').style.display = isGestor ? '' : 'none';
+      document.getElementById('nav-tarifas').style.display = isGestor ? '' : 'none';
     }).catch(() => {});
   }
 }
 
 document.addEventListener('DOMContentLoaded', boot);
 </script>
+<script src="tarifas-shared.js"></script>
 </body>
 </html>

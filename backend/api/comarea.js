@@ -218,9 +218,11 @@ router.post('/facturas/upload', requireAuth, upload.single('factura'), async (re
 });
 
 // GET /comarea/facturas
+// Incrusta las líneas (con su comparación de tarifa ya calculada en la subida)
+// para que el frontend las muestre sin una petición extra por factura.
 router.get('/facturas', requireAuth, async (req, res) => {
   const { mes, anyo, proveedor } = req.query;
-  let q = supabase.from('comarea_facturas').select('*').order('fecha_factura', { ascending: false }).limit(10000);
+  let q = supabase.from('comarea_facturas').select('*, lineas:comarea_factura_lineas(*)').order('fecha_factura', { ascending: false }).limit(10000);
   if (mes)       q = q.eq('mes', Number(mes));
   if (anyo)      q = q.eq('anyo', Number(anyo));
   if (proveedor) q = q.ilike('proveedor', `%${proveedor}%`);
