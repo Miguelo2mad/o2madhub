@@ -18,6 +18,18 @@
     .venta-dia-swatch { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 4px; vertical-align: middle; }
     .venta-dia-swatch.venta-dia-ok { background: var(--ok); border: none; }
     .venta-dia-swatch.venta-dia-hueco { background: var(--alert); border: none; }
+
+    .venta-ayuda-texto { font-size: 13px; color: var(--muted); line-height: 1.5; margin-bottom: 14px; }
+    .venta-captura-thumbs { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 8px; }
+    .venta-thumb { position: relative; width: 84px; height: 84px; border-radius: 10px; overflow: hidden; border: 1px solid var(--border); background: var(--surface2); }
+    .venta-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .venta-thumb-pdf { width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; font-size: 10px; color: var(--muted); text-align: center; padding: 4px; word-break: break-all; }
+    .venta-thumb-num { position: absolute; top: 4px; left: 4px; background: rgba(0,0,0,.65); color: #fff; font-size: 11px; font-weight: 600; border-radius: 50%; width: 18px; height: 18px; display: flex; align-items: center; justify-content: center; }
+    .venta-thumb-del { position: absolute; top: 4px; right: 4px; background: rgba(0,0,0,.65); color: #fff; border: none; border-radius: 50%; width: 18px; height: 18px; font-size: 11px; line-height: 1; cursor: pointer; }
+    .venta-captura-peso { font-size: 12px; color: var(--muted); margin-bottom: 12px; min-height: 16px; }
+    .venta-captura-acciones { display: flex; gap: 8px; margin-bottom: 14px; }
+    .venta-captura-acciones button { flex: 1; }
+    #btn-procesar-cierre:disabled { opacity: .5; cursor: not-allowed; }
   `;
   document.head.appendChild(style);
 })();
@@ -25,33 +37,155 @@
 function numOrNull(v) { return v === '' || v == null ? null : Number(v); }
 
 // ── Cierre de caja por foto (pestaña Escanear) ──────────────────────────
+// Captura secuencial: un ticket térmico largo no cabe en una foto, así que
+// se hacen varias de arriba abajo (con solape deliberado entre una y la
+// siguiente) y se procesan todas juntas — ver el prompt multi-imagen en
+// backend/lib/ventas.js. El orden de captura se conserva tal cual al
+// enviarlas: nunca se reordenan.
 let ventaPreviewState = null;
 let ventaArchivosOriginales = [];
+let capturaFotos = []; // [{ file, previewUrl, esPdf }], en orden de captura
+
+const VENTA_MAX_FOTOS = 10;
+const VENTA_MAX_LADO = 1600;
+const VENTA_JPEG_CALIDAD = 0.85;
 
 function initVentasScan() {
-  const btn = document.getElementById('btn-cierre-caja');
-  const input = document.getElementById('input-cierre-caja');
-  if (!btn || !input) return;
-  btn.addEventListener('click', () => input.click());
-  input.addEventListener('change', () => {
-    const files = Array.from(input.files || []);
-    input.value = '';
-    if (files.length) subirCierreCaja(files);
+  const btnCierre = document.getElementById('btn-cierre-caja');
+  if (!btnCierre) return; // esta página no tiene el flujo de ventas
+  btnCierre.addEventListener('click', abrirCapturaCierre);
+
+  document.getElementById('btn-hacer-foto').addEventListener('click', () => document.getElementById('input-cierre-camara').click());
+  document.getElementById('btn-cierre-galeria').addEventListener('click', () => document.getElementById('input-cierre-galeria').click());
+  document.getElementById('btn-cierre-pdf').addEventListener('click', () => document.getElementById('input-cierre-pdf').click());
+  document.getElementById('btn-procesar-cierre').addEventListener('click', procesarCierreCaja);
+  document.getElementById('btn-cancelar-captura').addEventListener('click', cancelarCapturaCierre);
+
+  // Cámara: sin "multiple" a propósito — una foto por pulsación, para
+  // fotografiar el ticket tramo a tramo sin perder el orden.
+  document.getElementById('input-cierre-camara').addEventListener('change', async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (file) await agregarFotoCaptura(file);
+  });
+  document.getElementById('input-cierre-galeria').addEventListener('change', async (e) => {
+    const files = Array.from(e.target.files || []);
+    e.target.value = '';
+    for (const f of files) await agregarFotoCaptura(f);
+  });
+  document.getElementById('input-cierre-pdf').addEventListener('change', async (e) => {
+    const files = Array.from(e.target.files || []);
+    e.target.value = '';
+    for (const f of files) await agregarFotoCaptura(f);
   });
 }
 document.addEventListener('DOMContentLoaded', initVentasScan);
 
-async function subirCierreCaja(files) {
+function abrirCapturaCierre() {
+  capturaFotos = [];
   document.getElementById('scan-home').classList.add('hidden');
+  document.getElementById('venta-captura').classList.remove('hidden');
+  renderCapturaThumbs();
+}
+
+// Redimensiona en el navegador (canvas) a máximo 1600px en el lado largo,
+// JPEG calidad 0.85 — un ticket largo en varias fotos no puede pesar
+// varios MB. Un PDF se deja tal cual (no se puede redimensionar con canvas).
+function redimensionarImagen(file) {
+  return new Promise((resolve, reject) => {
+    if (!file.type.startsWith('image/')) { resolve(file); return; }
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      let { width, height } = img;
+      const ladoLargo = Math.max(width, height);
+      if (ladoLargo > VENTA_MAX_LADO) {
+        const factor = VENTA_MAX_LADO / ladoLargo;
+        width = Math.round(width * factor);
+        height = Math.round(height * factor);
+      }
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      canvas.getContext('2d').drawImage(img, 0, 0, width, height);
+      canvas.toBlob(blob => {
+        if (!blob) { reject(new Error('No se pudo procesar la imagen')); return; }
+        resolve(new File([blob], file.name.replace(/\.\w+$/, '.jpg'), { type: 'image/jpeg' }));
+      }, 'image/jpeg', VENTA_JPEG_CALIDAD);
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('No se pudo leer la imagen')); };
+    img.src = url;
+  });
+}
+
+async function agregarFotoCaptura(file) {
+  if (capturaFotos.length >= VENTA_MAX_FOTOS) { alert(`Máximo ${VENTA_MAX_FOTOS} fotos por cierre.`); return; }
+  try {
+    const procesado = file.type === 'application/pdf' ? file : await redimensionarImagen(file);
+    const esPdf = procesado.type === 'application/pdf';
+    capturaFotos.push({ file: procesado, previewUrl: esPdf ? null : URL.createObjectURL(procesado), esPdf });
+    renderCapturaThumbs();
+  } catch (e) {
+    alert('No se pudo procesar la imagen: ' + e.message);
+  }
+}
+
+function quitarFotoCaptura(idx) {
+  const f = capturaFotos[idx];
+  if (f.previewUrl) URL.revokeObjectURL(f.previewUrl);
+  capturaFotos.splice(idx, 1);
+  renderCapturaThumbs();
+}
+
+function renderCapturaThumbs() {
+  document.getElementById('venta-captura-thumbs').innerHTML = capturaFotos.map((f, i) => `
+    <div class="venta-thumb">
+      <span class="venta-thumb-num">${i + 1}</span>
+      ${f.esPdf
+        ? `<div class="venta-thumb-pdf">PDF<br>${esc(f.file.name.slice(0, 16))}</div>`
+        : `<img src="${f.previewUrl}" alt="foto ${i + 1}">`}
+      <button class="venta-thumb-del" onclick="quitarFotoCaptura(${i})" title="Quitar">✕</button>
+    </div>
+  `).join('');
+
+  document.getElementById('btn-hacer-foto').textContent = capturaFotos.length ? '+ Añadir otra foto' : '📷 Hacer foto';
+
+  const btnProcesar = document.getElementById('btn-procesar-cierre');
+  btnProcesar.textContent = `Procesar (${capturaFotos.length} foto${capturaFotos.length === 1 ? '' : 's'})`;
+  btnProcesar.disabled = capturaFotos.length === 0;
+
+  const pesoTotal = capturaFotos.reduce((s, f) => s + f.file.size, 0);
+  document.getElementById('venta-captura-peso').textContent = capturaFotos.length
+    ? `${(pesoTotal / (1024 * 1024)).toFixed(2)} MB en total` : '';
+}
+
+function limpiarCapturaCierre() {
+  capturaFotos.forEach(f => { if (f.previewUrl) URL.revokeObjectURL(f.previewUrl); });
+  capturaFotos = [];
+  document.getElementById('venta-captura').classList.add('hidden');
+}
+
+function cancelarCapturaCierre() {
+  limpiarCapturaCierre();
+  document.getElementById('scan-home').classList.remove('hidden');
+}
+
+// El envío conserva el orden de captura (capturaFotos ya está en ese
+// orden, y aquí no se reordena en ningún momento).
+async function procesarCierreCaja() {
+  if (!capturaFotos.length) return;
+  const archivos = capturaFotos.map(f => f.file);
+  limpiarCapturaCierre();
   document.getElementById('venta-loading').classList.remove('hidden');
   try {
     const fd = new FormData();
-    files.forEach(f => fd.append('fotos', f));
+    archivos.forEach(f => fd.append('fotos', f));
     const r = await apiFetch('/ventas/foto', { method: 'POST', body: fd });
     const d = await r.json();
     document.getElementById('venta-loading').classList.add('hidden');
     if (!r.ok) throw new Error(d.error || 'No se pudo procesar el cierre de caja');
-    ventaArchivosOriginales = files.map(f => f.name);
+    ventaArchivosOriginales = archivos.map(f => f.name);
     renderVentaPreview(d.venta);
   } catch (e) {
     document.getElementById('venta-loading').classList.add('hidden');

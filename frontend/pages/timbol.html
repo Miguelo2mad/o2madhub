@@ -428,6 +428,24 @@
 
       <div id="scan-result" class="hidden"></div>
 
+      <div id="venta-captura" class="hidden">
+        <p class="venta-ayuda-texto">Si el ticket es largo, haz varias fotos de arriba abajo, dejando que cada foto empiece un poco antes de donde acabó la anterior.</p>
+        <div class="venta-captura-thumbs" id="venta-captura-thumbs"></div>
+        <div class="venta-captura-peso" id="venta-captura-peso"></div>
+        <div class="venta-captura-acciones">
+          <button class="btn-drive" id="btn-hacer-foto">📷 Hacer foto</button>
+          <button class="tarifa-btn-secondary" id="btn-cierre-galeria">Galería</button>
+          <button class="tarifa-btn-secondary" id="btn-cierre-pdf">PDF</button>
+        </div>
+        <div class="tarifa-confirmar-bar">
+          <button class="btn-drive" id="btn-procesar-cierre" disabled>Procesar (0 fotos)</button>
+          <button class="tarifa-btn-secondary" id="btn-cancelar-captura">Cancelar</button>
+        </div>
+        <input type="file" id="input-cierre-camara" accept="image/*" capture="environment" class="hidden">
+        <input type="file" id="input-cierre-galeria" accept="image/*" multiple class="hidden">
+        <input type="file" id="input-cierre-pdf" accept="application/pdf" multiple class="hidden">
+      </div>
+
       <div id="venta-loading" class="hidden">
         <div id="upload-loading">
           <div class="spinner"></div>
@@ -436,7 +454,6 @@
         </div>
       </div>
       <div id="venta-preview" class="hidden"></div>
-      <input type="file" id="input-cierre-caja" accept="image/*,application/pdf" multiple class="hidden">
     </div>
 
     <!-- TAB FACTURAS -->

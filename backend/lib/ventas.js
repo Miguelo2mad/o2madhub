@@ -55,7 +55,7 @@ const VENTA_SCHEMA = {
     'detalle_por_articulo', 'lineas', 'dudas'],
 };
 
-const VENTA_PROMPT = 'Esto es el cierre de caja de un restaurante (informe Z y/o informe de ventas por artículo). '
+const VENTA_PROMPT_BASE = 'Esto es el cierre de caja de un restaurante (informe Z y/o informe de ventas por artículo). '
   + 'fecha en YYYY-MM-DD: si hay varias fechas visibles, usa la del cierre/turno, no la de impresión del ticket. '
   + 'desglose_pago con los importes por forma de pago tal como aparezcan: efectivo, tarjeta, y suma en "otros" '
   + 'cualquier forma de pago que no sea efectivo ni tarjeta (bizum, vales, etc.). '
@@ -63,19 +63,37 @@ const VENTA_PROMPT = 'Esto es el cierre de caja de un restaurante (informe Z y/o
   + 'artículo, no el precio unitario) y familia si el documento la indica. '
   + 'Si el documento solo trae totales por familia y no por artículo, devuelve las familias como líneas '
   + '(producto = nombre de la familia) y marca detalle_por_articulo: false. '
-  + 'Si hay varias imágenes o páginas, trátalas como partes del MISMO cierre — no dupliques una línea que '
-  + 'aparezca en más de una página/imagen. '
   + 'Cualquier dato que no puedas leer con confianza anótalo en "dudas" en vez de inventarlo.';
+
+// Un ticket térmico largo llega como varias fotos consecutivas (ver
+// frontend/pages/ventas-shared.js: captura secuencial de arriba abajo, con
+// solape deliberado entre una foto y la siguiente para no perder líneas en
+// el corte). Solo se añade cuando llega más de una imagen — con una sola
+// imagen no hay nada que reconstruir ni tramos que puedan faltar.
+const ventaPromptMultiImagen = (n) => `Estas ${n} imágenes son segmentos consecutivos de UN ÚNICO ticket de `
+  + 'cierre de caja, fotografiado de arriba abajo en este orden. Las imágenes pueden solaparse: si las últimas '
+  + 'líneas de una imagen aparecen también al principio de la siguiente, son las mismas líneas y deben contarse '
+  + 'una sola vez. Reconstruye el documento completo antes de extraer. Si detectas que falta un tramo (por '
+  + 'ejemplo, el total final no aparece en ninguna imagen), indícalo en dudas con el motivo "posible tramo '
+  + 'faltante".';
 
 // Extrae un cierre de caja a partir de una o varias imágenes/PDF (todas del
 // mismo día). Devuelve el JSON tal cual lo entrega el modelo — es una
 // VISTA PREVIA, nada se guarda aquí.
+//
+// El orden de `archivos` se respeta tal cual llega del frontend (arriba
+// abajo del ticket) — nunca se reordena, ni aquí ni al construir los
+// bloques de contenido: el modelo necesita ese orden para reconstruir el
+// documento y detectar el solape entre fotos consecutivas.
 async function extraerVentaDiaria(archivos) {
   const fileBlocks = archivos.map(a => buildFileBlock(a.buffer, a.mimeType));
+  const prompt = archivos.length > 1
+    ? `${ventaPromptMultiImagen(archivos.length)}\n\n${VENTA_PROMPT_BASE}`
+    : VENTA_PROMPT_BASE;
   return extraerJson({
     maxTokens: 4096,
     schema: VENTA_SCHEMA,
-    content: [...fileBlocks, { type: 'text', text: VENTA_PROMPT }],
+    content: [...fileBlocks, { type: 'text', text: prompt }],
     mensajeError: 'La IA devolvió una respuesta incompleta al leer el cierre de caja. Vuelve a intentar la subida.',
   });
 }
