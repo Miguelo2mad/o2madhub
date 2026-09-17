@@ -54,13 +54,20 @@ const FACTURA_SCHEMA = {
       description: 'Desglose de líneas de producto de la factura. Array vacío [] si no hay una tabla de productos clara (p.ej. servicios).',
       items: FACTURA_LINEA_SCHEMA,
     },
+    pagina_parcial: {
+      type: 'boolean',
+      description: 'true si una indicación de paginación (Página X/Y, X de Y...) indica que faltan páginas del documento',
+    },
+    pagina_actual: { type: ['number', 'null'], description: 'X detectado en la indicación de paginación, o null si no hay' },
+    pagina_total:  { type: ['number', 'null'], description: 'Y detectado en la indicación de paginación, o null si no hay' },
   },
   required: ['proveedor', 'numero_factura', 'fecha_factura', 'importe_total',
     'importe_base', 'iva_porcentaje', 'concepto', 'cif_proveedor',
-    'tipo', 'tipo_evidencia', 'tipo_confianza', 'numero_albaranes'],
+    'tipo', 'tipo_evidencia', 'tipo_confianza', 'numero_albaranes',
+    'pagina_parcial', 'pagina_actual', 'pagina_total'],
 };
 
-const FACTURA_PROMPT = 'Extrae los datos de esta factura de proveedor. fecha_factura en YYYY-MM-DD. iva_porcentaje como número (ej: 21). Si no encuentras un campo devuelve null. '
+const FACTURA_PROMPT_BASE = 'Extrae los datos de esta factura de proveedor. fecha_factura en YYYY-MM-DD. iva_porcentaje como número (ej: 21). Si no encuentras un campo devuelve null. '
   + 'Además, en "lineas" desglosa cada línea de producto: producto (nombre tal cual), cantidad, unidad de medida en minúsculas (kg, l, ud, caja...) y precio_unitario. '
   + 'Si la factura no tiene una tabla de productos clara (por ejemplo es un servicio), devuelve "lineas" como array vacío []. No inventes líneas ni valores.\n\n'
   + 'Clasifica el documento en "tipo": "factura", "albaran" o "ticket". Criterios por orden de prioridad:\n'
@@ -73,10 +80,34 @@ const FACTURA_PROMPT = 'Extrae los datos de esta factura de proveedor. fecha_fac
   + '- "tipo_confianza": alta | media | baja.\n'
   + '- "numero_albaranes": array con los números de albarán que la factura referencia, vacío si no menciona ninguno.';
 
+// Solo se añade cuando llegan varias páginas — con una sola imagen no hay
+// nada que aclarar sobre en qué página está cada dato.
+const facturaPromptMultipagina = (n) => `Este documento tiene ${n} páginas/imágenes, en este orden. Si el `
+  + 'documento tiene varias páginas, el número de factura y la fecha de emisión están normalmente en la '
+  + 'primera. Las referencias de pedido o albarán (PED/..., ALB/...) que aparecen en las líneas NO son el '
+  + 'número de factura; recógelas en numero_albaranes.';
+
+// Se añade siempre (incluso con una sola imagen: un pie de página "Página
+// 3 de 5" en una única foto ya avisa de que faltan páginas).
+const paginaParcialPrompt = (n) => 'Si detectas una indicación de paginación al pie o cabecera (por ejemplo '
+  + '"Página X/Y", "X de Y", "X/Y") donde X sea mayor que 1 o Y sea mayor que el número de páginas/imágenes '
+  + `recibidas (has recibido ${n}), devuelve pagina_parcial: true, pagina_actual: X y pagina_total: Y — `
+  + 'significa que faltan páginas del documento completo. Si no hay indicación de paginación, o coincide con '
+  + 'las páginas recibidas, devuelve pagina_parcial: false, pagina_actual: null y pagina_total: null.';
+
+function construirPromptFactura(numPaginas) {
+  let prompt = FACTURA_PROMPT_BASE;
+  if (numPaginas > 1) prompt += `\n\n${facturaPromptMultipagina(numPaginas)}`;
+  prompt += `\n\n${paginaParcialPrompt(numPaginas)}`;
+  return prompt;
+}
+
 // Generoso a propósito: el desglose de líneas + los campos de clasificación
 // puede superar fácilmente el límite anterior (1024) y truncar el JSON a
 // mitad — origen del bug "Unexpected end of JSON input" visto en producción.
-const MAX_TOKENS = 4096;
+// Una factura de varias páginas puede tener bastantes más líneas, de ahí
+// el margen extra frente al de una sola página.
+const MAX_TOKENS = 6144;
 
 const FECHA_NUMERO_SCHEMA = {
   type: 'object',
@@ -98,14 +129,18 @@ const FECHA_NUMERO_PROMPT = 'Busca la fecha de emisión y el número de factura;
 // estén en el documento. Muta `data` in place; si el reintento falla (o
 // sigue sin encontrarlos) se deja como estaba — la factura se guarda
 // igual, marcada como incompleta en el backend de subida.
-async function reintentarFechaYNumero(buffer, mimeType, data) {
+//
+// `archivos` es un array de { buffer, mimeType } — todas las páginas, en
+// el mismo orden que la extracción principal (el número/fecha pueden
+// estar en cualquiera, normalmente la primera).
+async function reintentarFechaYNumero(archivos, data) {
   if (data.fecha_factura && data.numero_factura) return;
-  const fileBlock = buildFileBlock(buffer, mimeType);
+  const fileBlocks = archivos.map(a => buildFileBlock(a.buffer, a.mimeType));
   try {
     const { data: extra } = await extraerJson({
       maxTokens: 512,
       schema: FECHA_NUMERO_SCHEMA,
-      content: [fileBlock, { type: 'text', text: FECHA_NUMERO_PROMPT }],
+      content: [...fileBlocks, { type: 'text', text: FECHA_NUMERO_PROMPT }],
       mensajeError: 'reintento de fecha/número incompleto',
     });
     if (!data.fecha_factura && extra.fecha_factura) data.fecha_factura = extra.fecha_factura;
@@ -131,6 +166,10 @@ function lineasSinTarifa(lineas) {
 // La llamada en sí (con su reintento ante JSON truncado) vive en
 // backend/lib/claude-json.js, compartida con tarifas.js.
 //
+// `archivos` es un array de { buffer, mimeType } — una o varias páginas,
+// en el mismo orden en que se capturaron (nunca se reordenan); todas van
+// en una sola llamada al modelo.
+//
 // `cliente` es opcional: si se pasa, tras extraer se intenta comparar cada
 // línea con la tarifa vigente del proveedor (backend/lib/tarifas.js). La
 // comparación es un enriquecimiento OPCIONAL — cualquier fallo ahí (NIF sin
@@ -138,16 +177,23 @@ function lineasSinTarifa(lineas) {
 // propio reintento, lo que sea) se captura y se loguea aquí; la factura se
 // devuelve igualmente, con todas las líneas en sin_tarifa. Guardar la
 // factura nunca depende de que la comparación funcione.
-async function extraerFactura(buffer, mimeType, { cliente } = {}) {
-  const fileBlock = buildFileBlock(buffer, mimeType);
+async function extraerFactura(archivos, { cliente } = {}) {
+  const fileBlocks = archivos.map(a => buildFileBlock(a.buffer, a.mimeType));
   const { data, usage } = await extraerJson({
     maxTokens: MAX_TOKENS,
     schema: FACTURA_SCHEMA,
-    content: [fileBlock, { type: 'text', text: FACTURA_PROMPT }],
+    content: [...fileBlocks, { type: 'text', text: construirPromptFactura(archivos.length) }],
     mensajeError: 'La IA devolvió una respuesta incompleta al leer el documento. Vuelve a intentar la subida.',
   });
 
-  await reintentarFechaYNumero(buffer, mimeType, data);
+  // Defensa determinista: si la propia cuenta de páginas no cuadra, fuerza
+  // pagina_parcial aunque el modelo no lo haya marcado — no nos fiamos solo
+  // de que el modelo se acuerde de comprobarlo.
+  if (data.pagina_total != null && data.pagina_total > archivos.length) {
+    data.pagina_parcial = true;
+  }
+
+  await reintentarFechaYNumero(archivos, data);
 
   if (cliente && data.cif_proveedor) {
     try {
@@ -197,6 +243,6 @@ function clasificarTipoFactura({ tipoModelo = null, tipoConfianza = null, import
 }
 
 module.exports = {
-  extraerFactura, clasificarTipoFactura, FACTURA_SCHEMA, FACTURA_PROMPT,
+  extraerFactura, clasificarTipoFactura, FACTURA_SCHEMA, FACTURA_PROMPT: FACTURA_PROMPT_BASE,
   reintentarFechaYNumero,
 };

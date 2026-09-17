@@ -354,11 +354,6 @@
   </div>
 </div>
 
-<!-- FILE INPUTS (hidden) -->
-<input type="file" id="input-camera"  accept="image/*" capture="environment">
-<input type="file" id="input-gallery" accept="image/*">
-<input type="file" id="input-pdf"     accept="application/pdf">
-
 <!-- APP -->
 <div id="app" class="hidden">
   <!-- topbar -->
@@ -387,33 +382,13 @@
           <textarea id="scan-comentario" placeholder="Ej: cena de equipo, evento del 12 de julio…"></textarea>
         </div>
         <div class="scan-actions">
-          <button class="btn-scan" id="btn-camera">
+          <button class="btn-scan" id="btn-subir-factura">
             <div class="icon">
-              <svg viewBox="0 0 24 24"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+              <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
             </div>
             <div>
-              <div class="label">Cámara</div>
-              <div class="sub">Fotografía la factura</div>
-            </div>
-            <div class="chevron"><svg viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg></div>
-          </button>
-          <button class="btn-scan" id="btn-gallery">
-            <div class="icon">
-              <svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
-            </div>
-            <div>
-              <div class="label">Galería</div>
-              <div class="sub">Elige una imagen guardada</div>
-            </div>
-            <div class="chevron"><svg viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg></div>
-          </button>
-          <button class="btn-scan" id="btn-pdf">
-            <div class="icon">
-              <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
-            </div>
-            <div>
-              <div class="label">Subir PDF</div>
-              <div class="sub">Selecciona un archivo PDF</div>
+              <div class="label">Subir factura</div>
+              <div class="sub">Foto o PDF — varias páginas si hace falta</div>
             </div>
             <div class="chevron"><svg viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg></div>
           </button>
@@ -441,21 +416,39 @@
       <div id="scan-result" class="hidden"></div>
 
       <div id="venta-captura" class="hidden">
-        <p class="venta-ayuda-texto">Si el ticket es largo, haz varias fotos de arriba abajo, dejando que cada foto empiece un poco antes de donde acabó la anterior.</p>
-        <div class="venta-captura-thumbs" id="venta-captura-thumbs"></div>
-        <div class="venta-captura-peso" id="venta-captura-peso"></div>
-        <div class="venta-captura-acciones">
+        <p class="captura-ayuda-texto">Si el ticket es largo, haz varias fotos de arriba abajo, dejando que cada foto empiece un poco antes de donde acabó la anterior.</p>
+        <div class="captura-thumbs" id="venta-captura-thumbs"></div>
+        <div class="captura-peso" id="venta-captura-peso"></div>
+        <div class="captura-acciones">
           <button class="btn-drive" id="btn-hacer-foto">📷 Hacer foto</button>
           <button class="tarifa-btn-secondary" id="btn-cierre-galeria">Galería</button>
           <button class="tarifa-btn-secondary" id="btn-cierre-pdf">PDF</button>
         </div>
         <div class="tarifa-confirmar-bar">
-          <button class="btn-drive" id="btn-procesar-cierre" disabled>Procesar (0 fotos)</button>
+          <button class="btn-drive captura-btn-procesar" id="btn-procesar-cierre" disabled>Procesar (0 fotos)</button>
           <button class="tarifa-btn-secondary" id="btn-cancelar-captura">Cancelar</button>
         </div>
         <input type="file" id="input-cierre-camara" accept="image/*" capture="environment" class="hidden">
         <input type="file" id="input-cierre-galeria" accept="image/*" multiple class="hidden">
         <input type="file" id="input-cierre-pdf" accept="application/pdf" multiple class="hidden">
+      </div>
+
+      <div id="factura-captura" class="hidden">
+        <p class="captura-ayuda-texto">Si la factura tiene varias páginas, haz una foto de cada una en orden — el número y la fecha suelen estar en la primera.</p>
+        <div class="captura-thumbs" id="factura-captura-thumbs"></div>
+        <div class="captura-peso" id="factura-captura-peso"></div>
+        <div class="captura-acciones">
+          <button class="btn-drive" id="btn-hacer-foto-factura">📷 Hacer foto</button>
+          <button class="tarifa-btn-secondary" id="btn-factura-galeria">Galería</button>
+          <button class="tarifa-btn-secondary" id="btn-factura-pdf">PDF</button>
+        </div>
+        <div class="tarifa-confirmar-bar">
+          <button class="btn-drive captura-btn-procesar" id="btn-procesar-factura" disabled>Procesar (0 fotos)</button>
+          <button class="tarifa-btn-secondary" id="btn-cancelar-captura-factura">Cancelar</button>
+        </div>
+        <input type="file" id="input-factura-camara" accept="image/*" capture="environment" class="hidden">
+        <input type="file" id="input-factura-galeria" accept="image/*" multiple class="hidden">
+        <input type="file" id="input-factura-pdf" accept="application/pdf" multiple class="hidden">
       </div>
 
       <div id="venta-loading" class="hidden">
@@ -670,9 +663,11 @@ function logout() {
 }
 
 // ── Upload ────────────────────────────────────────────────────────────────
-async function uploadFactura(file) {
+// archivos: una o varias páginas, en orden — todas van en una sola llamada
+// al modelo (ver el prompt multipágina en backend/lib/extraccion.js).
+async function uploadFactura(archivos) {
   const fd = new FormData();
-  fd.append('factura', file);
+  archivos.forEach(f => fd.append('facturas', f));
   const comentario = document.getElementById('scan-comentario').value.trim();
   if (comentario) fd.append('comentario', comentario);
   const r = await apiFetch('/facturas/upload', { method: 'POST', body: fd });
@@ -791,6 +786,7 @@ function renderFacturas(list, estado = '', tipoFiltro = '') {
     const sinFechaBadge  = !f.fecha_factura  ? '<span class="badge badge-alert">Sin fecha</span>'  : '';
     const sinNumeroBadge = !f.numero_factura ? '<span class="badge badge-alert">Sin número</span>' : '';
     const duplicadoBadge = f.posible_duplicado ? '<span class="badge badge-pend">Posible duplicado</span>' : '';
+    const paginaParcialBadge = f.pagina_parcial ? '<span class="badge badge-alert">Factura incompleta: faltan páginas</span>' : '';
     const numeroCampo = canCorregir
       ? `<input type="text" class="fi-numero-input" placeholder="Nº factura" value="${esc(f.numero_factura || '')}" onblur="actualizarCampoFactura('${f.id}','numero_factura',this.value,this)">`
       : `<span class="fi-ref">${esc(f.numero_factura || '—')}</span>`;
@@ -809,6 +805,7 @@ function renderFacturas(list, estado = '', tipoFiltro = '') {
         ${sinFechaBadge}
         ${sinNumeroBadge}
         ${duplicadoBadge}
+        ${paginaParcialBadge}
         ${numeroCampo}
         ${fechaCampo}
         ${drive}
@@ -1141,10 +1138,19 @@ function renderScanResult(f) {
   const alert = hasAlert
     ? `<div class="alert-box"><svg viewBox="0 0 24 24"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>Desviación de precio detectada: ${eur(f.desviacion)}</div>`
     : '';
+  const avisoPaginaParcial = f.pagina_parcial
+    ? (() => {
+        const detalle = (f.pagina_actual && f.pagina_total)
+          ? `Parece la página ${f.pagina_actual} de ${f.pagina_total}.`
+          : 'Parece que faltan páginas de este documento.';
+        return `<div class="alert-box"><svg viewBox="0 0 24 24"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg><span>${detalle} Sube el documento completo para recuperar número y fecha.</span></div>`;
+      })()
+    : '';
   const drive = f.drive_url
     ? `<a class="result-drive" href="${f.drive_url}" target="_blank"><svg viewBox="0 0 24 24"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>Ver PDF en Drive</a>` : '';
 
   document.getElementById('scan-result').innerHTML = `
+    ${avisoPaginaParcial}
     ${alert}
     <div class="result-card">
       <div class="result-header">
@@ -1599,8 +1605,9 @@ async function descargarInformeCsv() {
 }
 
 // ── File upload handler ───────────────────────────────────────────────────
-async function handleFile(file) {
-  if (!file) return;
+// archivos: una o varias páginas en orden — crearCapturaSecuencial no las reordena.
+async function handleFacturaFiles(archivos) {
+  if (!archivos || !archivos.length) return;
   const warnEl = document.getElementById('scan-warning');
   warnEl.classList.add('hidden');
   warnEl.innerHTML = '';
@@ -1608,10 +1615,10 @@ async function handleFile(file) {
   document.getElementById('scan-loading').classList.remove('hidden');
   document.getElementById('scan-result').classList.add('hidden');
   try {
-    const factura = await uploadFactura(file);
+    const factura = await uploadFactura(archivos);
     document.getElementById('scan-loading').classList.add('hidden');
     document.getElementById('scan-comentario').value = '';
-    renderScanResult(factura);
+    renderScanResult(factura); // incluye el aviso de página parcial si aplica
   } catch(e) {
     document.getElementById('scan-loading').classList.add('hidden');
     document.getElementById('scan-home').classList.remove('hidden');
@@ -1693,18 +1700,18 @@ function boot() {
     b.addEventListener('click', () => switchTab(b.dataset.tab));
   });
 
-  // File inputs
-  document.getElementById('btn-camera').addEventListener('click',  () => document.getElementById('input-camera').click());
-  document.getElementById('btn-gallery').addEventListener('click', () => document.getElementById('input-gallery').click());
-  document.getElementById('btn-pdf').addEventListener('click',     () => document.getElementById('input-pdf').click());
-
-  ['input-camera','input-gallery','input-pdf'].forEach(id => {
-    document.getElementById(id).addEventListener('change', e => {
-      const file = e.target.files?.[0];
-      e.target.value = '';
-      if (file) handleFile(file);
-    });
+  // Subida de facturas: captura secuencial (una o varias páginas, en orden;
+  // ver frontend/pages/captura-secuencial.js, compartida con Cierre de caja).
+  const capturaFactura = crearCapturaSecuencial({
+    ids: {
+      home: 'scan-home', captura: 'factura-captura', thumbs: 'factura-captura-thumbs', peso: 'factura-captura-peso',
+      btnFoto: 'btn-hacer-foto-factura', btnGaleria: 'btn-factura-galeria', btnPdf: 'btn-factura-pdf',
+      inputCamara: 'input-factura-camara', inputGaleria: 'input-factura-galeria', inputPdf: 'input-factura-pdf',
+      btnProcesar: 'btn-procesar-factura', btnCancelar: 'btn-cancelar-captura-factura',
+    },
+    onProcesar: handleFacturaFiles,
   });
+  document.getElementById('btn-subir-factura').addEventListener('click', () => capturaFactura.abrir());
 
   // Fichaje
   document.getElementById('btn-nuevo-empleado').addEventListener('click', () => abrirFormEmpleado(null));
@@ -1732,6 +1739,7 @@ function boot() {
 
 document.addEventListener('DOMContentLoaded', boot);
 </script>
+<script src="captura-secuencial.js"></script>
 <script src="tarifas-shared.js"></script>
 <script src="ventas-shared.js"></script>
 </body>

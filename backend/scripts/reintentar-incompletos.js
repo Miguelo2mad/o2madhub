@@ -44,7 +44,7 @@ async function procesarTabla(tabla, apply) {
     try {
       const { buffer, mimeType } = await descargarArchivo(fila.drive_file_id);
       const data = { fecha_factura: fila.fecha_factura, numero_factura: fila.numero_factura };
-      await reintentarFechaYNumero(buffer, mimeType, data);
+      await reintentarFechaYNumero([{ buffer, mimeType }], data);
 
       const cambios = {};
       if (!fila.fecha_factura && data.fecha_factura) cambios.fecha_factura = data.fecha_factura;

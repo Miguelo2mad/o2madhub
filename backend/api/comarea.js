@@ -105,13 +105,15 @@ router.post('/login', (req, res) => {
 });
 
 // POST /comarea/facturas/upload
-router.post('/facturas/upload', requireAuth, upload.single('factura'), async (req, res) => {
-  if (!req.file) return res.status(400).json({ error: 'Se requiere un archivo en el campo "factura"' });
+router.post('/facturas/upload', requireAuth, upload.array('facturas', 10), async (req, res) => {
+  if (!req.files || !req.files.length) return res.status(400).json({ error: 'Se requiere al menos un archivo en el campo "facturas"' });
 
   try {
-    const { buffer, originalname, mimetype } = req.file;
+    // Una o varias páginas, en el orden en que se capturaron — nunca se
+    // reordenan, ni aquí ni en extraerFactura.
+    const archivos = req.files.map(f => ({ buffer: f.buffer, mimeType: f.mimetype }));
 
-    const { data, usage } = await extraerFactura(buffer, mimetype, { cliente: 'comarea' });
+    const { data, usage } = await extraerFactura(archivos, { cliente: 'comarea' });
     trackTokens('upload_factura', usage, req.user.email);
 
     // Duplicado EXACTO: mismo cif_proveedor + importe + fecha (o ambas sin
@@ -157,9 +159,21 @@ router.post('/facturas/upload', requireAuth, upload.single('factura'), async (re
       : ['O2MAD Facturas', 'Clientes Externos', 'Comarea', year, monthFolder];
     const folderId = await ensureFolderPath(pathNames, rootId);
 
+    // Cada página se sube a Drive por separado (nombradas "pág N" si hay
+    // varias) — drive_file_id/drive_url de la factura apuntan a la primera,
+    // el resto quedan archivadas en la misma carpeta sin enlace propio en
+    // la app.
     const safeName = (data.numero_factura || String(Date.now())).replace(/[/\\:*?"<>|]/g, '-');
-    const fileName = `${safeName} - ${data.proveedor || 'factura'}.${mimetype === 'application/pdf' ? 'pdf' : 'jpg'}`;
-    const uploaded = await uploadFile(fileName, buffer, folderId, mimetype);
+    const multiPagina = req.files.length > 1;
+    const paginasSubidas = [];
+    for (let i = 0; i < req.files.length; i++) {
+      const pagina = req.files[i];
+      const ext = pagina.mimetype === 'application/pdf' ? 'pdf' : 'jpg';
+      const sufijo = multiPagina ? ` - pág ${i + 1}` : '';
+      const fileName = `${safeName} - ${data.proveedor || 'factura'}${sufijo}.${ext}`;
+      paginasSubidas.push(await uploadFile(fileName, pagina.buffer, folderId, pagina.mimetype));
+    }
+    const uploaded = paginasSubidas[0];
 
     // Validación de cordura del desglose: la suma de líneas debe cuadrar con
     // importe_base (±2%). Solo marca un flag — nunca bloquea el guardado.
@@ -201,6 +215,9 @@ router.post('/facturas/upload', requireAuth, upload.single('factura'), async (re
       numero_albaranes: Array.isArray(data.numero_albaranes) ? data.numero_albaranes : [],
       total_sobreprecio_eur: data.total_sobreprecio_eur || 0,
       posible_duplicado: posibleDuplicado,
+      pagina_parcial: !!data.pagina_parcial,
+      pagina_actual:  data.pagina_actual ?? null,
+      pagina_total:   data.pagina_total ?? null,
     };
 
     const { data: saved, error: dbError } = await supabase
