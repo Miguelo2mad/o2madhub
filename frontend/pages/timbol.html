@@ -491,6 +491,21 @@
     <!-- TAB ANÁLISIS -->
     <div class="tab-panel" id="panel-analytics">
       <div id="analytics-aviso-sin-fecha" class="hidden"></div>
+      <p class="section-title">Pregúntale a tu restaurante</p>
+      <div class="card">
+        <div class="preguntar-chips" id="preguntar-chips"></div>
+        <div class="preguntar-input-row">
+          <select class="filter-select" id="preguntar-periodo">
+            <option value="semana">Esta semana</option>
+            <option value="mes">Este mes</option>
+            <option value="30d">Últimos 30 días</option>
+          </select>
+          <input type="text" id="preguntar-texto" placeholder="Pregunta lo que quieras sobre tu negocio…">
+          <button class="btn-drive" id="btn-preguntar">Preguntar</button>
+        </div>
+        <div id="preguntar-respuesta"></div>
+        <div class="preguntar-historial" id="preguntar-historial"></div>
+      </div>
       <div class="kpi-grid" id="kpi-grid">
         <div class="kpi-card"><div class="kpi-label">Total mes</div><div class="kpi-value kpi-accent">—</div></div>
         <div class="kpi-card"><div class="kpi-label">Facturas</div><div class="kpi-value">—</div></div>
@@ -1742,5 +1757,6 @@ document.addEventListener('DOMContentLoaded', boot);
 <script src="captura-secuencial.js"></script>
 <script src="tarifas-shared.js"></script>
 <script src="ventas-shared.js"></script>
+<script src="preguntar-shared.js"></script>
 </body>
 </html>
