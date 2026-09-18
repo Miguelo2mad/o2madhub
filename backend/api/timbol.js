@@ -11,6 +11,7 @@ const { createTarifasRouter } = require('./tarifas');
 const tarifasLib = require('../lib/tarifas');
 const { createVentasRouter } = require('./ventas');
 const ventasLib = require('../lib/ventas');
+const resumenLib = require('../lib/resumen-analisis');
 
 const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
@@ -688,6 +689,38 @@ router.get('/analytics/foodcost', requireAuth, async (req, res) => {
     res.json(ventasLib.calcularFoodcost(comprasPorFecha, ventasPorFecha, fechas));
   } catch (e) {
     console.error('[timbol] analytics/foodcost error:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// POST /timbol/analytics/preguntar  body: { pregunta, periodo, desde?, hasta? }
+// "Pregúntale a tu restaurante": genera el resumen del periodo elegido y el
+// del periodo anterior equivalente (misma duración), y le pasa ambos como
+// contexto a Claude para que responda solo con esos datos.
+router.post('/analytics/preguntar', requireAuth, async (req, res) => {
+  const { pregunta, periodo, desde, hasta } = req.body || {};
+  if (!pregunta || typeof pregunta !== 'string' || !pregunta.trim()) {
+    return res.status(400).json({ error: 'Falta la pregunta' });
+  }
+  try {
+    const rango = resumenLib.resolverPeriodo(periodo, desde, hasta);
+    const rangoAnterior = resumenLib.periodoAnterior(rango.desde, rango.hasta);
+
+    const [actual, anterior] = await Promise.all([
+      resumenLib.generarResumen({ cliente: 'timbol', ...rango }),
+      resumenLib.generarResumen({ cliente: 'timbol', ...rangoAnterior }),
+    ]);
+
+    const respuesta = await resumenLib.preguntarSobreResumen({ pregunta: pregunta.trim(), actual, anterior });
+
+    res.json({
+      respuesta,
+      periodo_usado: { desde: actual.desde, hasta: actual.hasta },
+      dias_con_datos: actual.dias_totales - actual.ventas.dias_sin_cierre,
+      dias_totales: actual.dias_totales,
+    });
+  } catch (e) {
+    console.error('[timbol] analytics/preguntar error:', e.message);
     res.status(500).json({ error: e.message });
   }
 });
