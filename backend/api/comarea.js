@@ -12,6 +12,7 @@ const tarifasLib = require('../lib/tarifas');
 const { createVentasRouter } = require('./ventas');
 const ventasLib = require('../lib/ventas');
 const resumenLib = require('../lib/resumen-analisis');
+const { createInventarioRouter } = require('./inventario');
 
 const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
@@ -79,6 +80,10 @@ router.use(createTarifasRouter({ cliente: 'comarea', requireAuth, requireRole })
 // Ventas diarias — módulo reutilizable (ver backend/api/ventas.js).
 // Sin prefijo: las rutas ya incluyen /ventas.
 router.use(createVentasRouter({ cliente: 'comarea', requireAuth, requireRole }));
+
+// Inventario estimado — módulo reutilizable (ver backend/api/inventario.js).
+// Sin prefijo: las rutas ya incluyen /inventario.
+router.use(createInventarioRouter({ cliente: 'comarea', requireAuth, requireRole }));
 
 // ── Claude Vision extraction ────────────────────────────────────────────────
 // La extracción y su esquema viven en backend/lib/extraccion.js, compartidos
