@@ -51,6 +51,31 @@ function normalizarUnidad(raw) {
   return UNIDAD_MAP[key] || key;
 }
 
+// Familias de unidades convertibles entre sí (a la unidad base de cada
+// familia). Usado por el inventario estimado para sumar compras/consumo en
+// la unidad de referencia del ingrediente aunque una factura venga en kg y
+// el escandallo esté en g. Cerrado a propósito: 'caja', 'pack' y cualquier
+// unidad no listada no tienen conversión (no hay forma fiable de saber
+// cuánto trae una caja sin mirar la factura), así que nunca se inventan.
+const FAMILIA_UNIDAD = {
+  kg: { base: 1000 }, g: { base: 1 },
+  l: { base: 1000 }, ml: { base: 1 },
+  docena: { base: 12 }, ud: { base: 1 },
+};
+const FAMILIA_DE = { kg: 'peso', g: 'peso', l: 'volumen', ml: 'volumen', docena: 'unidad', ud: 'unidad' };
+
+// Convierte `cantidad` de `desde` a `hasta` si ambas están en la misma
+// familia (peso, volumen o unidad); devuelve null si no son convertibles
+// entre sí (familias distintas, o alguna unidad fuera de FAMILIA_UNIDAD) —
+// el caller decide entonces no sumar en vez de mezclar escalas.
+function convertirUnidad(cantidad, desde, hasta) {
+  if (desde === hasta) return cantidad;
+  const d = FAMILIA_UNIDAD[desde];
+  const h = FAMILIA_UNIDAD[hasta];
+  if (!d || !h || FAMILIA_DE[desde] !== FAMILIA_DE[hasta]) return null;
+  return (cantidad * d.base) / h.base;
+}
+
 // Texto de producto (línea de factura o alias): minúsculas, sin acentos,
 // espacios colapsados. Es la clave de búsqueda en producto_alias.texto_factura
 // — nunca el nombre "bonito" para mostrar en la UI.
@@ -580,7 +605,7 @@ async function corregirEmparejamiento({ cliente, cifProveedor, fechaFactura, lin
 }
 
 module.exports = {
-  normalizarNif, normalizarUnidad, normalizarTextoProducto,
+  normalizarNif, normalizarUnidad, convertirUnidad, normalizarTextoProducto,
   extraerTarifasDeArchivo, confirmarTarifas, tarifaVigente, listarProveedores,
   calcularEstadoLinea, compararConTarifa, corregirEmparejamiento, primerDiaSiguienteMes,
 };
