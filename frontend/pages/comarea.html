@@ -531,6 +531,12 @@
       <div id="tarifas-listado"><div class="empty">Cargando…</div></div>
     </div>
 
+    <!-- TAB INVENTARIO -->
+    <div class="tab-panel" id="panel-inventario">
+      <p class="section-title">Stock estimado</p>
+      <div id="inventario-list"><div class="empty">Cargando…</div></div>
+    </div>
+
     <!-- TAB GESTOR -->
     <div class="tab-panel" id="panel-gestor">
       <div id="gestor-ia-wrap" class="hidden">
@@ -564,6 +570,10 @@
     <button class="nav-btn" data-tab="tarifas" id="nav-tarifas" style="display:none">
       <svg viewBox="0 0 24 24"><path d="M12 1v22M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
       Tarifas
+    </button>
+    <button class="nav-btn" data-tab="inventario" id="nav-inventario" style="display:none">
+      <svg viewBox="0 0 24 24"><path d="M21 8l-9-5-9 5 9 5 9-5z"/><path d="M3 8v8l9 5 9-5V8"/><line x1="12" y1="13" x2="12" y2="21"/></svg>
+      Inventario
     </button>
     <button class="nav-btn" data-tab="gestor" id="nav-gestor" style="display:none">
       <svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M20 21a8 8 0 1 0-16 0"/></svg>
@@ -1156,6 +1166,7 @@ function switchTab(tab) {
   if (tab === 'gestor') refreshGestor();
   if (tab === 'tarifas') refreshTarifasTab();
   if (tab === 'ventas') refreshVentasTab();
+  if (tab === 'inventario') refreshInventarioTab();
 }
 
 // ── Data refresh ──────────────────────────────────────────────────────────
@@ -1311,6 +1322,7 @@ function showApp() {
   document.getElementById('nav-gestor').style.display = isGestor ? '' : 'none';
   document.getElementById('nav-tarifas').style.display = isGestor ? '' : 'none';
   document.getElementById('nav-ventas').style.display = isGestor ? '' : 'none';
+  document.getElementById('nav-inventario').style.display = isGestor ? '' : 'none';
 }
 
 function boot() {
@@ -1396,6 +1408,7 @@ function boot() {
       document.getElementById('nav-gestor').style.display = isGestor ? '' : 'none';
       document.getElementById('nav-tarifas').style.display = isGestor ? '' : 'none';
       document.getElementById('nav-ventas').style.display = isGestor ? '' : 'none';
+      document.getElementById('nav-inventario').style.display = isGestor ? '' : 'none';
     }).catch(() => {});
   }
 }
@@ -1406,5 +1419,6 @@ document.addEventListener('DOMContentLoaded', boot);
 <script src="tarifas-shared.js"></script>
 <script src="ventas-shared.js"></script>
 <script src="preguntar-shared.js"></script>
+<script src="inventario-shared.js"></script>
 </body>
 </html>
