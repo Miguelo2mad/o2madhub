@@ -23,7 +23,10 @@ const esc = (s) => String(s ?? '').replace(/[&<>]/g, c => ({ '&': '&amp;', '<': 
 function buildHtml({ processed, skipped, errors }) {
   const today = new Date().toLocaleDateString('es-ES', { day: '2-digit', month: 'long', year: 'numeric' });
   const total = processed.reduce((s, f) => s + (Number(f.importe) || 0), 0);
-  const appUrl = process.env.RAILWAY_URL || `http://localhost:${process.env.PORT || 8080}`;
+  // PUBLIC_APP_URL = dominio público (hub.o2mad.com); RAILWAY_URL es el
+  // *.up.railway.app que Railway asigna por defecto — solo de respaldo si
+  // PUBLIC_APP_URL no está configurada.
+  const appUrl = process.env.PUBLIC_APP_URL || process.env.RAILWAY_URL || `http://localhost:${process.env.PORT || 8080}`;
 
   const rows = processed.map(f => {
     const links = (f.driveLinks || []).map((l, i) => `<a href="${esc(l)}">PDF${f.driveLinks.length > 1 ? ' ' + (i + 1) : ''}</a>`).join(' · ') || '—';

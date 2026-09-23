@@ -80,7 +80,10 @@ function createFichajeRouter({ cliente, requireAuth, requireRole }) {
   const router = express.Router();
 
   function fichajeUrl(token) {
-    const base = process.env.RAILWAY_URL || `http://localhost:${process.env.PORT || 8080}`;
+    // PUBLIC_APP_URL = dominio público (hub.o2mad.com); RAILWAY_URL es el
+    // *.up.railway.app que Railway asigna por defecto — solo de respaldo si
+    // PUBLIC_APP_URL no está configurada.
+    const base = process.env.PUBLIC_APP_URL || process.env.RAILWAY_URL || `http://localhost:${process.env.PORT || 8080}`;
     return `${base}/${cliente}/fichaje/${token}`;
   }
 

@@ -256,7 +256,10 @@ router.post('/', requireAuth, async (req, res) => {
     }
   }
 
-  const baseUrl = process.env.RAILWAY_URL || `http://localhost:${process.env.PORT || 8080}`;
+  // PUBLIC_APP_URL = dominio público (hub.o2mad.com); RAILWAY_URL es el
+  // *.up.railway.app que Railway asigna por defecto — solo de respaldo si
+  // PUBLIC_APP_URL no está configurada.
+  const baseUrl = process.env.PUBLIC_APP_URL || process.env.RAILWAY_URL || `http://localhost:${process.env.PORT || 8080}`;
   console.log(`[presupuestos] ✓ creado ${numero} (${slug}) — ${cliente_nombre}`);
   res.json({
     slug,
