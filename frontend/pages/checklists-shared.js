@@ -38,8 +38,14 @@
     .cl-dia-chip { background: var(--surface2); border: 1px solid var(--border); border-radius: 14px; padding: 5px 10px; font-size: 11.5px; color: var(--muted); cursor: pointer; }
     .cl-dia-chip.activo { background: rgba(196,168,130,.15); border-color: var(--accent); color: var(--accent); font-weight: 600; }
     .cl-config-actions { display: flex; gap: 6px; flex: none; }
-    .cl-config-actions button { background: transparent; border: none; color: var(--muted); font-size: 13px; cursor: pointer; padding: 2px 4px; }
+    .cl-config-actions button { background: transparent; border: none; color: var(--muted); font-size: 12px; cursor: pointer; padding: 2px 4px; }
     .cl-config-actions button:hover { color: var(--text); }
+    .cl-checklist-card { margin-bottom: 8px; cursor: pointer; }
+    .cl-panel-card { margin-top: 10px; }
+    .cl-tarea-row { border-top: 1px solid var(--border); padding: 10px 0; }
+    .cl-tarea-row:first-child { border-top: none; }
+    .cl-form-row select, .cl-form-row input[type="time"] { background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 7px 9px; color: var(--text); font-size: 12.5px; }
+    .cl-panel-empleados { max-height: 220px; overflow-y: auto; border: 1px solid var(--border); border-radius: 10px; padding: 8px 12px; margin-top: 6px; }
   `;
   document.head.appendChild(style);
 })();
@@ -286,14 +292,16 @@ async function refreshConfigChecklists() {
       </div>
       <div class="cl-config-section">
         <p class="section-title">Checklists</p>
-        <div class="card">${checklists.map(c => renderConfigChecklist(c, locales)).join('') || '<div class="empty">Sin checklists</div>'}</div>
+        <div class="cl-form-row" style="margin-top:0">
+          <button class="cl-btn-secundario" onclick="crearDesdeePlantillaUI('Apertura cocina')">Apertura cocina</button>
+          <button class="cl-btn-secundario" onclick="crearDesdeePlantillaUI('Cierre cocina')">Cierre cocina</button>
+          <button class="cl-btn-secundario" onclick="crearDesdeePlantillaUI('Apertura sala')">Apertura sala</button>
+          <button class="cl-btn-secundario" onclick="crearDesdeePlantillaUI('Cierre sala')">Cierre sala</button>
+        </div>
+        <div id="cl-panel"></div>
+        ${checklists.map(renderChecklistCard).join('') || '<div class="empty">Sin checklists</div>'}
         <div class="cl-form-row">
-          <input type="text" id="cl-nuevo-checklist-nombre" placeholder="Nombre (p.ej. Apertura cocina)">
-          <select id="cl-nuevo-checklist-local">${locales.map(l => `<option value="${l.id}">${esc(l.nombre)}</option>`).join('')}</select>
-          <select id="cl-nuevo-checklist-turno">
-            <option value="apertura">Apertura</option><option value="tarde">Tarde</option><option value="cierre">Cierre</option><option value="libre">Libre</option>
-          </select>
-          <button class="btn-drive" onclick="crearChecklistConfig()">+ Checklist</button>
+          <button class="btn-drive" onclick="abrirPanelChecklist(null)">+ Nuevo checklist</button>
         </div>
       </div>
     `;
@@ -370,12 +378,237 @@ async function eliminarLocalChecklist(id) {
   }
 }
 
-function renderConfigChecklist(c, locales) {
-  const local = locales.find(l => l.id === c.local_id);
-  return `<div class="cl-config-item">
-    <b>${esc(c.nombre)}</b> — ${CL_TURNO_LABEL[c.turno] || c.turno} · ${esc(local?.nombre || c.local_nombre || '')}
-    ${c.dias_semana ? ` · ${c.dias_semana.map(d => CL_DIA_LABEL[d] || d).join(', ')}` : ' · todos los días de apertura'}
+// ── Tarjetas de checklist ────────────────────────────────────────────────
+function renderChecklistCard(c) {
+  return `<div class="card cl-checklist-card" onclick="abrirPanelChecklist(${c.id})">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
+      <b>${esc(c.nombre)}</b>
+      <span class="badge ${c.activo === false ? 'badge-off' : 'badge-ok'}">${c.activo === false ? 'Inactivo' : 'Activo'}</span>
+    </div>
+    <div class="cl-ejec-meta">${esc(c.local_nombre || '')} · ${CL_TURNO_LABEL[c.turno] || c.turno} · ${c.num_tareas} tarea(s) · ${c.num_empleados} empleado(s)</div>
+    <div class="cl-config-actions" onclick="event.stopPropagation()">
+      <button onclick="duplicarChecklistUI(${c.id})">Duplicar</button>
+      <button onclick="desactivarChecklistUI(${c.id}, ${c.activo !== false})">${c.activo === false ? 'Activar' : 'Desactivar'}</button>
+    </div>
   </div>`;
+}
+
+async function crearDesdeePlantillaUI(nombrePlantilla) {
+  let localId = document.getElementById('cl-filtro-local')?.value;
+  if (!localId) {
+    if (clLocales.length === 1) localId = clLocales[0].id;
+    else { alert('Elige primero un local en el selector de arriba del tablero'); return; }
+  }
+  try {
+    const r = await apiFetch('/checklists/plantilla', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ local_id: localId, nombre_plantilla: nombrePlantilla }),
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || 'No se pudo crear la plantilla');
+    await refreshConfigChecklists();
+    await abrirPanelChecklist(d.id);
+  } catch (e) {
+    alert(e.message);
+  }
+}
+
+async function duplicarChecklistUI(id) {
+  try {
+    const r = await apiFetch(`/checklists/${id}/duplicar`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || 'No se pudo duplicar');
+    await refreshConfigChecklists();
+    await abrirPanelChecklist(d.id);
+  } catch (e) {
+    alert(e.message);
+  }
+}
+
+async function desactivarChecklistUI(id, estaActivo) {
+  try {
+    const r = await apiFetch(`/checklists/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ activo: !estaActivo }) });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || 'No se pudo actualizar');
+    await refreshConfigChecklists();
+  } catch (e) {
+    alert(e.message);
+  }
+}
+
+// ── Panel único: crear/editar un checklist completo ─────────────────────
+let clPanel = null; // { id, nombre, local_id, turno, tareas: [...], empleado_ids: [...] }
+let clPanelEmpleados = []; // empleados activos del local elegido en el panel
+
+async function abrirPanelChecklist(id) {
+  if (id) {
+    try {
+      const r = await apiFetch(`/checklists/${id}/completo`);
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || 'No se pudo cargar el checklist');
+      clPanel = {
+        id: d.checklist.id, nombre: d.checklist.nombre, local_id: d.checklist.local_id, turno: d.checklist.turno,
+        tareas: d.tareas.map(t => ({
+          id: t.id, titulo: t.titulo, requiere_foto: t.requiere_foto, hora_limite: t.hora_limite,
+          requiere_valor: t.requiere_valor, valor_etiqueta: t.valor_etiqueta, valor_min: t.valor_min, valor_max: t.valor_max,
+        })),
+        empleado_ids: d.empleado_ids,
+      };
+      await cargarEmpleadosPanel(false);
+    } catch (e) {
+      alert(e.message);
+      return;
+    }
+  } else {
+    const localPreseleccionado = clLocales.length === 1 ? clLocales[0].id : (document.getElementById('cl-filtro-local')?.value || '');
+    clPanel = { id: null, nombre: '', local_id: localPreseleccionado, turno: 'apertura', tareas: [], empleado_ids: [] };
+    await cargarEmpleadosPanel(true);
+  }
+  renderPanelChecklist();
+  document.getElementById('cl-panel').scrollIntoView({ behavior: 'smooth' });
+}
+
+// marcarPorDefecto: true para un checklist nuevo (todos los empleados del
+// local marcados de entrada); false al editar, donde empleado_ids ya viene
+// de las asignaciones reales.
+async function cargarEmpleadosPanel(marcarPorDefecto) {
+  if (!clPanel.local_id) { clPanelEmpleados = []; return; }
+  try {
+    const r = await apiFetch(`/empleados?local_id=${clPanel.local_id}`);
+    clPanelEmpleados = await r.json();
+  } catch (e) {
+    clPanelEmpleados = [];
+  }
+  if (marcarPorDefecto) clPanel.empleado_ids = clPanelEmpleados.map(e => e.id);
+}
+
+// Cambiar de local reemplaza la lista de empleados (son de otro local) —
+// se vuelve a marcar todos por defecto, tanto al crear como al editar, para
+// no dejar ids de empleados que ya no pertenecen al local elegido.
+async function cambiarLocalPanel(nuevoLocalId) {
+  clPanel.local_id = nuevoLocalId;
+  await cargarEmpleadosPanel(true);
+  renderPanelChecklist();
+}
+
+function renderPanelChecklist() {
+  const cont = document.getElementById('cl-panel');
+  if (!clPanel) { cont.innerHTML = ''; return; }
+  cont.innerHTML = `
+    <div class="card cl-panel-card">
+      <p class="section-title" style="margin-top:0">${clPanel.id ? 'Editar checklist' : 'Nuevo checklist'}</p>
+      <div class="cl-form-row" style="margin-top:0">
+        <input type="text" id="cl-panel-nombre" placeholder="Nombre" value="${esc(clPanel.nombre)}" oninput="clPanel.nombre = this.value">
+        <select onchange="cambiarLocalPanel(this.value)">
+          <option value="">Elige un local</option>
+          ${clLocales.map(l => `<option value="${l.id}" ${String(l.id) === String(clPanel.local_id) ? 'selected' : ''}>${esc(l.nombre)}</option>`).join('')}
+        </select>
+        <select onchange="clPanel.turno = this.value">
+          ${Object.entries(CL_TURNO_LABEL).map(([v, l]) => `<option value="${v}" ${v === clPanel.turno ? 'selected' : ''}>${l}</option>`).join('')}
+        </select>
+      </div>
+
+      <p class="section-title">Tareas</p>
+      <div id="cl-panel-tareas">${clPanel.tareas.map((t, i) => renderTareaRow(t, i)).join('') || '<div class="empty">Sin tareas todavía</div>'}</div>
+      <div class="cl-form-row">
+        <button class="cl-btn-secundario" onclick="agregarTareaPanel()">+ Tarea</button>
+      </div>
+
+      <p class="section-title">Empleados de este local</p>
+      <div class="cl-panel-empleados">${clPanelEmpleados.map(renderEmpleadoCheckbox).join('') || '<div class="empty">Sin empleados activos en este local</div>'}</div>
+
+      <div class="cl-form-row">
+        <button class="btn-drive" onclick="guardarPanelChecklist()">Guardar</button>
+        <button class="cl-btn-secundario" onclick="cerrarPanelChecklist()">Cancelar</button>
+      </div>
+    </div>
+  `;
+}
+
+function cerrarPanelChecklist() {
+  clPanel = null;
+  document.getElementById('cl-panel').innerHTML = '';
+}
+
+// Cada input de una tarea escribe directamente en clPanel.tareas[i] sin
+// re-renderizar (mismo patrón que tarifas-shared.js: si re-pintáramos en
+// cada pulsación se perdería el foco/cursor). Solo las operaciones
+// estructurales (añadir, quitar, mover, activar "¿pide un valor?") vuelven
+// a pintar la lista de tareas.
+function renderTareaRow(t, i) {
+  return `<div class="cl-tarea-row" id="cl-tarea-row-${i}">
+    <div class="cl-form-row" style="margin-top:0">
+      <input type="text" placeholder="Título" value="${esc(t.titulo || '')}" oninput="clPanel.tareas[${i}].titulo = this.value">
+      <label style="font-size:12px;display:flex;align-items:center;gap:4px">
+        <input type="checkbox" ${t.requiere_foto ? 'checked' : ''} onchange="clPanel.tareas[${i}].requiere_foto = this.checked"> Foto obligatoria
+      </label>
+      <input type="time" value="${esc(t.hora_limite || '')}" oninput="clPanel.tareas[${i}].hora_limite = this.value || null">
+      <select onchange="cambiarRequiereValorTarea(${i}, this.value === 'si')">
+        <option value="no" ${!t.requiere_valor ? 'selected' : ''}>¿Pide un valor? No</option>
+        <option value="si" ${t.requiere_valor ? 'selected' : ''}>¿Pide un valor? Sí</option>
+      </select>
+    </div>
+    ${t.requiere_valor ? `<div class="cl-form-row">
+      <input type="text" placeholder="Etiqueta (ej. °C)" value="${esc(t.valor_etiqueta || '')}" oninput="clPanel.tareas[${i}].valor_etiqueta = this.value">
+      <input type="number" step="0.1" placeholder="Mínimo" value="${t.valor_min ?? ''}" oninput="clPanel.tareas[${i}].valor_min = this.value">
+      <input type="number" step="0.1" placeholder="Máximo" value="${t.valor_max ?? ''}" oninput="clPanel.tareas[${i}].valor_max = this.value">
+    </div>` : ''}
+    <div class="cl-form-row">
+      <button class="cl-btn-secundario" onclick="moverTareaPanel(${i}, -1)" ${i === 0 ? 'disabled' : ''}>↑ Subir</button>
+      <button class="cl-btn-secundario" onclick="moverTareaPanel(${i}, 1)" ${i === clPanel.tareas.length - 1 ? 'disabled' : ''}>↓ Bajar</button>
+      <button class="cl-btn-secundario" onclick="eliminarTareaPanel(${i})">Eliminar</button>
+    </div>
+  </div>`;
+}
+
+function renderTareasPanel() {
+  document.getElementById('cl-panel-tareas').innerHTML = clPanel.tareas.map((t, i) => renderTareaRow(t, i)).join('') || '<div class="empty">Sin tareas todavía</div>';
+}
+
+function cambiarRequiereValorTarea(i, valor) {
+  clPanel.tareas[i].requiere_valor = valor;
+  renderTareasPanel();
+}
+function agregarTareaPanel() {
+  clPanel.tareas.push({ titulo: '', requiere_foto: false, hora_limite: null, requiere_valor: false, valor_etiqueta: null, valor_min: null, valor_max: null });
+  renderTareasPanel();
+}
+function eliminarTareaPanel(i) {
+  clPanel.tareas.splice(i, 1);
+  renderTareasPanel();
+}
+function moverTareaPanel(i, delta) {
+  const j = i + delta;
+  if (j < 0 || j >= clPanel.tareas.length) return;
+  [clPanel.tareas[i], clPanel.tareas[j]] = [clPanel.tareas[j], clPanel.tareas[i]];
+  renderTareasPanel();
+}
+
+function renderEmpleadoCheckbox(e) {
+  const marcado = clPanel.empleado_ids.includes(e.id);
+  return `<label style="display:flex;align-items:center;gap:6px;font-size:13px;padding:4px 0">
+    <input type="checkbox" ${marcado ? 'checked' : ''} onchange="toggleEmpleadoPanel(${e.id}, this.checked)"> ${esc(e.nombre)}
+  </label>`;
+}
+function toggleEmpleadoPanel(id, marcado) {
+  if (marcado) { if (!clPanel.empleado_ids.includes(id)) clPanel.empleado_ids.push(id); }
+  else { clPanel.empleado_ids = clPanel.empleado_ids.filter(x => x !== id); }
+}
+
+async function guardarPanelChecklist() {
+  if (!clPanel.nombre.trim()) { alert('Falta el nombre'); return; }
+  if (!clPanel.local_id) { alert('Falta el local'); return; }
+  const payload = { nombre: clPanel.nombre.trim(), local_id: clPanel.local_id, turno: clPanel.turno, tareas: clPanel.tareas, empleado_ids: clPanel.empleado_ids };
+  try {
+    const url = clPanel.id ? `/checklists/${clPanel.id}/completo` : '/checklists/completo';
+    const r = await apiFetch(url, { method: clPanel.id ? 'PATCH' : 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || 'No se pudo guardar');
+    cerrarPanelChecklist();
+    await refreshConfigChecklists();
+  } catch (e) {
+    alert(e.message);
+  }
 }
 
 async function crearLocalChecklist() {
@@ -409,21 +642,6 @@ async function descargarInformeChecklists() {
     a.download = `checklists-${desde}-a-${hasta}.pdf`;
     a.click();
     URL.revokeObjectURL(url);
-  } catch (e) {
-    alert(e.message);
-  }
-}
-
-async function crearChecklistConfig() {
-  const nombre = document.getElementById('cl-nuevo-checklist-nombre').value.trim();
-  const local_id = document.getElementById('cl-nuevo-checklist-local').value;
-  const turno = document.getElementById('cl-nuevo-checklist-turno').value;
-  if (!nombre || !local_id) { alert('Falta el nombre o el local'); return; }
-  try {
-    const r = await apiFetch('/checklists', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ nombre, local_id, turno }) });
-    const d = await r.json();
-    if (!r.ok) throw new Error(d.error || 'No se pudo crear el checklist');
-    await refreshConfigChecklists();
   } catch (e) {
     alert(e.message);
   }

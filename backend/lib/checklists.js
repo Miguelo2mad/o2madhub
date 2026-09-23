@@ -6,6 +6,7 @@ const { DateTime } = require('luxon');
 const { supabase } = require('./supabase');
 const { ZONA, claveDia } = require('./fichaje-calc');
 const checklistFotos = require('./checklist-fotos');
+const { PLANTILLAS } = require('./checklist-plantillas');
 
 const DIA_CODIGOS = ['lun', 'mar', 'mie', 'jue', 'vie', 'sab', 'dom'];
 
@@ -227,4 +228,161 @@ async function actualizarEstadoEjecucion(ejecucion, empleadoId) {
   if (errU) throw new Error(`checklist_ejecuciones: ${errU.message}`);
 }
 
-module.exports = { generarEjecucionesDelDia, tareasDeHoy, guardarRespuesta, DIA_CODIGOS, codigoDia, hoyMadrid };
+// ── Alta/edición completa de un checklist (panel único del dueño) ───────
+function normalizarTarea(t) {
+  return {
+    titulo: String(t.titulo || '').trim(),
+    descripcion: t.descripcion || null,
+    requiere_foto: !!t.requiere_foto,
+    hora_limite: t.hora_limite || null,
+    requiere_valor: !!t.requiere_valor,
+    valor_etiqueta: t.requiere_valor ? (t.valor_etiqueta || null) : null,
+    valor_min: t.requiere_valor && t.valor_min !== '' && t.valor_min != null ? Number(t.valor_min) : null,
+    valor_max: t.requiere_valor && t.valor_max !== '' && t.valor_max != null ? Number(t.valor_max) : null,
+  };
+}
+
+function validarChecklistCompleto({ nombre, local_id, turno, tareas }) {
+  if (!nombre || !String(nombre).trim()) throw new Error('Falta el nombre del checklist');
+  if (!local_id) throw new Error('Falta el local');
+  if (!['apertura', 'tarde', 'cierre', 'libre'].includes(turno)) throw new Error('Turno inválido');
+  for (const t of (tareas || [])) {
+    if (!t.titulo || !String(t.titulo).trim()) throw new Error('Cada tarea necesita un título');
+  }
+}
+
+// Crea checklist + tareas + asignaciones en un solo alta. No es una
+// transacción real de base de datos (Supabase-js no las ofrece a través de
+// varias tablas) — es mejor esfuerzo: si tareas o asignaciones fallan tras
+// crear el checklist, se borra ese checklist recién creado en vez de
+// dejarlo huérfano y vacío en el listado.
+async function crearChecklistCompleto(cliente, datos) {
+  validarChecklistCompleto(datos);
+  const { nombre, local_id, turno, tareas = [], empleado_ids = [] } = datos;
+
+  const { data: checklist, error: errC } = await supabase
+    .from('checklists').insert({ cliente, local_id, nombre: nombre.trim(), turno, dias_semana: null })
+    .select().single();
+  if (errC) throw new Error(`checklists: ${errC.message}`);
+
+  try {
+    if (tareas.length) {
+      const filas = tareas.map((t, i) => ({ checklist_id: checklist.id, orden: i + 1, ...normalizarTarea(t) }));
+      const { error: errT } = await supabase.from('checklist_tareas').insert(filas);
+      if (errT) throw new Error(`checklist_tareas: ${errT.message}`);
+    }
+    if (empleado_ids.length) {
+      const filas = empleado_ids.map(empleado_id => ({ checklist_id: checklist.id, empleado_id }));
+      const { error: errA } = await supabase.from('checklist_asignaciones').insert(filas);
+      if (errA) throw new Error(`checklist_asignaciones: ${errA.message}`);
+    }
+  } catch (e) {
+    await supabase.from('checklists').delete().eq('id', checklist.id);
+    throw e;
+  }
+
+  return checklist;
+}
+
+// Edición: actualiza el checklist, hace upsert de tareas por id (las que ya
+// no vienen se desactivan, NUNCA se borran — checklist_respuestas.tarea_id
+// no tiene on delete cascade a propósito, así que una tarea con historial
+// no se puede borrar sin perder ese historial) y reemplaza asignaciones
+// (sin historial que perder, esas sí se borran/insertan sin más).
+async function actualizarChecklistCompleto(cliente, checklistId, datos) {
+  validarChecklistCompleto(datos);
+  const { nombre, local_id, turno, tareas = [], empleado_ids = [] } = datos;
+
+  const { data: checklist, error: errC } = await supabase
+    .from('checklists').update({ nombre: nombre.trim(), local_id, turno })
+    .eq('id', checklistId).eq('cliente', cliente)
+    .select().maybeSingle();
+  if (errC) throw new Error(`checklists: ${errC.message}`);
+  if (!checklist) throw new Error('Checklist no encontrado');
+
+  const { data: tareasExistentes, error: errTE } = await supabase
+    .from('checklist_tareas').select('id').eq('checklist_id', checklistId);
+  if (errTE) throw new Error(`checklist_tareas: ${errTE.message}`);
+  const idsExistentes = new Set(tareasExistentes.map(t => t.id));
+  const idsEnviados = new Set(tareas.filter(t => t.id).map(t => t.id));
+
+  for (let i = 0; i < tareas.length; i++) {
+    const datosT = { ...normalizarTarea(tareas[i]), orden: i + 1, activo: true };
+    if (tareas[i].id) {
+      const { error } = await supabase.from('checklist_tareas').update(datosT).eq('id', tareas[i].id);
+      if (error) throw new Error(`checklist_tareas: ${error.message}`);
+    } else {
+      const { error } = await supabase.from('checklist_tareas').insert({ ...datosT, checklist_id: checklistId });
+      if (error) throw new Error(`checklist_tareas: ${error.message}`);
+    }
+  }
+  const idsABorrar = [...idsExistentes].filter(id => !idsEnviados.has(id));
+  if (idsABorrar.length) {
+    const { error } = await supabase.from('checklist_tareas').update({ activo: false }).in('id', idsABorrar);
+    if (error) throw new Error(`checklist_tareas: ${error.message}`);
+  }
+
+  const { data: asignacionesActuales, error: errAE } = await supabase
+    .from('checklist_asignaciones').select('id, empleado_id').eq('checklist_id', checklistId);
+  if (errAE) throw new Error(`checklist_asignaciones: ${errAE.message}`);
+  const empleadosActuales = new Set(asignacionesActuales.map(a => a.empleado_id));
+  const empleadosNuevos = new Set(empleado_ids);
+  const aQuitar = asignacionesActuales.filter(a => !empleadosNuevos.has(a.empleado_id)).map(a => a.id);
+  const aAnadir = empleado_ids.filter(id => !empleadosActuales.has(id));
+  if (aQuitar.length) {
+    const { error } = await supabase.from('checklist_asignaciones').delete().in('id', aQuitar);
+    if (error) throw new Error(`checklist_asignaciones: ${error.message}`);
+  }
+  if (aAnadir.length) {
+    const { error } = await supabase.from('checklist_asignaciones').insert(aAnadir.map(empleado_id => ({ checklist_id: checklistId, empleado_id })));
+    if (error) throw new Error(`checklist_asignaciones: ${error.message}`);
+  }
+
+  return checklist;
+}
+
+// Duplica un checklist (con sus tareas, sin asignaciones — un empleado de
+// un local no tiene por qué serlo del local destino) a otro local, para
+// "pasar Apertura cocina a otro local" sin escribirlo de cero.
+async function duplicarChecklist(cliente, checklistId, localDestinoId) {
+  const { data: original, error: errO } = await supabase
+    .from('checklists').select('*').eq('id', checklistId).eq('cliente', cliente).maybeSingle();
+  if (errO) throw new Error(`checklists: ${errO.message}`);
+  if (!original) throw new Error('Checklist no encontrado');
+
+  const { data: tareas, error: errT } = await supabase
+    .from('checklist_tareas').select('*').eq('checklist_id', checklistId).eq('activo', true).order('orden');
+  if (errT) throw new Error(`checklist_tareas: ${errT.message}`);
+
+  return crearChecklistCompleto(cliente, {
+    nombre: `${original.nombre} (copia)`,
+    local_id: localDestinoId || original.local_id,
+    turno: original.turno,
+    tareas: tareas.map(t => ({ ...t, id: undefined })),
+    empleado_ids: [],
+  });
+}
+
+// Plantillas en un clic: crea un checklist completo con las tareas típicas
+// para un local, asignado a todos sus empleados activos.
+async function crearDesdeePlantilla(cliente, localId, nombrePlantilla) {
+  const plantilla = PLANTILLAS.find(p => p.nombre === nombrePlantilla);
+  if (!plantilla) throw new Error(`Plantilla desconocida: "${nombrePlantilla}"`);
+
+  const { data: empleados, error: errE } = await supabase
+    .from('empleados').select('id').eq('cliente', cliente).eq('local_id', localId).eq('activo', true);
+  if (errE) throw new Error(`empleados: ${errE.message}`);
+
+  return crearChecklistCompleto(cliente, {
+    nombre: plantilla.nombre,
+    local_id: localId,
+    turno: plantilla.turno,
+    tareas: plantilla.tareas,
+    empleado_ids: empleados.map(e => e.id),
+  });
+}
+
+module.exports = {
+  generarEjecucionesDelDia, tareasDeHoy, guardarRespuesta, DIA_CODIGOS, codigoDia, hoyMadrid,
+  crearChecklistCompleto, actualizarChecklistCompleto, duplicarChecklist, crearDesdeePlantilla,
+};

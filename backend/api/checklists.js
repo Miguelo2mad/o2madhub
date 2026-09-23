@@ -7,12 +7,29 @@
 // y consulta del dueño.
 const express = require('express');
 const { supabase } = require('../lib/supabase');
-const { DIA_CODIGOS } = require('../lib/checklists');
+const checklistsLib = require('../lib/checklists');
+const { DIA_CODIGOS } = checklistsLib;
 const { generarInformeChecklistsPDF } = require('../lib/checklist-informe');
 const { DateTime } = require('luxon');
 
 function createChecklistsRouter({ cliente, requireAuth, requireRole }) {
   const router = express.Router();
+
+  // Empleados activos de un local, para la lista de "a quién asignar" del
+  // panel de checklist (y de las tareas extra). Vive aquí y no en
+  // fichaje.js porque ese GET /empleados no selecciona local_id — este es
+  // de solo lectura y específico de este panel.
+  router.get('/empleados', requireAuth, async (req, res) => {
+    try {
+      let q = supabase.from('empleados').select('id, nombre, local_id').eq('cliente', cliente).eq('activo', true).order('nombre');
+      if (req.query.local_id) q = q.eq('local_id', req.query.local_id);
+      const { data, error } = await q;
+      if (error) throw new Error(error.message);
+      res.json(data);
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
 
   // ── Locales ──────────────────────────────────────────────────────────
   router.get('/locales', requireAuth, async (_req, res) => {
@@ -96,6 +113,8 @@ function createChecklistsRouter({ cliente, requireAuth, requireRole }) {
   });
 
   // ── Checklists ───────────────────────────────────────────────────────
+  // Para el listado en tarjetas: nº de tareas activas y nº de empleados
+  // asignados por checklist, además del nombre del local.
   router.get('/checklists', requireAuth, async (_req, res) => {
     try {
       const { data: locales, error: errL } = await supabase.from('locales').select('id, nombre').eq('cliente', cliente);
@@ -105,23 +124,89 @@ function createChecklistsRouter({ cliente, requireAuth, requireRole }) {
       const { data: checklists, error } = await supabase
         .from('checklists').select('*').eq('cliente', cliente).order('nombre');
       if (error) throw new Error(error.message);
-      res.json(checklists.map(c => ({ ...c, local_nombre: nombrePorLocal.get(c.local_id) || null })));
+      if (!checklists.length) return res.json([]);
+
+      const checklistIds = checklists.map(c => c.id);
+      const { data: tareas, error: errT } = await supabase
+        .from('checklist_tareas').select('checklist_id').in('checklist_id', checklistIds).eq('activo', true);
+      if (errT) throw new Error(errT.message);
+      const { data: asignaciones, error: errA } = await supabase
+        .from('checklist_asignaciones').select('checklist_id').in('checklist_id', checklistIds);
+      if (errA) throw new Error(errA.message);
+
+      const contar = (lista, id) => lista.filter(x => x.checklist_id === id).length;
+      res.json(checklists.map(c => ({
+        ...c,
+        local_nombre: nombrePorLocal.get(c.local_id) || null,
+        num_tareas: contar(tareas, c.id),
+        num_empleados: contar(asignaciones, c.id),
+      })));
     } catch (e) {
       res.status(500).json({ error: e.message });
     }
   });
 
-  router.post('/checklists', requireAuth, requireRole('gestor', 'admin'), async (req, res) => {
-    const { local_id, nombre, turno, dias_semana } = req.body || {};
-    if (!local_id || !nombre || !turno) return res.status(400).json({ error: 'Faltan local_id, nombre o turno' });
+  // Panel único: crea checklist + tareas + asignaciones en un solo alta
+  // (backend/lib/checklists.js explica por qué esto no es una transacción
+  // real de base de datos, y qué hace en su lugar si algo falla a medias).
+  router.post('/checklists/completo', requireAuth, requireRole('gestor', 'admin'), async (req, res) => {
     try {
-      const { data, error } = await supabase
-        .from('checklists').insert({ cliente, local_id, nombre, turno, dias_semana: dias_semana || null })
-        .select().single();
-      if (error) throw new Error(error.message);
-      res.status(201).json(data);
+      const checklist = await checklistsLib.crearChecklistCompleto(cliente, req.body || {});
+      res.status(201).json(checklist);
+    } catch (e) {
+      res.status(400).json({ error: e.message });
+    }
+  });
+
+  router.patch('/checklists/:id/completo', requireAuth, requireRole('gestor', 'admin'), async (req, res) => {
+    try {
+      const checklist = await checklistsLib.actualizarChecklistCompleto(cliente, req.params.id, req.body || {});
+      res.json(checklist);
+    } catch (e) {
+      res.status(400).json({ error: e.message });
+    }
+  });
+
+  // GET .../completo: datos para abrir el panel de edición (checklist +
+  // tareas activas + ids de empleados asignados) en una sola llamada.
+  router.get('/checklists/:id/completo', requireAuth, async (req, res) => {
+    try {
+      const { data: checklist, error: errC } = await supabase
+        .from('checklists').select('*').eq('id', req.params.id).eq('cliente', cliente).maybeSingle();
+      if (errC) throw new Error(errC.message);
+      if (!checklist) return res.status(404).json({ error: 'Checklist no encontrado' });
+
+      const { data: tareas, error: errT } = await supabase
+        .from('checklist_tareas').select('*').eq('checklist_id', checklist.id).eq('activo', true).order('orden');
+      if (errT) throw new Error(errT.message);
+
+      const { data: asignaciones, error: errA } = await supabase
+        .from('checklist_asignaciones').select('empleado_id').eq('checklist_id', checklist.id);
+      if (errA) throw new Error(errA.message);
+
+      res.json({ checklist, tareas, empleado_ids: asignaciones.map(a => a.empleado_id) });
     } catch (e) {
       res.status(500).json({ error: e.message });
+    }
+  });
+
+  router.post('/checklists/plantilla', requireAuth, requireRole('gestor', 'admin'), async (req, res) => {
+    const { local_id, nombre_plantilla } = req.body || {};
+    if (!local_id || !nombre_plantilla) return res.status(400).json({ error: 'Faltan local_id o nombre_plantilla' });
+    try {
+      const checklist = await checklistsLib.crearDesdeePlantilla(cliente, local_id, nombre_plantilla);
+      res.status(201).json(checklist);
+    } catch (e) {
+      res.status(400).json({ error: e.message });
+    }
+  });
+
+  router.post('/checklists/:id/duplicar', requireAuth, requireRole('gestor', 'admin'), async (req, res) => {
+    try {
+      const checklist = await checklistsLib.duplicarChecklist(cliente, req.params.id, req.body?.local_id);
+      res.status(201).json(checklist);
+    } catch (e) {
+      res.status(400).json({ error: e.message });
     }
   });
 
