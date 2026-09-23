@@ -146,6 +146,23 @@ async function confirmarImportacion(cliente, movimientos, origenArchivo) {
 // Tolerancia de importe: exacta, sin margen — el banco no redondea.
 const DIAS_VENTANA_FACTURA = 45; // un cargo puede pagar una factura de hasta 45 días antes
 const DIAS_VENTANA_VENTA = 3;    // el cobro con tarjeta suele liquidarse 1-2 días después de la venta
+// Nóminas y SS: el cargo cae a fin del mes que cubren (nómina) o incluso ya
+// entrado el mes siguiente (liquidación de cotizaciones), nunca cerca del
+// día 1 — por eso la ventana se centra en el ÚLTIMO día del mes de
+// `periodo`, no en `periodo` tal cual (que en gastos_personal es el día 1).
+const DIAS_VENTANA_PERSONAL = 10;
+
+function finDeMesPeriodo(periodoIso) {
+  const [y, m] = periodoIso.split('-').map(Number);
+  return new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10);
+}
+
+function dentroDeVentanaPersonal(fechaMovimiento, periodoIso) {
+  const centro = finDeMesPeriodo(periodoIso);
+  const desde = offsetDias(centro, -DIAS_VENTANA_PERSONAL);
+  const hasta = offsetDias(centro, DIAS_VENTANA_PERSONAL);
+  return fechaMovimiento >= desde && fechaMovimiento <= hasta;
+}
 
 // Recorre TODOS los movimientos sin conciliar del cliente (no solo los
 // recién importados: una factura puede subirse semanas después que el
@@ -158,7 +175,6 @@ async function conciliarPendientes(cliente) {
     .from('movimientos_banco').select('id, fecha, importe')
     .eq('cliente', cliente).eq('conciliado', false);
   if (errP) throw new Error(`movimientos_banco: ${errP.message}`);
-  if (!pendientes.length) return 0;
 
   const { data: facturas, error: errF } = await supabase
     .from(tablaFacturas).select('id, importe_total, fecha_factura')
@@ -174,33 +190,77 @@ async function conciliarPendientes(cliente) {
     .not('total_neto', 'is', null);
   if (errV) throw new Error(`ventas_diarias: ${errV.message}`);
 
+  const { data: gastosPersonal, error: errGP } = await supabase
+    .from('gastos_personal').select('id, importe, periodo')
+    .eq('cliente', cliente)
+    .not('importe', 'is', null);
+  if (errGP) throw new Error(`gastos_personal: ${errGP.message}`);
+
   // Ya usadas por cualquier movimiento conciliado (de esta pasada o de una
-  // importación anterior) — una factura o venta nunca concilia dos veces.
+  // importación anterior) — una factura, venta o nómina nunca concilia dos
+  // veces. 'nomina' con referencia_id null son conciliaciones manuales de
+  // antes de que existiera gastos_personal (ver migración 046) — no cuentan
+  // como "ya usadas" hasta que el reenlace de abajo les asigne una.
   const { data: yaConciliados, error: errC } = await supabase
-    .from('movimientos_banco').select('tipo_conciliacion, referencia_id')
+    .from('movimientos_banco').select('id, fecha, importe, tipo_conciliacion, referencia_id')
     .eq('cliente', cliente).eq('conciliado', true);
   if (errC) throw new Error(`movimientos_banco: ${errC.message}`);
 
   const facturasUsadas = new Set(yaConciliados.filter(m => m.tipo_conciliacion === 'factura').map(m => m.referencia_id));
   const ventasUsadas = new Set(yaConciliados.filter(m => m.tipo_conciliacion === 'venta').map(m => m.referencia_id));
+  const personalUsados = new Set(yaConciliados.filter(m => m.tipo_conciliacion === 'nomina' && m.referencia_id != null).map(m => m.referencia_id));
+
+  let conciliadosEnEstaPasada = 0;
+
+  // Reenlace: movimientos que Román ya concilió a mano como 'nomina' antes
+  // de que gastos_personal existiera (referencia_id null). Se les intenta
+  // asignar una fila ahora que la tabla existe, sin tocar conciliado ni
+  // tipo_conciliacion — solo referencia_id.
+  const nominaManualSinRef = yaConciliados.filter(m => m.tipo_conciliacion === 'nomina' && m.referencia_id == null);
+  for (const mov of nominaManualSinRef) {
+    const candidatas = gastosPersonal.filter(g =>
+      !personalUsados.has(g.id) &&
+      Number(g.importe) === Math.abs(Number(mov.importe)) &&
+      dentroDeVentanaPersonal(mov.fecha, g.periodo)
+    );
+    if (candidatas.length !== 1) continue;
+    try {
+      const { error: errU } = await supabase.from('movimientos_banco').update({ referencia_id: candidatas[0].id }).eq('id', mov.id);
+      if (errU) throw new Error(errU.message);
+      personalUsados.add(candidatas[0].id);
+      conciliadosEnEstaPasada++;
+    } catch (e) {
+      console.error(`[banco:${cliente}] no se pudo reenlazar el movimiento ${mov.id} con gastos_personal:`, e.message);
+    }
+  }
+
+  if (!pendientes.length) return conciliadosEnEstaPasada;
 
   // Orden estable por fecha: si dos movimientos del mismo importe compiten
   // por la misma factura, el primero en el tiempo se la queda.
   const pendientesOrdenados = [...pendientes].sort((a, b) => a.fecha.localeCompare(b.fecha));
 
-  let conciliadosEnEstaPasada = 0;
   for (const mov of pendientesOrdenados) {
     const importe = Number(mov.importe);
     let match = null;
 
     if (importe < 0) {
       const desde = offsetDias(mov.fecha, -DIAS_VENTANA_FACTURA);
-      const candidatas = facturas.filter(f =>
+      const candidatasFactura = facturas.filter(f =>
         !facturasUsadas.has(f.id) &&
         Number(f.importe_total) === Math.abs(importe) &&
         f.fecha_factura >= desde && f.fecha_factura <= mov.fecha
       );
-      if (candidatas.length === 1) match = { tipo: 'factura', id: candidatas[0].id };
+      if (candidatasFactura.length === 1) {
+        match = { tipo: 'factura', id: candidatasFactura[0].id };
+      } else {
+        const candidatasPersonal = gastosPersonal.filter(g =>
+          !personalUsados.has(g.id) &&
+          Number(g.importe) === Math.abs(importe) &&
+          dentroDeVentanaPersonal(mov.fecha, g.periodo)
+        );
+        if (candidatasPersonal.length === 1) match = { tipo: 'nomina', id: candidatasPersonal[0].id };
+      }
     } else if (importe > 0) {
       const desde = offsetDias(mov.fecha, -DIAS_VENTANA_VENTA);
       const candidatas = ventas.filter(v =>
@@ -219,7 +279,9 @@ async function conciliarPendientes(cliente) {
         .update({ conciliado: true, tipo_conciliacion: match.tipo, referencia_id: match.id })
         .eq('id', mov.id);
       if (errU) throw new Error(errU.message);
-      if (match.tipo === 'factura') facturasUsadas.add(match.id); else ventasUsadas.add(match.id);
+      if (match.tipo === 'factura') facturasUsadas.add(match.id);
+      else if (match.tipo === 'nomina') personalUsados.add(match.id);
+      else ventasUsadas.add(match.id);
       conciliadosEnEstaPasada++;
     } catch (e) {
       console.error(`[banco:${cliente}] no se pudo conciliar el movimiento ${mov.id}:`, e.message);
