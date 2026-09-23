@@ -580,6 +580,23 @@
       <div id="banco-listado"><div class="empty">Cargando…</div></div>
     </div>
 
+    <!-- TAB CHECKLISTS -->
+    <div class="tab-panel" id="panel-checklists">
+      <div class="cl-toolbar">
+        <input type="date" id="cl-fecha">
+        <select id="cl-filtro-local" class="hidden"></select>
+      </div>
+      <p class="section-title">Tablero de hoy</p>
+      <div id="cl-tablero"><div class="empty">Cargando…</div></div>
+      <div id="cl-detalle" class="hidden"></div>
+
+      <p class="section-title">Calendario</p>
+      <div id="cl-calendario"><div class="empty">Cargando…</div></div>
+
+      <p class="section-title">Configuración</p>
+      <div id="cl-config"><div class="empty">Cargando…</div></div>
+    </div>
+
     <!-- TAB FICHAJE -->
     <div class="tab-panel" id="panel-fichaje">
       <div class="fichaje-live" id="fichaje-live"><span class="badge badge-off">Cargando…</span></div>
@@ -657,6 +674,10 @@
     <button class="nav-btn" data-tab="banco" id="nav-banco" style="display:none">
       <svg viewBox="0 0 24 24"><line x1="3" y1="21" x2="21" y2="21"/><line x1="5" y1="21" x2="5" y2="10"/><line x1="19" y1="21" x2="19" y2="10"/><polygon points="12 3 21 9 3 9 12 3"/><line x1="9" y1="21" x2="9" y2="10"/><line x1="15" y1="21" x2="15" y2="10"/></svg>
       Banco
+    </button>
+    <button class="nav-btn" data-tab="checklists" id="nav-checklists" style="display:none">
+      <svg viewBox="0 0 24 24"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+      Checklists
     </button>
     <button class="nav-btn" data-tab="fichaje" id="nav-fichaje" style="display:none">
       <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
@@ -1257,6 +1278,7 @@ function switchTab(tab) {
   if (tab === 'ventas') refreshVentasTab();
   if (tab === 'inventario') refreshInventarioTab();
   if (tab === 'banco') refreshBancoTab();
+  if (tab === 'checklists') { refreshChecklistsTab(); refreshConfigChecklists(); }
 
   clearInterval(fichajeAutoRefresh); fichajeAutoRefresh = null;
   if (tab === 'fichaje') {
@@ -1712,6 +1734,7 @@ function showApp() {
   document.getElementById('nav-ventas').style.display = isGestor ? '' : 'none';
   document.getElementById('nav-inventario').style.display = isGestor ? '' : 'none';
   document.getElementById('nav-banco').style.display = isGestor ? '' : 'none';
+  document.getElementById('nav-checklists').style.display = isGestor ? '' : 'none';
 }
 
 function boot() {
@@ -1805,6 +1828,7 @@ function boot() {
       document.getElementById('nav-ventas').style.display = isGestor ? '' : 'none';
       document.getElementById('nav-inventario').style.display = isGestor ? '' : 'none';
       document.getElementById('nav-banco').style.display = isGestor ? '' : 'none';
+      document.getElementById('nav-checklists').style.display = isGestor ? '' : 'none';
     }).catch(() => {});
   }
 }
@@ -1817,5 +1841,6 @@ document.addEventListener('DOMContentLoaded', boot);
 <script src="preguntar-shared.js"></script>
 <script src="inventario-shared.js"></script>
 <script src="banco-shared.js"></script>
+<script src="checklists-shared.js"></script>
 </body>
 </html>
