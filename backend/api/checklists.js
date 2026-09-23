@@ -55,6 +55,46 @@ function createChecklistsRouter({ cliente, requireAuth, requireRole }) {
     }
   });
 
+  // Si el local tiene empleados, checklists o ejecuciones, no se borra de
+  // verdad (perdería el historial de esas tablas, que no dependen de él en
+  // cascada) — se desactiva y se explica por qué. Solo se borra sin nada
+  // enganchado.
+  router.delete('/locales/:id', requireAuth, requireRole('gestor', 'admin'), async (req, res) => {
+    const localId = req.params.id;
+    try {
+      const { data: local, error: errBuscar } = await supabase
+        .from('locales').select('id').eq('id', localId).eq('cliente', cliente).maybeSingle();
+      if (errBuscar) throw new Error(errBuscar.message);
+      if (!local) return res.status(404).json({ error: 'Local no encontrado' });
+
+      const [{ count: nEmpleados, error: errEmp }, { count: nChecklists, error: errChk }, { count: nEjecuciones, error: errEje }] = await Promise.all([
+        supabase.from('empleados').select('id', { count: 'exact', head: true }).eq('local_id', localId),
+        supabase.from('checklists').select('id', { count: 'exact', head: true }).eq('local_id', localId),
+        supabase.from('checklist_ejecuciones').select('id', { count: 'exact', head: true }).eq('local_id', localId),
+      ]);
+      if (errEmp) throw new Error(errEmp.message);
+      if (errChk) throw new Error(errChk.message);
+      if (errEje) throw new Error(errEje.message);
+
+      const motivos = [];
+      if (nEmpleados) motivos.push(`${nEmpleados} empleado(s)`);
+      if (nChecklists) motivos.push(`${nChecklists} checklist(s)`);
+      if (nEjecuciones) motivos.push(`${nEjecuciones} ejecución(es)`);
+
+      if (motivos.length) {
+        const { error: errDesactivar } = await supabase.from('locales').update({ activo: false }).eq('id', localId);
+        if (errDesactivar) throw new Error(errDesactivar.message);
+        return res.json({ ok: true, borrado: false, motivo: `Tiene ${motivos.join(', ')} asociados — se ha desactivado en vez de borrarse.` });
+      }
+
+      const { error: errBorrar } = await supabase.from('locales').delete().eq('id', localId);
+      if (errBorrar) throw new Error(errBorrar.message);
+      res.json({ ok: true, borrado: true });
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
   // ── Checklists ───────────────────────────────────────────────────────
   router.get('/checklists', requireAuth, async (_req, res) => {
     try {

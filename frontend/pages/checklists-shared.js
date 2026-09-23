@@ -33,16 +33,41 @@
     .cl-form-row { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
     .cl-form-row input, .cl-form-row select { background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 7px 9px; color: var(--text); font-size: 12.5px; }
     .cl-btn-secundario { background: var(--surface2); border: 1px solid var(--border); border-radius: 10px; padding: 8px 14px; color: var(--text); font-size: 13px; cursor: pointer; }
+    .cl-btn-secundario:disabled, .btn-drive:disabled { opacity: .4; cursor: not-allowed; }
+    .cl-dia-chips { display: flex; gap: 5px; margin-top: 8px; flex-wrap: wrap; }
+    .cl-dia-chip { background: var(--surface2); border: 1px solid var(--border); border-radius: 14px; padding: 5px 10px; font-size: 11.5px; color: var(--muted); cursor: pointer; }
+    .cl-dia-chip.activo { background: rgba(196,168,130,.15); border-color: var(--accent); color: var(--accent); font-weight: 600; }
+    .cl-config-actions { display: flex; gap: 6px; flex: none; }
+    .cl-config-actions button { background: transparent; border: none; color: var(--muted); font-size: 13px; cursor: pointer; padding: 2px 4px; }
+    .cl-config-actions button:hover { color: var(--text); }
   `;
   document.head.appendChild(style);
 })();
 
 const CL_DIA_LABEL = { lun: 'Lun', mar: 'Mar', mie: 'Mié', jue: 'Jue', vie: 'Vie', sab: 'Sáb', dom: 'Dom' };
+const CL_DIAS_ORDEN = ['lun', 'mar', 'mie', 'jue', 'vie', 'sab', 'dom'];
 const CL_TURNO_LABEL = { apertura: 'Apertura', tarde: 'Tarde', cierre: 'Cierre', libre: 'Libre' };
 
 let clLocales = [];
 let clEjecucionActual = null;
 let clMesCalendario = new Date();
+let clLocalEditando = null;
+
+// Chips de días lun–dom reutilizados en el local y (opciones avanzadas
+// aparte) en checklists. Delegado en document porque el contenido que los
+// contiene se re-renderiza entero en cada refresh.
+function renderDiaChips(idCont, diasActivos) {
+  return `<div class="cl-dia-chips" id="${idCont}">
+    ${CL_DIAS_ORDEN.map(d => `<button type="button" class="cl-dia-chip${(diasActivos || []).includes(d) ? ' activo' : ''}" data-dia="${d}">${CL_DIA_LABEL[d]}</button>`).join('')}
+  </div>`;
+}
+function leerDiasChips(idCont) {
+  return [...document.querySelectorAll(`#${idCont} .cl-dia-chip.activo`)].map(b => b.dataset.dia);
+}
+document.addEventListener('click', (e) => {
+  const chip = e.target.closest('.cl-dia-chip');
+  if (chip) chip.classList.toggle('activo');
+});
 
 // ── Tablero del día ──────────────────────────────────────────────────────
 async function refreshChecklistsTab() {
@@ -254,8 +279,9 @@ async function refreshConfigChecklists() {
         <p class="section-title">Locales</p>
         <div class="card">${locales.map(renderConfigLocal).join('') || '<div class="empty">Sin locales</div>'}</div>
         <div class="cl-form-row">
-          <input type="text" id="cl-nuevo-local-nombre" placeholder="Nombre del nuevo local">
-          <button class="btn-drive" onclick="crearLocalChecklist()">+ Local</button>
+          <input type="text" id="cl-nuevo-local-nombre" placeholder="Nombre del nuevo local" autocomplete="off"
+            oninput="document.getElementById('cl-btn-nuevo-local').disabled = !this.value.trim()">
+          <button class="btn-drive" id="cl-btn-nuevo-local" onclick="crearLocalChecklist()" disabled>+ Local</button>
         </div>
       </div>
       <div class="cl-config-section">
@@ -277,10 +303,71 @@ async function refreshConfigChecklists() {
 }
 
 function renderConfigLocal(l) {
-  return `<div class="cl-config-item">
-    <b>${esc(l.nombre)}</b> — ${(l.dias_apertura || []).map(d => CL_DIA_LABEL[d] || d).join(', ')}
-    ${l.numero_whatsapp_avisos ? ` · WhatsApp avisos: ${esc(l.numero_whatsapp_avisos)}` : ' · <span style="color:var(--muted)">sin WhatsApp de avisos</span>'}
+  if (clLocalEditando === l.id) return renderConfigLocalForm(l);
+  return `<div class="cl-config-item" style="display:flex;justify-content:space-between;align-items:center;gap:8px">
+    <div>
+      <b>${esc(l.nombre)}</b>${l.activo === false ? ' <span class="badge badge-off">Inactivo</span>' : ''} — ${(l.dias_apertura || []).map(d => CL_DIA_LABEL[d] || d).join(', ')}
+      ${l.numero_whatsapp_avisos ? ` · WhatsApp avisos: ${esc(l.numero_whatsapp_avisos)}` : ' · <span style="color:var(--muted)">sin WhatsApp de avisos</span>'}
+    </div>
+    <div class="cl-config-actions">
+      <button onclick="toggleEditarLocal(${l.id})" title="Editar">✎</button>
+      <button onclick="eliminarLocalChecklist(${l.id})" title="Eliminar">🗑</button>
+    </div>
   </div>`;
+}
+
+function renderConfigLocalForm(l) {
+  return `<div class="cl-config-item">
+    <div class="cl-form-row" style="margin-top:0">
+      <input type="text" id="cl-editar-local-nombre" value="${esc(l.nombre)}" placeholder="Nombre">
+      <input type="text" id="cl-editar-local-whatsapp" value="${esc(l.numero_whatsapp_avisos || '')}" placeholder="WhatsApp de avisos">
+    </div>
+    ${renderDiaChips('cl-editar-local-dias', l.dias_apertura)}
+    <div class="cl-form-row">
+      <button class="btn-drive" onclick="guardarLocalChecklist(${l.id})">Guardar</button>
+      <button class="cl-btn-secundario" onclick="toggleEditarLocal(null)">Cancelar</button>
+    </div>
+  </div>`;
+}
+
+function toggleEditarLocal(id) {
+  clLocalEditando = clLocalEditando === id ? null : id;
+  refreshConfigChecklists();
+}
+
+async function guardarLocalChecklist(id) {
+  const nombre = document.getElementById('cl-editar-local-nombre').value.trim();
+  const numero_whatsapp_avisos = document.getElementById('cl-editar-local-whatsapp').value.trim();
+  const dias_apertura = leerDiasChips('cl-editar-local-dias');
+  if (!nombre) { alert('Falta el nombre'); return; }
+  if (!dias_apertura.length) { alert('Elige al menos un día de apertura'); return; }
+  try {
+    const r = await apiFetch(`/locales/${id}`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ nombre, dias_apertura, numero_whatsapp_avisos: numero_whatsapp_avisos || null }),
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || 'No se pudo guardar');
+    clLocalEditando = null;
+    await refreshConfigChecklists();
+    await cargarLocalesChecklist();
+  } catch (e) {
+    alert(e.message);
+  }
+}
+
+async function eliminarLocalChecklist(id) {
+  if (!confirm('¿Eliminar este local?')) return;
+  try {
+    const r = await apiFetch(`/locales/${id}`, { method: 'DELETE' });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || 'No se pudo eliminar');
+    if (!d.borrado) alert(d.motivo);
+    await refreshConfigChecklists();
+    await cargarLocalesChecklist();
+  } catch (e) {
+    alert(e.message);
+  }
 }
 
 function renderConfigChecklist(c, locales) {
@@ -293,7 +380,7 @@ function renderConfigChecklist(c, locales) {
 
 async function crearLocalChecklist() {
   const nombre = document.getElementById('cl-nuevo-local-nombre').value.trim();
-  if (!nombre) { alert('Falta el nombre del local'); return; }
+  if (!nombre) return; // el botón está deshabilitado sin texto, esto es solo defensivo
   try {
     const r = await apiFetch('/locales', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ nombre }) });
     const d = await r.json();
