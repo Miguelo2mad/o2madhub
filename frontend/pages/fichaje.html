@@ -95,6 +95,29 @@ button{font:inherit;cursor:pointer}
 .act:disabled{opacity:.5}
 .act:active{transform:translateY(1px)}
 
+/* Checklists */
+.checklist-ver-btn{width:100%;margin-top:10px;font-size:14.5px;font-weight:600;border:1px solid var(--line);border-radius:13px;padding:13px 0;color:var(--ink);background:var(--paper)}
+.checklist-ver-btn:active{transform:translateY(1px)}
+.checklist-bloque{margin-top:16px}
+.checklist-bloque h3{font-size:12.5px;font-weight:700;color:var(--ink-3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px}
+.checklist-card{border:1px solid var(--line);border-radius:14px;padding:12px 14px;margin-bottom:10px;background:var(--paper)}
+.checklist-card-header{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px}
+.checklist-card-header b{font-size:14.5px}
+.checklist-estado{font-size:11.5px;color:var(--ink-3);font-weight:600}
+.checklist-tarea{padding:9px 0;border-top:1px solid var(--line-2)}
+.checklist-tarea:first-of-type{border-top:0}
+.checklist-tarea.hecha .checklist-tarea-check span{color:var(--ink-3);text-decoration:line-through}
+.checklist-tarea-check{display:flex;align-items:center;gap:8px;font-size:14px;cursor:pointer}
+.checklist-tarea-check input{width:19px;height:19px;flex:none}
+.checklist-hora{margin-left:auto;font-size:11px;color:var(--ink-3);white-space:nowrap}
+.checklist-desc{font-size:12.5px;color:var(--ink-3);margin:4px 0 0 27px}
+.checklist-valor{display:flex;align-items:center;gap:8px;margin:8px 0 0 27px}
+.checklist-valor .input-valor{width:90px;border:1px solid var(--line);border-radius:9px;padding:8px 10px;font-size:14px;background:var(--card);color:var(--ink)}
+.checklist-rango{font-size:11.5px;color:var(--ink-3)}
+.checklist-alerta{font-size:11.5px;color:var(--extra);font-weight:700}
+.checklist-foto{margin:8px 0 0 27px}
+.checklist-foto-btn{border:1px solid var(--line);border-radius:10px;padding:8px 12px;font-size:13px;background:var(--card);color:var(--ink)}
+
 .tramos{margin-top:22px;border-top:1px solid var(--line-2);padding-top:14px}
 .tramos h3{font-size:12.5px;font-weight:700;color:var(--ink-3);text-transform:uppercase;letter-spacing:.5px}
 .tramo{display:flex;justify-content:space-between;align-items:baseline;padding:9px 0;border-bottom:1px solid var(--line-2);font-size:15px}
@@ -140,6 +163,12 @@ button{font:inherit;cursor:pointer}
 
     <button class="act" id="act">Entrar</button>
 
+    <button class="checklist-ver-btn" id="btn-ver-tareas">Ver tareas de hoy</button>
+    <div class="checklist-bloque" id="checklist-bloque" hidden>
+      <h3>Tareas de hoy</h3>
+      <div id="checklist-turnos"></div>
+    </div>
+
     <div class="tramos">
       <h3 id="tramos-title">Hoy</h3>
       <div id="tramos"></div>
@@ -169,6 +198,10 @@ button{font:inherit;cursor:pointer}
   </div>
 </div>
 
+<!-- Solo se reutiliza redimensionarImagenCaptura() (1600px/JPEG 0.85) para
+     la foto de cada tarea — el flujo de captura secuencial completo es para
+     documentos de varias páginas, aquí una tarea es una sola foto. -->
+<script src="captura-secuencial.js"></script>
 <script>
 // Shell genérico: el cliente y el token vienen de la URL
 // (/<cliente>/fichaje/<token>), así sirve igual para Timbol, Comarea o
@@ -298,12 +331,14 @@ function pintarDots(){
   }
 }
 
+const PIN_TITULOS = { entrada: 'PIN para entrar', salida: 'PIN para salir', checklists: 'PIN para ver tus tareas' };
+
 function abrirPin(accion){
   pendingAction = accion;
   pin = '';
   pintarDots();
   document.getElementById('pin-err').textContent = '';
-  document.getElementById('pin-title').textContent = accion === 'entrada' ? 'PIN para entrar' : 'PIN para salir';
+  document.getElementById('pin-title').textContent = PIN_TITULOS[accion] || 'Introduce tu PIN';
   document.getElementById('s-state').hidden = true;
   document.getElementById('s-pin').hidden = false;
 }
@@ -319,9 +354,15 @@ async function completarPin(){
   const accion = pendingAction;
   pin = ''; pintarDots();
   try {
-    await enviarAccion(accion, valor);
-    cerrarPin();
-    await refrescar();
+    if (accion === 'checklists') {
+      await verificarPinChecklists(valor);
+      cerrarPin();
+      await mostrarChecklists();
+    } else {
+      await enviarAccion(accion, valor);
+      cerrarPin();
+      await refrescar();
+    }
   } catch (e) {
     document.getElementById('pin-err').textContent = e.message;
   }
@@ -341,6 +382,123 @@ document.getElementById('act').addEventListener('click', () => {
   const accion = document.getElementById('act').textContent === 'Salir' ? 'salida' : 'entrada';
   abrirPin(accion);
 });
+
+// ── Checklists de turno ──────────────────────────────────────────────────
+// El PIN se pide UNA vez, aquí, para revelar el bloque (igual que fichar);
+// a partir de ahí, marcar tareas o subir fotos en esta misma vista no
+// vuelve a pedirlo — GET/POST .../checklists solo necesitan el url_token,
+// igual que GET .../estado.
+let checklistDraft = {}; // tareaId -> { hecho, valor } tal como se ve en pantalla
+
+document.getElementById('btn-ver-tareas').addEventListener('click', () => abrirPin('checklists'));
+
+async function verificarPinChecklists(pinValor){
+  const r = await fetch(`${API}/checklists/pin`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pin: pinValor }),
+  });
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(d.error || 'Error');
+}
+
+async function mostrarChecklists(){
+  document.getElementById('btn-ver-tareas').hidden = true;
+  document.getElementById('checklist-bloque').hidden = false;
+  await refrescarChecklists();
+}
+
+async function refrescarChecklists(){
+  const cont = document.getElementById('checklist-turnos');
+  cont.innerHTML = '<div class="empty">Cargando…</div>';
+  try {
+    const r = await fetch(`${API}/checklists`);
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || 'Error al cargar las tareas');
+    renderChecklistTurnos(d.turnos || []);
+  } catch (e) {
+    cont.innerHTML = `<div class="empty">${esc(e.message)}</div>`;
+  }
+}
+
+function renderChecklistTurnos(turnos){
+  checklistDraft = {};
+  for (const t of turnos) for (const tarea of t.tareas) {
+    checklistDraft[tarea.id] = { hecho: !!tarea.respuesta?.hecho, valor: tarea.respuesta?.valor ?? null };
+  }
+  const cont = document.getElementById('checklist-turnos');
+  if (!turnos.length) { cont.innerHTML = '<div class="empty">No tienes checklists asignados hoy.</div>'; return; }
+  cont.innerHTML = turnos.map(renderChecklistCard).join('');
+}
+
+const ESTADO_EJECUCION_TXT = { pendiente: 'Pendiente', en_curso: 'En curso', completado: 'Completado ✓', incompleto: 'Incompleto' };
+
+function renderChecklistCard(turno){
+  return `<div class="checklist-card">
+    <div class="checklist-card-header">
+      <b>${esc(turno.checklist.nombre)}</b>
+      <span class="checklist-estado">${ESTADO_EJECUCION_TXT[turno.ejecucion?.estado] || ''}</span>
+    </div>
+    ${turno.tareas.map(renderChecklistTarea).join('')}
+  </div>`;
+}
+
+function renderChecklistTarea(tarea){
+  const hecha = !!tarea.respuesta?.hecho;
+  return `<div class="checklist-tarea${hecha ? ' hecha' : ''}">
+    <label class="checklist-tarea-check">
+      <input type="checkbox" class="chk-tarea" data-tarea="${tarea.id}" ${hecha ? 'checked' : ''}>
+      <span>${esc(tarea.titulo)}</span>
+      ${tarea.hora_limite ? `<span class="checklist-hora">antes de las ${esc(tarea.hora_limite.slice(0, 5))}</span>` : ''}
+    </label>
+    ${tarea.descripcion ? `<div class="checklist-desc">${esc(tarea.descripcion)}</div>` : ''}
+    ${tarea.requiere_valor ? `<div class="checklist-valor">
+      <input type="number" step="0.1" class="input-valor" data-tarea="${tarea.id}" placeholder="${esc(tarea.valor_etiqueta || 'Valor')}" value="${tarea.respuesta?.valor ?? ''}">
+      ${tarea.valor_min != null && tarea.valor_max != null ? `<span class="checklist-rango">(${tarea.valor_min}–${tarea.valor_max}${tarea.valor_etiqueta ? ' ' + esc(tarea.valor_etiqueta) : ''})</span>` : ''}
+      ${tarea.respuesta?.fuera_rango ? '<span class="checklist-alerta">⚠ Fuera de rango</span>' : ''}
+    </div>` : ''}
+    ${tarea.requiere_foto ? `<div class="checklist-foto">
+      <input type="file" accept="image/*" capture="environment" class="input-foto" data-tarea="${tarea.id}" hidden>
+      <button type="button" class="checklist-foto-btn" data-tarea="${tarea.id}">${tarea.respuesta?.foto_drive_id ? '📷 Foto tomada — cambiar' : '📷 Hacer foto'}</button>
+    </div>` : ''}
+  </div>`;
+}
+
+document.getElementById('checklist-turnos').addEventListener('change', (e) => {
+  if (e.target.matches('.chk-tarea')) enviarRespuestaTarea(e.target.dataset.tarea, { hecho: e.target.checked });
+  else if (e.target.matches('.input-valor')) enviarRespuestaTarea(e.target.dataset.tarea, { valor: e.target.value === '' ? null : Number(e.target.value) });
+  else if (e.target.matches('.input-foto')) manejarFotoTarea(e.target);
+});
+document.getElementById('checklist-turnos').addEventListener('click', (e) => {
+  const btn = e.target.closest('.checklist-foto-btn');
+  if (btn) document.querySelector(`.input-foto[data-tarea="${btn.dataset.tarea}"]`)?.click();
+});
+
+async function manejarFotoTarea(inputEl){
+  const file = inputEl.files[0];
+  if (!file) return;
+  try {
+    const redimensionada = await redimensionarImagenCaptura(file);
+    await enviarRespuestaTarea(inputEl.dataset.tarea, {}, redimensionada);
+  } catch (e) {
+    alert(e.message);
+  }
+}
+
+async function enviarRespuestaTarea(tareaId, cambios, fotoFile){
+  Object.assign(checklistDraft[tareaId], cambios);
+  const fd = new FormData();
+  fd.append('hecho', String(!!checklistDraft[tareaId].hecho));
+  if (checklistDraft[tareaId].valor != null) fd.append('valor', checklistDraft[tareaId].valor);
+  if (fotoFile) fd.append('foto', fotoFile);
+  try {
+    const r = await fetch(`${API}/checklists/${tareaId}/responder`, { method: 'POST', body: fd });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(d.error || 'No se pudo guardar');
+    if (d.fuera_rango) alert('Valor fuera del rango esperado — se ha guardado igual.');
+    await refrescarChecklists();
+  } catch (e) {
+    alert(e.message);
+  }
+}
 
 if (!CLIENTE || !TOKEN) {
   document.getElementById('s-loading').hidden = true;
