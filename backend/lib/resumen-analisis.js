@@ -8,6 +8,7 @@ const { supabase } = require('./supabase');
 const { normalizarTextoProducto } = require('./tarifas');
 const { calcularFoodcost } = require('./ventas');
 const { extraerJson } = require('./claude-json');
+const gastosPersonalLib = require('./gastos-personal');
 
 // ── Fechas ───────────────────────────────────────────────────────────────
 function generarFechas(desde, hasta) {
@@ -135,6 +136,25 @@ async function seccionCompras(cliente, fechas) {
       por_proveedor: porProveedor,
     },
     porFechaNum,
+  };
+}
+
+// ── Personal ─────────────────────────────────────────────────────────────
+// Reutiliza calcularCosteMes() de backend/lib/gastos-personal.js (nóminas +
+// SS + coste de horas extra), un mes calendario completo a la vez. El rango
+// de fechas del resumen puede no coincidir con un mes exacto (semana, 30d,
+// personalizado...), así que se suman TODOS los meses que el rango toca —
+// de ahí que el resultado se marque como aproximación de gestión, nunca
+// como cifra contable.
+async function seccionPersonal(cliente, fechas) {
+  const meses = [...new Set(fechas.map(f => f.slice(0, 7)))];
+  const porMes = await Promise.all(meses.map(mes => gastosPersonalLib.calcularCosteMes(cliente, mes)));
+  return {
+    meses: porMes.map(m => ({
+      mes: m.mes, nominas: m.nominas.total, seguridad_social: m.seguridad_social.total,
+      horas_extra: m.horas_extra.total, total: m.total,
+    })),
+    total_periodo: porMes.reduce((s, m) => s + m.total, 0),
   };
 }
 
@@ -311,11 +331,20 @@ async function generarResumen({ cliente, desde, hasta }) {
 
   const ventas = await seccionVentas(cliente, fechas);
   const compras = await seccionCompras(cliente, fechas);
+  const personal = await seccionPersonal(cliente, fechas);
   const foodcost = seccionFoodcost(fechas, compras.porFechaNum, ventas.porFechaNum);
   const productos_compra = await seccionProductosCompra(cliente, fechas);
   const productos_vendidos = await seccionProductosVendidos(cliente, fechas);
   const sobreprecios = await seccionSobreprecios(cliente, fechas);
   const incompletos = await seccionIncompletos(cliente, fechas);
+
+  // Aproximación de gestión, no un resultado contable: compras es solo
+  // factura/ticket (ver seccionCompras) y personal suma meses completos
+  // aunque el rango los toque solo parcialmente (ver seccionPersonal).
+  const resultado_aproximado = {
+    valor: ventas.publico.total_periodo - compras.publico.total_periodo - personal.total_periodo,
+    nota: 'Aproximación de gestión (ventas − compras − personal), no es un resultado contable.',
+  };
 
   return {
     cliente,
@@ -324,6 +353,8 @@ async function generarResumen({ cliente, desde, hasta }) {
     dias_totales: fechas.length,
     ventas: ventas.publico,
     compras: compras.publico,
+    personal,
+    resultado_aproximado,
     foodcost,
     productos_compra,
     productos_vendidos,

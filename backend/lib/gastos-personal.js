@@ -14,6 +14,7 @@ const { buildFileBlock, extraerJson } = require('./claude-json');
 const { supabase } = require('./supabase');
 const { ensureFolderPath, uploadFile, deleteFile } = require('./google');
 const { normalizarTextoProducto } = require('./tarifas');
+const calc = require('./fichaje-calc');
 
 const GASTO_PERSONAL_SCHEMA = {
   type: 'object',
@@ -209,7 +210,48 @@ async function borrarGasto(cliente, id) {
   return { driveDeleted };
 }
 
+// ── Analytics ────────────────────────────────────────────────────────────
+// Coste de personal de un mes: nóminas + Seguridad Social ya archivadas +
+// coste de horas extra del fichaje (backend/lib/fichaje-calc.js), con la
+// misma fórmula por empleado que el informe mensual de fichaje
+// (totalExtras * precio_hora_extra — ver backend/api/fichaje.js).
+async function calcularCosteMes(cliente, mesInput) {
+  const mes = /^\d{4}-\d{2}$/.test(mesInput || '') ? mesInput : new Date().toISOString().slice(0, 7);
+  const gastos = await listarGastos(cliente, { mes });
+  const nominas = gastos.filter(g => g.tipo === 'nomina');
+  const seguridadSocial = gastos.filter(g => g.tipo === 'seguridad_social');
+  const totalNominas = nominas.reduce((s, g) => s + Number(g.importe), 0);
+  const totalSeguridadSocial = seguridadSocial.reduce((s, g) => s + Number(g.importe), 0);
+
+  const [year, month] = mes.split('-').map(Number);
+  const { data: empleados, error: errE } = await supabase
+    .from('empleados').select('id, nombre, horas_semana, precio_hora_extra').eq('cliente', cliente);
+  if (errE) throw new Error(`empleados: ${errE.message}`);
+
+  const empleadoIds = empleados.map(e => e.id);
+  const { data: fichajes, error: errF } = empleadoIds.length
+    ? await supabase.from('fichajes').select('empleado_id, entrada_at, salida_at, incidencia').in('empleado_id', empleadoIds)
+    : { data: [] };
+  if (errF) throw new Error(`fichajes: ${errF.message}`);
+
+  const ahora = new Date();
+  const horasExtra = empleados.map(emp => {
+    const propios = fichajes.filter(f => f.empleado_id === emp.id && !f.incidencia);
+    const { totalExtras } = calc.calcularExtrasMes(propios, Number(emp.horas_semana), year, month, ahora);
+    return { empleado_id: emp.id, empleado_nombre: emp.nombre, horas_extra: totalExtras, importe: totalExtras * Number(emp.precio_hora_extra) };
+  }).filter(h => h.horas_extra > 0);
+  const totalHorasExtra = horasExtra.reduce((s, h) => s + h.importe, 0);
+
+  return {
+    mes,
+    nominas: { detalle: nominas, total: totalNominas },
+    seguridad_social: { detalle: seguridadSocial, total: totalSeguridadSocial },
+    horas_extra: { detalle: horasExtra, total: totalHorasExtra },
+    total: totalNominas + totalSeguridadSocial + totalHorasExtra,
+  };
+}
+
 module.exports = {
   construirPreview, confirmarGastos, altaManual, listarGastos, borrarGasto,
-  periodoDesdeMes, GASTO_PERSONAL_SCHEMA,
+  periodoDesdeMes, calcularCosteMes, GASTO_PERSONAL_SCHEMA,
 };

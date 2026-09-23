@@ -77,7 +77,18 @@ function createGastosPersonalRouter({ cliente, requireAuth, requireRole }) {
     }
   });
 
-  // GET /analytics/personal-mes se añade en el siguiente commit (analytics).
+  // GET /analytics/personal-mes?mes=YYYY-MM — nóminas + SS + coste de horas
+  // extra del fichaje = coste de personal total, desglosado. Gestor/admin
+  // solo: a diferencia del resto de /analytics, el desglose lleva nombre e
+  // importe de nómina por persona.
+  router.get('/analytics/personal-mes', requireAuth, requireRole('gestor', 'admin'), async (req, res) => {
+    try {
+      res.json(await gastosLib.calcularCosteMes(cliente, req.query.mes));
+    } catch (e) {
+      console.error(`[personal:${cliente}] analytics error:`, e.message);
+      res.status(500).json({ error: e.message });
+    }
+  });
 
   return router;
 }
