@@ -23,6 +23,7 @@ const { runCustomerMetricsJob }      = require('./backend/jobs/customer-metrics-
 const { importarContactosFD }        = require('./backend/jobs/crm-import-fd');
 const { runServiceClassification }   = require('./backend/jobs/service-classification-job');
 const { runVentasPosSync }           = require('./backend/jobs/ventas-pos-sync');
+const { runChecklistsGeneracion }    = require('./backend/jobs/checklists-generacion-job');
 
 const app = express();
 app.use(cors());
@@ -136,6 +137,13 @@ cron.schedule('0 7 * * *', () => {
 // tiene un adaptador de TPV activo (ver runVentasPosSync).
 cron.schedule('0 2 * * *', () => {
   runVentasPosSync().catch(e => console.error('[ventas-pos-sync] cron failed:', e.message));
+}, { timezone: 'Europe/Madrid' });
+
+// Checklists — genera las ejecuciones del día a las 05:00 Madrid, para que
+// el backoffice vea lo pendiente aunque nadie haya abierto la app todavía.
+// También se genera bajo demanda (idempotente) si este cron falla o va tarde.
+cron.schedule('0 5 * * *', () => {
+  runChecklistsGeneracion().catch(e => console.error('[checklists-generacion] cron failed:', e.message));
 }, { timezone: 'Europe/Madrid' });
 
 app.listen(PORT, () => {
