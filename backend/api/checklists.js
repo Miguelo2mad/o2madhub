@@ -8,6 +8,7 @@
 const express = require('express');
 const { supabase } = require('../lib/supabase');
 const { DIA_CODIGOS } = require('../lib/checklists');
+const { generarInformeChecklistsPDF } = require('../lib/checklist-informe');
 
 function createChecklistsRouter({ cliente, requireAuth, requireRole }) {
   const router = express.Router();
@@ -306,6 +307,23 @@ function createChecklistsRouter({ cliente, requireAuth, requireRole }) {
       }
       res.json({ mes, dias: [...porDia.entries()].map(([fecha, v]) => ({ fecha, ...v })).sort((a, b) => a.fecha.localeCompare(b.fecha)) });
     } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // ── Informe PDF (Sanidad) ────────────────────────────────────────────
+  router.get('/checklists/informe', requireAuth, async (req, res) => {
+    const { desde, hasta, local } = req.query;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(desde || '') || !/^\d{4}-\d{2}-\d{2}$/.test(hasta || '')) {
+      return res.status(400).json({ error: 'Se requiere desde y hasta (YYYY-MM-DD)' });
+    }
+    try {
+      const pdf = await generarInformeChecklistsPDF({ cliente, desde, hasta, localId: local });
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `attachment; filename="checklists-${cliente}-${desde}-a-${hasta}.pdf"`);
+      res.send(pdf);
+    } catch (e) {
+      console.error(`[checklists:${cliente}] informe error:`, e.message);
       res.status(500).json({ error: e.message });
     }
   });

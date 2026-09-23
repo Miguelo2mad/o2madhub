@@ -241,6 +241,16 @@ async function refreshConfigChecklists() {
     const checklists = await rChk.json();
     cont.innerHTML = `
       <div class="cl-config-section">
+        <p class="section-title">Informe (Sanidad)</p>
+        <div class="card">
+          <div class="cl-form-row" style="margin-top:0">
+            <input type="date" id="cl-informe-desde">
+            <input type="date" id="cl-informe-hasta">
+            <button class="btn-drive" onclick="descargarInformeChecklists()">Descargar PDF</button>
+          </div>
+        </div>
+      </div>
+      <div class="cl-config-section">
         <p class="section-title">Locales</p>
         <div class="card">${locales.map(renderConfigLocal).join('') || '<div class="empty">Sin locales</div>'}</div>
         <div class="cl-form-row">
@@ -290,6 +300,28 @@ async function crearLocalChecklist() {
     if (!r.ok) throw new Error(d.error || 'No se pudo crear el local');
     await refreshConfigChecklists();
     await cargarLocalesChecklist();
+  } catch (e) {
+    alert(e.message);
+  }
+}
+
+async function descargarInformeChecklists() {
+  const desde = document.getElementById('cl-informe-desde').value;
+  const hasta = document.getElementById('cl-informe-hasta').value;
+  if (!desde || !hasta) { alert('Elige desde y hasta'); return; }
+  const local = document.getElementById('cl-filtro-local')?.value;
+  const qs = new URLSearchParams({ desde, hasta });
+  if (local) qs.set('local', local);
+  try {
+    const r = await apiFetch(`/checklists/informe?${qs}`);
+    if (!r.ok) { const d = await r.json().catch(() => ({})); throw new Error(d.error || 'No se pudo generar el informe'); }
+    const blob = await r.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `checklists-${desde}-a-${hasta}.pdf`;
+    a.click();
+    URL.revokeObjectURL(url);
   } catch (e) {
     alert(e.message);
   }
