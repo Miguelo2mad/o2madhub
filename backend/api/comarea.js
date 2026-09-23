@@ -15,6 +15,7 @@ const resumenLib = require('../lib/resumen-analisis');
 const { createInventarioRouter } = require('./inventario');
 const { createBancoRouter } = require('./banco');
 const { createChecklistsRouter } = require('./checklists');
+const { createGastosPersonalRouter } = require('./gastos-personal');
 
 const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
@@ -94,6 +95,10 @@ router.use(createBancoRouter({ cliente: 'comarea', requireAuth, requireRole }));
 // Checklists de turno — módulo reutilizable (ver backend/api/checklists.js).
 // Sin prefijo: las rutas ya incluyen /locales, /checklists, /tareas y /asignaciones.
 router.use(createChecklistsRouter({ cliente: 'comarea', requireAuth, requireRole }));
+
+// Personal — gastos (nóminas y SS) — módulo reutilizable (ver backend/api/gastos-personal.js).
+// Sin prefijo: las rutas ya incluyen /personal y /analytics/personal-mes.
+router.use(createGastosPersonalRouter({ cliente: 'comarea', requireAuth, requireRole }));
 
 // ── Claude Vision extraction ────────────────────────────────────────────────
 // La extracción y su esquema viven en backend/lib/extraccion.js, compartidos
