@@ -9,6 +9,7 @@ const express = require('express');
 const { supabase } = require('../lib/supabase');
 const { DIA_CODIGOS } = require('../lib/checklists');
 const { generarInformeChecklistsPDF } = require('../lib/checklist-informe');
+const { DateTime } = require('luxon');
 
 function createChecklistsRouter({ cliente, requireAuth, requireRole }) {
   const router = express.Router();
@@ -291,8 +292,12 @@ function createChecklistsRouter({ cliente, requireAuth, requireRole }) {
   router.get('/checklists/calendario', requireAuth, async (req, res) => {
     const mes = /^\d{4}-\d{2}$/.test(req.query.mes || '') ? req.query.mes : new Date().toISOString().slice(0, 7);
     try {
+      // Último día REAL del mes (28/29/30/31) — un mes de 30 días con
+      // ".lte('fecha', `${mes}-31`)" no traía nada bien, pero en febrero
+      // Postgres directamente rechaza "2026-02-31" como fecha inválida.
+      const ultimoDia = DateTime.fromFormat(mes, 'yyyy-MM', { zone: 'utc' }).endOf('month').toISODate();
       let q = supabase.from('checklist_ejecuciones').select('fecha, estado').eq('cliente', cliente)
-        .gte('fecha', `${mes}-01`).lte('fecha', `${mes}-31`);
+        .gte('fecha', `${mes}-01`).lte('fecha', ultimoDia);
       if (req.query.local) q = q.eq('local_id', req.query.local);
       const { data, error } = await q;
       if (error) throw new Error(error.message);
