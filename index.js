@@ -24,6 +24,7 @@ const { importarContactosFD }        = require('./backend/jobs/crm-import-fd');
 const { runServiceClassification }   = require('./backend/jobs/service-classification-job');
 const { runVentasPosSync }           = require('./backend/jobs/ventas-pos-sync');
 const { runChecklistsGeneracion }    = require('./backend/jobs/checklists-generacion-job');
+const { runChecklistsAvisos }        = require('./backend/jobs/checklists-avisos-job');
 
 const app = express();
 app.use(cors());
@@ -144,6 +145,11 @@ cron.schedule('0 2 * * *', () => {
 // También se genera bajo demanda (idempotente) si este cron falla o va tarde.
 cron.schedule('0 5 * * *', () => {
   runChecklistsGeneracion().catch(e => console.error('[checklists-generacion] cron failed:', e.message));
+}, { timezone: 'Europe/Madrid' });
+
+// Checklists — avisos de tareas con hora límite vencida, cada 15 min.
+cron.schedule('*/15 * * * *', () => {
+  runChecklistsAvisos().catch(e => console.error('[checklists-avisos] cron failed:', e.message));
 }, { timezone: 'Europe/Madrid' });
 
 app.listen(PORT, () => {

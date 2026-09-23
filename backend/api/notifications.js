@@ -111,4 +111,19 @@ async function sendNoCifNotice(items, scanLabel = '') {
   return info;
 }
 
-module.exports = { sendDailySummary, buildHtml, sendNoCifNotice };
+// TODO: integrar con GoHighLevel (GHL) u otro proveedor de WhatsApp Business
+// API cuando el hub tenga ese canal — hoy notifications.js solo envía email
+// (Gmail/nodemailer). Mientras tanto, este stub mantiene la firma que ya
+// usan los avisos de checklist (backend/jobs/checklists-avisos-job.js):
+// nunca envía nada de verdad, así que el caller debe registrar igual el
+// aviso con canal='pendiente' para no reintentarlo indefinidamente.
+async function enviarAvisoWhatsapp({ numero, mensaje }) {
+  if (!numero) {
+    console.warn('[notifications] aviso WhatsApp sin número configurado, no se envía:', mensaje);
+    return { enviado: false, motivo: 'sin numero_whatsapp_avisos configurado' };
+  }
+  console.warn(`[notifications] TODO WhatsApp/GHL no implementado — pendiente para ${numero}: ${mensaje}`);
+  return { enviado: false, motivo: 'canal WhatsApp no implementado' };
+}
+
+module.exports = { sendDailySummary, buildHtml, sendNoCifNotice, enviarAvisoWhatsapp };
