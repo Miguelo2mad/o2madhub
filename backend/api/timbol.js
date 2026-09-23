@@ -12,6 +12,7 @@ const tarifasLib = require('../lib/tarifas');
 const { createVentasRouter } = require('./ventas');
 const ventasLib = require('../lib/ventas');
 const resumenLib = require('../lib/resumen-analisis');
+const resumenPendientesLib = require('../lib/resumen-pendientes');
 const { createInventarioRouter } = require('./inventario');
 const { createBancoRouter } = require('./banco');
 const { createChecklistsRouter } = require('./checklists');
@@ -499,6 +500,18 @@ router.get('/analytics', requireAuth, async (req, res) => {
     rango_fechas: rangoFechas,
     documentos_sin_fecha: documentosSinFecha,
   });
+});
+
+// GET /timbol/resumen-pendientes — badge del botón "Más" del nav (ver
+// frontend/pages/nav-mas-shared.js): agrega en una llamada lo que ya
+// calcula cada pestaña por separado. Ver backend/lib/resumen-pendientes.js.
+router.get('/resumen-pendientes', requireAuth, async (req, res) => {
+  try {
+    res.json(await resumenPendientesLib.calcularPendientes('timbol'));
+  } catch (e) {
+    console.error('[timbol] resumen-pendientes error:', e.message);
+    res.status(500).json({ error: e.message });
+  }
 });
 
 // GET /timbol/analytics/precios — subidas de precio por producto vs la compra
