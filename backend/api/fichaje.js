@@ -544,6 +544,8 @@ function createFichajeRouter({ cliente, requireAuth, requireRole }) {
       const resultado = await checklistsLib.guardarRespuesta(Number(req.params.tareaId), emp.id, {
         hecho: hecho === 'true' || hecho === true,
         valor: valor != null && valor !== '' ? Number(valor) : null,
+        fotoBuffer: req.file?.buffer,
+        fotoMime: req.file?.mimetype,
       });
       res.json({ ok: true, ...resultado });
     } catch (e) {

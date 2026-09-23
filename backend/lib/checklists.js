@@ -5,6 +5,7 @@
 const { DateTime } = require('luxon');
 const { supabase } = require('./supabase');
 const { ZONA, claveDia } = require('./fichaje-calc');
+const checklistFotos = require('./checklist-fotos');
 
 const DIA_CODIGOS = ['lun', 'mar', 'mie', 'jue', 'vie', 'sab', 'dom'];
 
@@ -132,8 +133,12 @@ async function tareasDeHoy(empleadoId) {
 // Sin foto en esta función a propósito — checklist-fotos.js se encarga de
 // subir y verificar, y llama a esta función ya con foto_drive_id resuelto.
 // Un valor fuera de rango se guarda igual (fuera_rango=true): el checklist
-// nunca bloquea, solo avisa.
-async function guardarRespuesta(tareaId, empleadoId, { hecho, valor, foto_drive_id, foto_tomada_at, foto_verificacion } = {}) {
+// nunca bloquea, solo avisa. La foto (si llega) se sube a Drive de forma
+// SÍNCRONA (hace falta el foto_drive_id antes de guardar la respuesta),
+// pero la verificación con Claude es asíncrona — nunca se espera para
+// responder al empleado; si falla, la respuesta ya quedó guardada y es
+// revisable a mano (PATCH /respuestas/:id/validar).
+async function guardarRespuesta(tareaId, empleadoId, { hecho, valor, fotoBuffer, fotoMime } = {}) {
   const { data: tarea, error: errT } = await supabase
     .from('checklist_tareas').select('*').eq('id', tareaId).maybeSingle();
   if (errT) throw new Error(`checklist_tareas: ${errT.message}`);
@@ -158,17 +163,42 @@ async function guardarRespuesta(tareaId, empleadoId, { hecho, valor, foto_drive_
     if (tarea.valor_max != null && Number(valor) > Number(tarea.valor_max)) fueraRango = true;
   }
 
+  let fotoInfo = { foto_drive_id: null, foto_tomada_at: null, foto_verificacion: null };
+  if (fotoBuffer) {
+    try {
+      const { foto_drive_id, foto_tomada_at, foto_antigua } = await checklistFotos.subirFotoTarea({
+        cliente: checklist.cliente, fecha, tareaId, buffer: fotoBuffer, mimeType: fotoMime,
+      });
+      fotoInfo = { foto_drive_id, foto_tomada_at, foto_verificacion: { foto_antigua } };
+    } catch (e) {
+      // Subir a Drive puede fallar (cuota, red...): la respuesta se guarda
+      // igual, sin foto, en vez de perder que la tarea se marcó hecha.
+      console.error(`[checklists] subida de foto falló (tarea ${tareaId}):`, e.message);
+    }
+  }
+
   const { data: respuesta, error: errR } = await supabase
     .from('checklist_respuestas')
     .upsert({
       ejecucion_id: ejecucion.id, tarea_id: tareaId, empleado_id: empleadoId,
       hecho: !!hecho, valor: valor ?? null,
-      foto_drive_id: foto_drive_id ?? null, foto_tomada_at: foto_tomada_at ?? null,
-      foto_verificacion: foto_verificacion ?? null,
+      ...fotoInfo,
       fuera_rango: fueraRango, respondido_at: new Date().toISOString(),
     }, { onConflict: 'ejecucion_id,tarea_id' })
     .select().single();
   if (errR) throw new Error(`checklist_respuestas: ${errR.message}`);
+
+  if (fotoBuffer && fotoInfo.foto_drive_id) {
+    checklistFotos.verificarFoto(fotoBuffer, fotoMime, tarea.descripcion || tarea.titulo)
+      .then(async (verificacion) => {
+        const { error: errV } = await supabase
+          .from('checklist_respuestas')
+          .update({ foto_verificacion: { ...fotoInfo.foto_verificacion, ...verificacion } })
+          .eq('id', respuesta.id);
+        if (errV) console.error(`[checklists] no se pudo guardar la verificación (respuesta ${respuesta.id}):`, errV.message);
+      })
+      .catch(e => console.error(`[checklists] verificación de foto falló (respuesta ${respuesta.id}):`, e.message));
+  }
 
   await actualizarEstadoEjecucion(ejecucion, empleadoId);
 
