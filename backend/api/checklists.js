@@ -210,6 +210,18 @@ function createChecklistsRouter({ cliente, requireAuth, requireRole }) {
     }
   });
 
+  // Tarea extraordinaria: no toca ningún checklist, solo crea la(s)
+  // ejecución(es) de hoy (o de la fecha indicada) para los empleados
+  // elegidos. Ver backend/lib/checklists.js#crearTareaExtra.
+  router.post('/checklists/extra', requireAuth, requireRole('gestor', 'admin'), async (req, res) => {
+    try {
+      const creadas = await checklistsLib.crearTareaExtra(cliente, req.body || {});
+      res.status(201).json({ ok: true, ejecuciones: creadas });
+    } catch (e) {
+      res.status(400).json({ error: e.message });
+    }
+  });
+
   router.patch('/checklists/:id', requireAuth, requireRole('gestor', 'admin'), async (req, res) => {
     const { nombre, turno, dias_semana, activo } = req.body || {};
     const patch = {};
@@ -317,16 +329,24 @@ function createChecklistsRouter({ cliente, requireAuth, requireRole }) {
     try {
       let q = supabase.from('checklist_ejecuciones').select('*').eq('cliente', cliente).eq('fecha', fecha);
       if (req.query.local) q = q.eq('local_id', req.query.local);
-      const { data: ejecuciones, error } = await q;
+      const { data: todas, error } = await q;
       if (error) throw new Error(error.message);
-      if (!ejecuciones.length) return res.json({ fecha, ejecuciones: [] });
+      if (!todas.length) return res.json({ fecha, ejecuciones: [], extras: [] });
 
-      const checklistIds = [...new Set(ejecuciones.map(e => e.checklist_id))];
-      const { data: checklists, error: errC } = await supabase.from('checklists').select('id, nombre, turno, local_id').in('id', checklistIds);
+      // Rutina y extra se procesan por separado: una extra no tiene
+      // checklist del que sacar nombre/turno (turno vive en la propia
+      // ejecución, ver migración 048) y su "título" sale de su única tarea.
+      const ejecucionesRutina = todas.filter(e => e.origen !== 'extra');
+      const ejecucionesExtra = todas.filter(e => e.origen === 'extra');
+
+      const checklistIds = [...new Set(ejecucionesRutina.map(e => e.checklist_id))];
+      const { data: checklists, error: errC } = checklistIds.length
+        ? await supabase.from('checklists').select('id, nombre, turno, local_id').in('id', checklistIds)
+        : { data: [] };
       if (errC) throw new Error(errC.message);
       const checklistPorId = new Map(checklists.map(c => [c.id, c]));
 
-      const empleadoIds = [...new Set(ejecuciones.map(e => e.empleado_id).filter(Boolean))];
+      const empleadoIds = [...new Set(todas.map(e => e.empleado_id).filter(Boolean))];
       let empleados = [];
       if (empleadoIds.length) {
         const { data, error: errE } = await supabase.from('empleados').select('id, nombre').in('id', empleadoIds);
@@ -335,7 +355,7 @@ function createChecklistsRouter({ cliente, requireAuth, requireRole }) {
       }
       const nombrePorEmpleado = new Map(empleados.map(e => [e.id, e.nombre]));
 
-      const ejecucionIds = ejecuciones.map(e => e.id);
+      const ejecucionIds = todas.map(e => e.id);
       const { data: respuestas, error: errR } = await supabase
         .from('checklist_respuestas').select('ejecucion_id, hecho, fuera_rango, foto_verificacion').in('ejecucion_id', ejecucionIds);
       if (errR) throw new Error(errR.message);
@@ -350,7 +370,7 @@ function createChecklistsRouter({ cliente, requireAuth, requireRole }) {
       const avisosPorEjecucion = new Map();
       for (const a of avisos) avisosPorEjecucion.set(a.ejecucion_id, (avisosPorEjecucion.get(a.ejecucion_id) || 0) + 1);
 
-      const salida = ejecuciones.map(e => {
+      const salida = ejecucionesRutina.map(e => {
         const c = checklistPorId.get(e.checklist_id);
         const propias = respuestasPorEjecucion.get(e.id) || [];
         return {
@@ -361,7 +381,27 @@ function createChecklistsRouter({ cliente, requireAuth, requireRole }) {
           avisos_enviados: avisosPorEjecucion.get(e.id) || 0,
         };
       });
-      res.json({ fecha, ejecuciones: salida });
+
+      let extraSalida = [];
+      if (ejecucionesExtra.length) {
+        const extraIds = ejecucionesExtra.map(e => e.id);
+        const { data: tareasExtra, error: errTE } = await supabase
+          .from('checklist_tareas').select('ejecucion_extra_id, titulo').in('ejecucion_extra_id', extraIds);
+        if (errTE) throw new Error(errTE.message);
+        const tituloPorEjecucion = new Map(tareasExtra.map(t => [t.ejecucion_extra_id, t.titulo]));
+
+        extraSalida = ejecucionesExtra.map(e => {
+          const propias = respuestasPorEjecucion.get(e.id) || [];
+          return {
+            id: e.id, titulo: tituloPorEjecucion.get(e.id) || '(sin título)', turno: e.turno, local_id: e.local_id,
+            estado: e.estado, empleado: e.empleado_id ? { id: e.empleado_id, nombre: nombrePorEmpleado.get(e.empleado_id) } : null,
+            tareas_revisar: propias.filter(r => r.fuera_rango || r.foto_verificacion?.coincide === false).length,
+            avisos_enviados: avisosPorEjecucion.get(e.id) || 0,
+          };
+        });
+      }
+
+      res.json({ fecha, ejecuciones: salida, extras: extraSalida });
     } catch (e) {
       res.status(500).json({ error: e.message });
     }
@@ -375,8 +415,9 @@ function createChecklistsRouter({ cliente, requireAuth, requireRole }) {
       if (error) throw new Error(error.message);
       if (!ejecucion) return res.status(404).json({ error: 'Ejecución no encontrada' });
 
-      const { data: tareas, error: errT } = await supabase
-        .from('checklist_tareas').select('*').eq('checklist_id', ejecucion.checklist_id).order('orden');
+      const { data: tareas, error: errT } = ejecucion.checklist_id
+        ? await supabase.from('checklist_tareas').select('*').eq('checklist_id', ejecucion.checklist_id).order('orden')
+        : await supabase.from('checklist_tareas').select('*').eq('ejecucion_extra_id', ejecucion.id);
       if (errT) throw new Error(errT.message);
 
       const { data: respuestas, error: errR } = await supabase

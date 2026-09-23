@@ -65,67 +65,104 @@ async function tareasDeHoy(empleadoId) {
     .from('empleados').select('id, cliente, local_id').eq('id', empleadoId).maybeSingle();
   if (errE) throw new Error(`empleados: ${errE.message}`);
   if (!empleado) throw new Error('Empleado no encontrado');
-  if (!empleado.local_id) return { turnos: [] }; // sin local asignado, nada que mostrar
 
-  await generarEjecucionesDelDia(empleado.cliente);
   const fecha = hoyMadrid().toISODate();
+  const turnos = [];
 
-  const { data: asignaciones, error: errA } = await supabase
-    .from('checklist_asignaciones').select('checklist_id').eq('empleado_id', empleadoId);
-  if (errA) throw new Error(`checklist_asignaciones: ${errA.message}`);
-  if (!asignaciones.length) return { turnos: [] };
+  if (empleado.local_id) {
+    await generarEjecucionesDelDia(empleado.cliente);
 
-  const checklistIds = asignaciones.map(a => a.checklist_id);
-  const { data: checklists, error: errC } = await supabase
-    .from('checklists').select('id, nombre, turno, local_id')
-    .in('id', checklistIds).eq('local_id', empleado.local_id).eq('activo', true);
-  if (errC) throw new Error(`checklists: ${errC.message}`);
-  if (!checklists.length) return { turnos: [] };
+    const { data: asignaciones, error: errA } = await supabase
+      .from('checklist_asignaciones').select('checklist_id').eq('empleado_id', empleadoId);
+    if (errA) throw new Error(`checklist_asignaciones: ${errA.message}`);
 
-  const { data: ejecuciones, error: errEj } = await supabase
-    .from('checklist_ejecuciones').select('id, checklist_id, estado, empleado_id')
-    .in('checklist_id', checklists.map(c => c.id)).eq('fecha', fecha);
-  if (errEj) throw new Error(`checklist_ejecuciones: ${errEj.message}`);
-  const ejecucionPorChecklist = new Map(ejecuciones.map(e => [e.checklist_id, e]));
+    if (asignaciones.length) {
+      const checklistIds = asignaciones.map(a => a.checklist_id);
+      const { data: checklists, error: errC } = await supabase
+        .from('checklists').select('id, nombre, turno, local_id')
+        .in('id', checklistIds).eq('local_id', empleado.local_id).eq('activo', true);
+      if (errC) throw new Error(`checklists: ${errC.message}`);
 
-  const { data: tareas, error: errT } = await supabase
-    .from('checklist_tareas').select('*')
-    .in('checklist_id', checklists.map(c => c.id)).eq('activo', true)
-    .order('orden', { ascending: true });
-  if (errT) throw new Error(`checklist_tareas: ${errT.message}`);
+      if (checklists.length) {
+        const { data: ejecuciones, error: errEj } = await supabase
+          .from('checklist_ejecuciones').select('id, checklist_id, estado, empleado_id')
+          .in('checklist_id', checklists.map(c => c.id)).eq('fecha', fecha);
+        if (errEj) throw new Error(`checklist_ejecuciones: ${errEj.message}`);
+        const ejecucionPorChecklist = new Map(ejecuciones.map(e => [e.checklist_id, e]));
 
-  const ejecucionIds = ejecuciones.map(e => e.id);
-  let respuestas = [];
-  if (ejecucionIds.length) {
-    const { data, error: errR } = await supabase
-      .from('checklist_respuestas').select('*').in('ejecucion_id', ejecucionIds);
-    if (errR) throw new Error(`checklist_respuestas: ${errR.message}`);
-    respuestas = data;
+        const { data: tareas, error: errT } = await supabase
+          .from('checklist_tareas').select('*')
+          .in('checklist_id', checklists.map(c => c.id)).eq('activo', true)
+          .order('orden', { ascending: true });
+        if (errT) throw new Error(`checklist_tareas: ${errT.message}`);
+
+        const ejecucionIds = ejecuciones.map(e => e.id);
+        let respuestas = [];
+        if (ejecucionIds.length) {
+          const { data, error: errR } = await supabase
+            .from('checklist_respuestas').select('*').in('ejecucion_id', ejecucionIds);
+          if (errR) throw new Error(`checklist_respuestas: ${errR.message}`);
+          respuestas = data;
+        }
+        const respuestaPorTarea = new Map(respuestas.map(r => [`${r.ejecucion_id}||${r.tarea_id}`, r]));
+
+        for (const c of checklists) {
+          const ejecucion = ejecucionPorChecklist.get(c.id) || null;
+          const tareasChecklist = tareas
+            .filter(t => t.checklist_id === c.id)
+            .map(t => ({
+              id: t.id, titulo: t.titulo, descripcion: t.descripcion,
+              requiere_foto: t.requiere_foto, requiere_valor: t.requiere_valor,
+              valor_etiqueta: t.valor_etiqueta, valor_min: t.valor_min, valor_max: t.valor_max,
+              hora_limite: t.hora_limite,
+              respuesta: ejecucion ? respuestaPorTarea.get(`${ejecucion.id}||${t.id}`) || null : null,
+            }));
+          turnos.push({
+            checklist: { id: c.id, nombre: c.nombre, turno: c.turno },
+            ejecucion: ejecucion ? { id: ejecucion.id, estado: ejecucion.estado } : null,
+            esExtra: false,
+            tareas: tareasChecklist,
+          });
+        }
+      }
+    }
   }
-  const respuestaPorTarea = new Map(respuestas.map(r => [`${r.ejecucion_id}||${r.tarea_id}`, r]));
 
-  const turnos = checklists.map(c => {
-    const ejecucion = ejecucionPorChecklist.get(c.id) || null;
-    const tareasChecklist = tareas
-      .filter(t => t.checklist_id === c.id)
-      .map(t => ({
-        id: t.id,
-        titulo: t.titulo,
-        descripcion: t.descripcion,
-        requiere_foto: t.requiere_foto,
-        requiere_valor: t.requiere_valor,
-        valor_etiqueta: t.valor_etiqueta,
-        valor_min: t.valor_min,
-        valor_max: t.valor_max,
-        hora_limite: t.hora_limite,
-        respuesta: ejecucion ? respuestaPorTarea.get(`${ejecucion.id}||${t.id}`) || null : null,
-      }));
-    return {
-      checklist: { id: c.id, nombre: c.nombre, turno: c.turno },
-      ejecucion: ejecucion ? { id: ejecucion.id, estado: ejecucion.estado } : null,
-      tareas: tareasChecklist,
-    };
-  });
+  // Tareas extraordinarias de hoy asignadas a este empleado — una ejecución
+  // por destinatario (ver crearTareaExtra), cada una con su única tarea.
+  // Independiente de si el empleado tiene local/checklists de rutina.
+  const { data: extras, error: errEx } = await supabase
+    .from('checklist_ejecuciones').select('id, estado, turno')
+    .eq('empleado_id', empleadoId).eq('fecha', fecha).eq('origen', 'extra');
+  if (errEx) throw new Error(`checklist_ejecuciones: ${errEx.message}`);
+
+  if (extras.length) {
+    const extraIds = extras.map(e => e.id);
+    const { data: tareasExtra, error: errTE } = await supabase
+      .from('checklist_tareas').select('*').in('ejecucion_extra_id', extraIds);
+    if (errTE) throw new Error(`checklist_tareas: ${errTE.message}`);
+    const { data: respuestasExtra, error: errRE } = await supabase
+      .from('checklist_respuestas').select('*').in('ejecucion_id', extraIds);
+    if (errRE) throw new Error(`checklist_respuestas: ${errRE.message}`);
+    const respuestaPorTareaExtra = new Map(respuestasExtra.map(r => [`${r.ejecucion_id}||${r.tarea_id}`, r]));
+
+    for (const ex of extras) {
+      const tarea = tareasExtra.find(t => t.ejecucion_extra_id === ex.id);
+      if (!tarea) continue;
+      turnos.push({
+        checklist: { id: null, nombre: 'Tarea extra', turno: ex.turno },
+        ejecucion: { id: ex.id, estado: ex.estado },
+        esExtra: true,
+        tareas: [{
+          id: tarea.id, titulo: tarea.titulo, descripcion: tarea.descripcion,
+          requiere_foto: tarea.requiere_foto, requiere_valor: tarea.requiere_valor,
+          valor_etiqueta: tarea.valor_etiqueta, valor_min: tarea.valor_min, valor_max: tarea.valor_max,
+          hora_limite: tarea.hora_limite,
+          respuesta: respuestaPorTareaExtra.get(`${ex.id}||${tarea.id}`) || null,
+        }],
+      });
+    }
+  }
 
   return { turnos };
 }
@@ -145,18 +182,34 @@ async function guardarRespuesta(tareaId, empleadoId, { hecho, valor, fotoBuffer,
   if (errT) throw new Error(`checklist_tareas: ${errT.message}`);
   if (!tarea) throw new Error('Tarea no encontrada');
 
-  const { data: checklist, error: errCl } = await supabase
-    .from('checklists').select('id, cliente, local_id').eq('id', tarea.checklist_id).maybeSingle();
-  if (errCl) throw new Error(`checklists: ${errCl.message}`);
-  if (!checklist) throw new Error('Checklist no encontrado');
-
+  let ejecucion, clienteParaFoto;
   const fecha = hoyMadrid().toISODate();
-  await generarEjecucionesDelDia(checklist.cliente);
-  const { data: ejecucion, error: errE } = await supabase
-    .from('checklist_ejecuciones').select('id, checklist_id, estado, empleado_id')
-    .eq('checklist_id', tarea.checklist_id).eq('fecha', fecha).maybeSingle();
-  if (errE) throw new Error(`checklist_ejecuciones: ${errE.message}`);
-  if (!ejecucion) throw new Error('No hay ejecución de hoy para este checklist (¿el local no abre hoy?)');
+  if (tarea.checklist_id) {
+    const { data: checklist, error: errCl } = await supabase
+      .from('checklists').select('id, cliente, local_id').eq('id', tarea.checklist_id).maybeSingle();
+    if (errCl) throw new Error(`checklists: ${errCl.message}`);
+    if (!checklist) throw new Error('Checklist no encontrado');
+
+    await generarEjecucionesDelDia(checklist.cliente);
+    const { data: ej, error: errE } = await supabase
+      .from('checklist_ejecuciones').select('id, checklist_id, estado, empleado_id')
+      .eq('checklist_id', tarea.checklist_id).eq('fecha', fecha).maybeSingle();
+    if (errE) throw new Error(`checklist_ejecuciones: ${errE.message}`);
+    if (!ej) throw new Error('No hay ejecución de hoy para este checklist (¿el local no abre hoy?)');
+    ejecucion = ej;
+    clienteParaFoto = checklist.cliente;
+  } else {
+    // Tarea extraordinaria: apunta a SU ejecución directamente (ver
+    // crearTareaExtra) — no hay "la de hoy" que buscar, solo existe para
+    // el día en que se creó.
+    const { data: ej, error: errE } = await supabase
+      .from('checklist_ejecuciones').select('id, checklist_id, estado, empleado_id, cliente')
+      .eq('id', tarea.ejecucion_extra_id).maybeSingle();
+    if (errE) throw new Error(`checklist_ejecuciones: ${errE.message}`);
+    if (!ej) throw new Error('Ejecución no encontrada');
+    ejecucion = ej;
+    clienteParaFoto = ej.cliente;
+  }
 
   let fueraRango = false;
   if (tarea.requiere_valor && valor != null) {
@@ -168,7 +221,7 @@ async function guardarRespuesta(tareaId, empleadoId, { hecho, valor, fotoBuffer,
   if (fotoBuffer) {
     try {
       const { foto_drive_id, foto_tomada_at, foto_antigua } = await checklistFotos.subirFotoTarea({
-        cliente: checklist.cliente, fecha, tareaId, buffer: fotoBuffer, mimeType: fotoMime,
+        cliente: clienteParaFoto, fecha, tareaId, buffer: fotoBuffer, mimeType: fotoMime,
       });
       fotoInfo = { foto_drive_id, foto_tomada_at, foto_verificacion: { foto_antigua } };
     } catch (e) {
@@ -209,8 +262,12 @@ async function guardarRespuesta(tareaId, empleadoId, { hecho, valor, fotoBuffer,
 // Pendiente → en_curso en la primera respuesta (fija empleado_id);
 // → completado cuando ya no queda ninguna tarea activa sin responder.
 async function actualizarEstadoEjecucion(ejecucion, empleadoId) {
-  const { data: tareas, error: errT } = await supabase
-    .from('checklist_tareas').select('id').eq('checklist_id', ejecucion.checklist_id).eq('activo', true);
+  // Rutina: cuenta las tareas activas de su checklist (puede haber varias).
+  // Extra: la ejecución no tiene checklist — su única tarea es la que
+  // apunta a ella con ejecucion_extra_id.
+  const { data: tareas, error: errT } = ejecucion.checklist_id
+    ? await supabase.from('checklist_tareas').select('id').eq('checklist_id', ejecucion.checklist_id).eq('activo', true)
+    : await supabase.from('checklist_tareas').select('id').eq('ejecucion_extra_id', ejecucion.id);
   if (errT) throw new Error(`checklist_tareas: ${errT.message}`);
 
   const { data: respuestas, error: errR } = await supabase
@@ -382,7 +439,52 @@ async function crearDesdeePlantilla(cliente, localId, nombrePlantilla) {
   });
 }
 
+// ── Tareas extraordinarias ───────────────────────────────────────────────
+// Una tarea de una sola vez, para un día concreto, sin pasar por ningún
+// checklist (migración 048). Una ejecución por destinatario — cada una
+// lleva su propio estado/foto/respuesta, independiente de las demás; así
+// "a quién va" no necesita una tabla de asignaciones aparte. No modifica
+// ningún checklist ni se regenera al día siguiente (solo existe para
+// `fecha`, nunca se recrea por el cron de generación diaria).
+async function crearTareaExtra(cliente, { titulo, local_id, turno, fecha, requiere_foto, hora_limite, empleado_ids }) {
+  if (!titulo || !String(titulo).trim()) throw new Error('Falta el título de la tarea');
+  if (!local_id) throw new Error('Falta el local');
+  if (!['apertura', 'tarde', 'cierre', 'libre'].includes(turno)) throw new Error('Turno inválido');
+  if (!Array.isArray(empleado_ids) || !empleado_ids.length) throw new Error('Elige al menos un empleado');
+
+  const fechaFinal = /^\d{4}-\d{2}-\d{2}$/.test(fecha || '') ? fecha : hoyMadrid().toISODate();
+  const creadas = [];
+
+  for (const empleadoId of empleado_ids) {
+    const { data: ejecucion, error: errE } = await supabase
+      .from('checklist_ejecuciones')
+      .insert({
+        cliente, local_id, checklist_id: null, fecha: fechaFinal,
+        empleado_id: empleadoId, estado: 'pendiente', origen: 'extra', turno,
+      })
+      .select().single();
+    if (errE) throw new Error(`checklist_ejecuciones: ${errE.message}`);
+
+    try {
+      const { error: errT } = await supabase
+        .from('checklist_tareas')
+        .insert({
+          checklist_id: null, ejecucion_extra_id: ejecucion.id, orden: 1,
+          titulo: titulo.trim(), requiere_foto: !!requiere_foto, hora_limite: hora_limite || null,
+          requiere_valor: false,
+        });
+      if (errT) throw new Error(`checklist_tareas: ${errT.message}`);
+    } catch (e) {
+      await supabase.from('checklist_ejecuciones').delete().eq('id', ejecucion.id);
+      throw e;
+    }
+    creadas.push(ejecucion);
+  }
+
+  return creadas;
+}
+
 module.exports = {
   generarEjecucionesDelDia, tareasDeHoy, guardarRespuesta, DIA_CODIGOS, codigoDia, hoyMadrid,
-  crearChecklistCompleto, actualizarChecklistCompleto, duplicarChecklist, crearDesdeePlantilla,
+  crearChecklistCompleto, actualizarChecklistCompleto, duplicarChecklist, crearDesdeePlantilla, crearTareaExtra,
 };

@@ -111,8 +111,14 @@ async function refreshTableroChecklists() {
     const r = await apiFetch(`/checklists/tablero?${qs}`);
     const d = await r.json();
     if (!r.ok) throw new Error(d.error || 'No se pudo cargar el tablero');
-    if (!d.ejecuciones.length) { cont.innerHTML = '<div class="empty">Sin checklists para ese día</div>'; return; }
-    cont.innerHTML = `<div class="card">${d.ejecuciones.map(renderEjecucionRow).join('')}</div>`;
+
+    const bloqueExtras = d.extras && d.extras.length
+      ? `<p class="section-title" style="margin-top:0">Extras de hoy</p><div class="card" style="margin-bottom:14px">${d.extras.map(renderExtraRow).join('')}</div>`
+      : '';
+    const bloqueRutina = d.ejecuciones.length
+      ? `<div class="card">${d.ejecuciones.map(renderEjecucionRow).join('')}</div>`
+      : '<div class="empty">Sin checklists para ese día</div>';
+    cont.innerHTML = bloqueExtras + bloqueRutina;
   } catch (e) {
     cont.innerHTML = `<div class="empty">${esc(e.message)}</div>`;
   }
@@ -134,6 +140,125 @@ function renderEjecucionRow(e) {
       </div>
     </div>
   `;
+}
+
+// Misma fila que una ejecución de rutina, pero con badge "Extra" y el
+// título sacado de su única tarea (no tiene checklist del que sacar nombre).
+function renderExtraRow(e) {
+  return `
+    <div class="cl-ejec-row" onclick="abrirDetalleEjecucion(${e.id})">
+      <div>
+        <div class="cl-ejec-nombre">${esc(e.titulo)} <span class="badge badge-pend">Extra</span> <span class="badge ${CL_ESTADO_BADGE[e.estado] || ''}">${CL_ESTADO_LABEL[e.estado] || e.estado}</span></div>
+        <div class="cl-ejec-meta">
+          ${CL_TURNO_LABEL[e.turno] || ''} · ${e.empleado ? esc(e.empleado.nombre) : ''}
+          ${e.tareas_revisar ? `· <span class="cl-ejec-revisar">${e.tareas_revisar} por revisar</span>` : ''}
+          ${e.avisos_enviados ? `· ${e.avisos_enviados} aviso(s)` : ''}
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+// ── Tarea extra (mini-formulario desde el tablero) ───────────────────────
+let clExtra = null; // { titulo, local_id, turno, fecha, requiere_foto, hora_limite, empleado_ids }
+let clExtraEmpleados = [];
+
+async function abrirPanelExtra() {
+  const hoyIso = new Date().toISOString().slice(0, 10);
+  const localPreseleccionado = clLocales.length === 1 ? clLocales[0].id : (document.getElementById('cl-filtro-local')?.value || '');
+  clExtra = { titulo: '', local_id: localPreseleccionado, turno: 'apertura', fecha: hoyIso, requiere_foto: false, hora_limite: null, empleado_ids: [] };
+  await cargarEmpleadosExtra(true);
+  renderPanelExtra();
+  document.getElementById('cl-extra-panel').scrollIntoView({ behavior: 'smooth' });
+}
+
+async function cargarEmpleadosExtra(marcarPorDefecto) {
+  if (!clExtra.local_id) { clExtraEmpleados = []; return; }
+  try {
+    const r = await apiFetch(`/empleados?local_id=${clExtra.local_id}`);
+    clExtraEmpleados = await r.json();
+  } catch (e) {
+    clExtraEmpleados = [];
+  }
+  if (marcarPorDefecto) clExtra.empleado_ids = clExtraEmpleados.map(e => e.id);
+}
+
+async function cambiarLocalExtra(nuevoLocalId) {
+  clExtra.local_id = nuevoLocalId;
+  await cargarEmpleadosExtra(true);
+  renderPanelExtra();
+}
+
+function cerrarPanelExtra() {
+  clExtra = null;
+  document.getElementById('cl-extra-panel').innerHTML = '';
+}
+
+function renderPanelExtra() {
+  const cont = document.getElementById('cl-extra-panel');
+  if (!clExtra) { cont.innerHTML = ''; return; }
+  cont.innerHTML = `
+    <div class="card cl-panel-card">
+      <p class="section-title" style="margin-top:0">Tarea extra</p>
+      <div class="cl-form-row" style="margin-top:0">
+        <input type="text" placeholder="Título" value="${esc(clExtra.titulo)}" oninput="clExtra.titulo = this.value">
+        <select onchange="cambiarLocalExtra(this.value)">
+          <option value="">Elige un local</option>
+          ${clLocales.map(l => `<option value="${l.id}" ${String(l.id) === String(clExtra.local_id) ? 'selected' : ''}>${esc(l.nombre)}</option>`).join('')}
+        </select>
+        <select onchange="clExtra.turno = this.value">
+          ${Object.entries(CL_TURNO_LABEL).map(([v, l]) => `<option value="${v}" ${v === clExtra.turno ? 'selected' : ''}>${l}</option>`).join('')}
+        </select>
+      </div>
+      <div class="cl-form-row">
+        <input type="date" value="${esc(clExtra.fecha)}" oninput="clExtra.fecha = this.value">
+        <input type="time" value="${esc(clExtra.hora_limite || '')}" oninput="clExtra.hora_limite = this.value || null">
+        <label style="font-size:12px;display:flex;align-items:center;gap:4px">
+          <input type="checkbox" ${clExtra.requiere_foto ? 'checked' : ''} onchange="clExtra.requiere_foto = this.checked"> Foto obligatoria
+        </label>
+      </div>
+
+      <p class="section-title">A quién va</p>
+      <div class="cl-panel-empleados">${clExtraEmpleados.map(renderEmpleadoCheckboxExtra).join('') || '<div class="empty">Sin empleados activos en este local</div>'}</div>
+
+      <div class="cl-form-row">
+        <button class="btn-drive" onclick="guardarTareaExtra()">Guardar</button>
+        <button class="cl-btn-secundario" onclick="cerrarPanelExtra()">Cancelar</button>
+      </div>
+    </div>
+  `;
+}
+
+function renderEmpleadoCheckboxExtra(e) {
+  const marcado = clExtra.empleado_ids.includes(e.id);
+  return `<label style="display:flex;align-items:center;gap:6px;font-size:13px;padding:4px 0">
+    <input type="checkbox" ${marcado ? 'checked' : ''} onchange="toggleEmpleadoExtra(${e.id}, this.checked)"> ${esc(e.nombre)}
+  </label>`;
+}
+function toggleEmpleadoExtra(id, marcado) {
+  if (marcado) { if (!clExtra.empleado_ids.includes(id)) clExtra.empleado_ids.push(id); }
+  else { clExtra.empleado_ids = clExtra.empleado_ids.filter(x => x !== id); }
+}
+
+async function guardarTareaExtra() {
+  if (!clExtra.titulo.trim()) { alert('Falta el título'); return; }
+  if (!clExtra.local_id) { alert('Falta el local'); return; }
+  if (!clExtra.empleado_ids.length) { alert('Elige al menos un empleado'); return; }
+  try {
+    const r = await apiFetch('/checklists/extra', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        titulo: clExtra.titulo.trim(), local_id: clExtra.local_id, turno: clExtra.turno, fecha: clExtra.fecha,
+        requiere_foto: clExtra.requiere_foto, hora_limite: clExtra.hora_limite, empleado_ids: clExtra.empleado_ids,
+      }),
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || 'No se pudo crear la tarea extra');
+    cerrarPanelExtra();
+    await refreshTableroChecklists();
+  } catch (e) {
+    alert(e.message);
+  }
 }
 
 // ── Detalle de una ejecución ─────────────────────────────────────────────

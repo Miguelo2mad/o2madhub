@@ -55,6 +55,15 @@ async function generarInformeChecklistsPDF({ cliente, desde, hasta, localId }) {
     tareasPorChecklist.get(t.checklist_id).push(t);
   }
 
+  // Extras (migración 048): no tienen checklist, su única tarea apunta a
+  // la ejecución con ejecucion_extra_id.
+  const ejecucionesExtraIds = ejecuciones.filter(e => !e.checklist_id).map(e => e.id);
+  const { data: tareasExtra, error: errTE } = ejecucionesExtraIds.length
+    ? await supabase.from('checklist_tareas').select('*').in('ejecucion_extra_id', ejecucionesExtraIds)
+    : { data: [] };
+  if (errTE) throw new Error(`checklist_tareas: ${errTE.message}`);
+  const tareasPorEjecucionExtra = new Map(tareasExtra.map(t => [t.ejecucion_extra_id, [t]]));
+
   const ejecucionIds = ejecuciones.map(e => e.id);
   const { data: respuestas, error: errR } = ejecucionIds.length
     ? await supabase.from('checklist_respuestas').select('*').in('ejecucion_id', ejecucionIds)
@@ -76,17 +85,21 @@ async function generarInformeChecklistsPDF({ cliente, desde, hasta, localId }) {
   }
 
   for (const ejecucion of ejecuciones) {
+    const esExtra = !ejecucion.checklist_id;
     const checklist = checklistPorId.get(ejecucion.checklist_id);
+    const tareasEjecucion = esExtra ? (tareasPorEjecucionExtra.get(ejecucion.id) || []) : (tareasPorChecklist.get(ejecucion.checklist_id) || []);
+    const titulo = esExtra ? (tareasEjecucion[0]?.titulo || '(sin título)') : (checklist?.nombre || '');
+    const turno = esExtra ? ejecucion.turno : checklist?.turno;
     if (doc.y > 700) doc.addPage();
 
     doc.moveDown(0.6);
     doc.fillColor('#000').fontSize(12)
-      .text(`${ejecucion.fecha} — ${localPorId.get(ejecucion.local_id) || ''} — ${checklist?.nombre || ''} (${checklist?.turno || ''})`, { underline: true });
+      .text(`${ejecucion.fecha} — ${localPorId.get(ejecucion.local_id) || ''} — ${esExtra ? '(Extra) ' : ''}${titulo} (${turno || ''})`, { underline: true });
     doc.fontSize(10).fillColor('#444')
       .text(`Empleado: ${ejecucion.empleado_id ? (empleadoPorId.get(ejecucion.empleado_id) || '—') : 'sin empezar'} · Estado: ${ejecucion.estado}`);
     doc.moveDown(0.3);
 
-    for (const tarea of (tareasPorChecklist.get(ejecucion.checklist_id) || [])) {
+    for (const tarea of tareasEjecucion) {
       const r = respuestaPorTarea.get(`${ejecucion.id}||${tarea.id}`);
       let linea = `• ${tarea.titulo} — ${r?.hecho ? 'Hecho' : 'No hecho'}`;
       if (r?.valor != null) linea += ` (${r.valor}${tarea.valor_etiqueta ? ' ' + tarea.valor_etiqueta : ''}${r.fuera_rango ? ' ⚠ fuera de rango' : ''})`;
