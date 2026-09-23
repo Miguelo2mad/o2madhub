@@ -13,12 +13,15 @@
 const express = require('express');
 const crypto  = require('crypto');
 const bcrypt  = require('bcryptjs');
+const multer  = require('multer');
 const { DateTime } = require('luxon');
 const { supabase } = require('../lib/supabase');
 const calc = require('../lib/fichaje-calc');
+const checklistsLib = require('../lib/checklists');
 
 const PIN_REGEX = /^\d{5}$/;
 const round2 = (n) => Math.round((n + Number.EPSILON) * 100) / 100;
+const uploadFoto = multer({ storage: multer.memoryStorage(), limits: { fileSize: 15 * 1024 * 1024 } });
 
 // Rate limit de intentos de PIN: máx. 5 por token cada 10 min. En memoria
 // del proceso — asume una sola instancia del servicio en Railway. Si algún
@@ -494,6 +497,55 @@ function createFichajeRouter({ cliente, requireAuth, requireRole }) {
       if (updErr) throw updErr;
 
       res.json({ ok: true, tramo: { entrada: cerrado.entrada_at, salida: cerrado.salida_at, horas: round2(calc.horasDeFichaje(cerrado, ahora).horas) } });
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // ── Empleado: checklists de turno ───────────────────────────────────────
+  // "Ver tareas de hoy" pide el PIN una sola vez (igual que fichar) para
+  // revelar el bloque; a partir de ahí, marcar tareas y subir fotos en esa
+  // misma vista no vuelve a pedirlo (GET .../checklists y .../responder
+  // solo necesitan el url_token, igual que GET .../estado).
+  router.post('/:token/checklists/pin', async (req, res) => {
+    const { token } = req.params;
+    try {
+      const emp = await empleadoPorToken(token);
+      if (!emp) return res.status(404).json({ error: 'No encontrado' });
+      if (pinRateLimited(token)) return res.status(429).json({ error: 'Demasiados intentos. Espera unos minutos.' });
+
+      const { pin } = req.body || {};
+      if (!PIN_REGEX.test(pin || '') || !(await bcrypt.compare(pin, emp.pin_hash))) {
+        return res.status(401).json({ error: 'PIN incorrecto' });
+      }
+      pinRateLimitReset(token);
+      res.json({ ok: true });
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  router.get('/:token/checklists', async (req, res) => {
+    try {
+      const emp = await empleadoPorToken(req.params.token);
+      if (!emp) return res.status(404).json({ error: 'No encontrado' });
+      res.json(await checklistsLib.tareasDeHoy(emp.id));
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  router.post('/:token/checklists/:tareaId/responder', uploadFoto.single('foto'), async (req, res) => {
+    try {
+      const emp = await empleadoPorToken(req.params.token);
+      if (!emp) return res.status(404).json({ error: 'No encontrado' });
+
+      const { hecho, valor } = req.body || {};
+      const resultado = await checklistsLib.guardarRespuesta(Number(req.params.tareaId), emp.id, {
+        hecho: hecho === 'true' || hecho === true,
+        valor: valor != null && valor !== '' ? Number(valor) : null,
+      });
+      res.json({ ok: true, ...resultado });
     } catch (e) {
       res.status(500).json({ error: e.message });
     }
