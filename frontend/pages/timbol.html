@@ -596,9 +596,9 @@
         <table class="fichaje-tabla">
           <thead><tr>
             <th>Empleado</th><th>Estado</th><th class="num">Hoy</th><th class="num">Semana</th>
-            <th class="num">Contrato</th><th class="num">Extras mes</th><th class="num">A pagar</th><th></th>
+            <th class="num">Contrato</th><th class="num">Extras mes</th><th class="num">A pagar</th><th></th><th></th>
           </tr></thead>
-          <tbody id="fichaje-rows"><tr><td colspan="8" class="empty">Cargando…</td></tr></tbody>
+          <tbody id="fichaje-rows"><tr><td colspan="9" class="empty">Cargando…</td></tr></tbody>
         </table>
       </div>
 
@@ -1432,7 +1432,7 @@ function renderFichajeEstado(d) {
 
   const rowsEl = document.getElementById('fichaje-rows');
   if (!d.empleados.length) {
-    rowsEl.innerHTML = '<tr><td colspan="8" class="empty">Sin empleados activos. Da de alta el primero.</td></tr>';
+    rowsEl.innerHTML = '<tr><td colspan="9" class="empty">Sin empleados activos. Da de alta el primero.</td></tr>';
     return;
   }
   rowsEl.innerHTML = d.empleados.map(e => {
@@ -1449,9 +1449,23 @@ function renderFichajeEstado(d) {
       <td class="num" style="color:var(--muted)">${horasFmt(e.horas_contrato)}</td>
       <td class="num" style="${e.extras_mes ? 'color:var(--accent);font-weight:700' : 'color:var(--muted)'}">${e.extras_mes ? '+' + horasFmt(e.extras_mes) : '—'}</td>
       <td class="num" style="${e.importe_mes ? 'color:var(--accent);font-weight:700' : 'color:var(--muted)'}">${e.importe_mes ? eur(e.importe_mes) : '—'}</td>
+      <td><button class="fichaje-edit" onclick="copiarEnlaceFichaje(${e.id}, this)" title="Copiar enlace de fichaje">🔗</button></td>
       <td><button class="fichaje-edit" onclick="editarEmpleado(${e.id})" title="Editar">✎</button></td>
     </tr>`;
   }).join('');
+}
+
+// Copia el enlace de fichaje de un empleado (url_token + PUBLIC_APP_URL, ya
+// calculado por el backend en GET /fichaje/estado) — no hace falta volver a
+// pedirlo ni regenerarlo, es el mismo enlace de siempre.
+function copiarEnlaceFichaje(id, btnEl) {
+  const emp = fichajeUltimoEstado?.empleados.find(e => e.id === id);
+  if (!emp?.fichaje_url) { alert('No se pudo obtener el enlace'); return; }
+  navigator.clipboard.writeText(emp.fichaje_url).then(() => {
+    const original = btnEl.textContent;
+    btnEl.textContent = '✓';
+    setTimeout(() => { btnEl.textContent = original; }, 1500);
+  });
 }
 
 async function refreshFichaje() {

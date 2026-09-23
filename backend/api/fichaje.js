@@ -193,7 +193,7 @@ function createFichajeRouter({ cliente, requireAuth, requireRole }) {
     try {
       const { data: empleados, error } = await supabase
         .from('empleados')
-        .select('id, nombre, puesto, horas_semana, precio_hora_extra')
+        .select('id, nombre, puesto, horas_semana, precio_hora_extra, url_token')
         .eq('cliente', cliente).eq('activo', true).order('nombre', { ascending: true });
       if (error) throw error;
       if (!empleados.length) return res.json({ empleados: [], personas_dentro: 0, total_extras_mes_horas: 0, total_importe_mes: 0 });
@@ -239,6 +239,7 @@ function createFichajeRouter({ cliente, requireAuth, requireRole }) {
           horas_hoy: round2(horasHoy), horas_semana: round2(horasSemana),
           horas_contrato: Number(emp.horas_semana), extras_mes: round2(totalExtras),
           importe_mes: round2(importe), incidencias: incidenciasDetalle,
+          fichaje_url: fichajeUrl(emp.url_token),
         };
       });
 
