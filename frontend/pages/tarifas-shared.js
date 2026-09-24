@@ -55,6 +55,18 @@
     .tli-detalle { font-size: 12px; color: var(--muted); margin-top: 2px; }
     .tli-detalle.empty-inline { color: var(--alert); }
     .tli-tolerancia { font-size: 11px; color: var(--muted); margin-top: 2px; }
+    .tli-cabecera { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; cursor: pointer; }
+    .tli-chevron { color: var(--muted); font-size: 12px; flex-shrink: 0; margin-top: 2px; }
+    .tli-origen { font-size: 11px; color: var(--muted); margin-top: 2px; }
+    .tli-origen a { color: var(--accent); }
+    .tli-origen-vacio { font-style: italic; }
+    .tarifa-detalle-proveedor { margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--border); }
+    .tarifa-detalle-tabla { width: 100%; border-collapse: collapse; font-size: 12px; margin-bottom: 10px; }
+    .tarifa-detalle-tabla th { text-align: left; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: .5px; font-size: 10px; padding: 4px 6px; border-bottom: 1px solid var(--border); }
+    .tarifa-detalle-tabla td { padding: 4px 6px; border-bottom: 1px solid var(--border); }
+    .tarifa-detalle-acciones { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+    .tarifa-detalle-acciones select { background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; color: var(--text); font-size: 12px; padding: 6px 8px; }
+    .tarifa-btn-peligro { border-color: var(--alert); color: var(--alert); }
 
     .fi-lineas-toggle { background: transparent; border: none; color: var(--accent); font-size: 12px; cursor: pointer; padding: 6px 0 0; }
     .fi-lineas { margin-top: 8px; }
@@ -90,6 +102,15 @@ async function buscarProveedorPorNif(nif) {
 
 // ── Pestaña Tarifas: subir, vista previa, confirmar ─────────────────────
 let previewState = null;
+
+function leerArchivoComoBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result).split(',')[1] || '');
+    reader.onerror = () => reject(new Error('No se pudo leer el archivo'));
+    reader.readAsDataURL(file);
+  });
+}
 
 // La respuesta de /tarifas/importar es NDJSON (una línea JSON por evento),
 // no un único JSON — un PDF largo se trocea en varias llamadas a Claude
@@ -140,6 +161,10 @@ async function subirArchivoTarifa(file) {
     const r = await apiFetch('/tarifas/importar', { method: 'POST', body: fd });
     const d = await leerImportacionTarifasNdjson(r, (mensaje) => { status.textContent = mensaje; });
     status.classList.add('hidden');
+    // El propio File ya está en memoria desde que el usuario lo eligió —
+    // se guarda tal cual para reenviarlo en base64 al confirmar (trazabilidad
+    // del origen: sube a Drive ahí, no hace falta que el backend lo devuelva).
+    d.archivoOriginal = file;
     renderPreview(d);
   } catch (e) {
     status.classList.add('hidden');
@@ -418,10 +443,18 @@ async function confirmarTarifasUI() {
   const btn = document.getElementById('btn-confirmar-tarifas');
   btn.disabled = true;
   try {
+    // Trazabilidad del origen: el archivo se queda en memoria desde
+    // /importar (previewState.archivoOriginal) y se lee a base64 solo aquí,
+    // al confirmar — el backend lo sube a Drive y enlaza su id a la tarifa.
+    let archivo_base64 = null, archivo_mime = null;
+    if (previewState.archivoOriginal) {
+      archivo_base64 = await leerArchivoComoBase64(previewState.archivoOriginal);
+      archivo_mime = previewState.archivoOriginal.type;
+    }
     const r = await apiFetch('/tarifas/confirmar', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ origen_archivo: previewState.origen_archivo, grupos }),
+      body: JSON.stringify({ origen_archivo: previewState.origen_archivo, grupos, archivo_base64, archivo_mime }),
     });
     const d = await r.json();
     if (!r.ok) throw new Error(d.error || 'No se pudo confirmar la tarifa');
@@ -444,6 +477,20 @@ function cancelarPreviewTarifas() {
   document.getElementById('tarifa-archivo-input').value = '';
 }
 
+const TARIFA_ORIGEN_TIPO_LABEL = { xlsx: 'Excel', csv: 'CSV', pdf: 'PDF', imagen: 'Foto' };
+
+// Debajo de cada proveedor: nombre del archivo de origen con enlace a
+// Drive y su tipo, o "Origen no registrado" para tarifas importadas antes
+// de que existiera esta trazabilidad (origen_drive_id null).
+function renderOrigenTarifa(t) {
+  if (!t.origen_drive_id) return '<div class="tli-origen tli-origen-vacio">Origen no registrado</div>';
+  const tipoLabel = TARIFA_ORIGEN_TIPO_LABEL[t.origen_tipo] || '';
+  const nombre = esc(t.origen_archivo || '(archivo sin nombre)');
+  return `<div class="tli-origen">
+    <a href="https://drive.google.com/file/d/${esc(t.origen_drive_id)}/view" target="_blank" rel="noopener">${nombre}</a>${tipoLabel ? ` · ${tipoLabel}` : ''}
+  </div>`;
+}
+
 async function cargarListadoTarifas() {
   const cont = document.getElementById('tarifas-listado');
   if (!cont) return;
@@ -454,14 +501,95 @@ async function cargarListadoTarifas() {
     if (!list.length) { cont.innerHTML = '<div class="empty">Sin proveedores con tarifa aún</div>'; return; }
     cont.innerHTML = list.map(p => `
       <div class="tarifa-listado-item">
-        <div class="tli-nombre">${esc(p.nombre)}<span class="tli-nif">${esc(p.nif)}</span></div>
-        ${p.tarifa_vigente
-          ? `<div class="tli-detalle">${p.tarifa_vigente.nombre ? esc(p.tarifa_vigente.nombre) + ' · ' : ''}${p.tarifa_vigente.num_productos} producto(s) · desde ${p.tarifa_vigente.vigente_desde}</div>`
-          : `<div class="tli-detalle empty-inline">Sin tarifa vigente</div>`}
-        <div class="tli-tolerancia">Tolerancia: ${p.tolerancia_pct}%</div>
+        <div class="tli-cabecera" onclick="toggleDetalleProveedor(${p.id})">
+          <div>
+            <div class="tli-nombre">${esc(p.nombre)}<span class="tli-nif">${esc(p.nif)}</span></div>
+            ${p.tarifa_vigente
+              ? `<div class="tli-detalle">${p.tarifa_vigente.nombre ? esc(p.tarifa_vigente.nombre) + ' · ' : ''}${p.tarifa_vigente.num_productos} producto(s) · desde ${p.tarifa_vigente.vigente_desde}</div>`
+              : `<div class="tli-detalle empty-inline">Sin tarifa vigente</div>`}
+            ${p.tarifa_vigente ? renderOrigenTarifa(p.tarifa_vigente) : ''}
+            <div class="tli-tolerancia">Tolerancia: ${p.tolerancia_pct}%</div>
+          </div>
+          ${p.tarifa_vigente ? '<span class="tli-chevron">▾</span>' : ''}
+        </div>
+        ${p.tarifa_vigente ? `<div class="tarifa-detalle-proveedor hidden" id="tarifa-detalle-${p.id}"></div>` : ''}
       </div>`).join('');
   } catch (e) {
     cont.innerHTML = `<div class="empty">${esc(e.message)}</div>`;
+  }
+}
+
+// ── Detalle de un proveedor: productos + cambiar de proveedor + eliminar ──
+async function toggleDetalleProveedor(id) {
+  const cont = document.getElementById(`tarifa-detalle-${id}`);
+  if (!cont) return; // proveedor sin tarifa vigente, no hay detalle que abrir
+  if (!cont.classList.contains('hidden')) { cont.classList.add('hidden'); return; }
+  document.querySelectorAll('.tarifa-detalle-proveedor').forEach(el => el.classList.add('hidden'));
+  cont.classList.remove('hidden');
+  if (cont.dataset.cargado) return;
+  cont.innerHTML = '<div class="empty">Cargando…</div>';
+  try {
+    const r = await apiFetch(`/tarifas/${id}`);
+    const detalle = await r.json();
+    if (!r.ok) throw new Error(detalle.error || 'No se pudo cargar el detalle');
+    const otros = (await getProveedores()).filter(p => p.id !== id);
+    cont.innerHTML = renderDetalleProveedor(id, detalle, otros);
+    cont.dataset.cargado = '1';
+  } catch (e) {
+    cont.innerHTML = `<div class="empty">${esc(e.message)}</div>`;
+  }
+}
+
+function renderDetalleProveedor(id, detalle, otrosProveedores) {
+  const productos = detalle.tarifa_productos || [];
+  return `
+    <table class="tarifa-detalle-tabla">
+      <thead><tr><th>Producto</th><th>Unidad</th><th class="num">Precio</th></tr></thead>
+      <tbody>${productos.map(p => `<tr><td>${esc(p.producto)}</td><td>${esc(p.unidad)}</td><td class="num">${eur(p.precio)}</td></tr>`).join('')}</tbody>
+    </table>
+    <div class="tarifa-detalle-acciones">
+      <select id="reasignar-select-${id}">
+        <option value="">Reasignar a…</option>
+        ${otrosProveedores.map(p => `<option value="${p.id}">${esc(p.nombre)} (${esc(p.nif)})</option>`).join('')}
+      </select>
+      <button type="button" class="tarifa-btn-secondary" onclick="cambiarProveedorTarifa(${id})">Cambiar de proveedor</button>
+      <button type="button" class="tarifa-btn-secondary tarifa-btn-peligro" onclick="eliminarTarifaProveedorUI(${id})">Eliminar tarifa</button>
+    </div>
+  `;
+}
+
+async function cambiarProveedorTarifa(id) {
+  const select = document.getElementById(`reasignar-select-${id}`);
+  const nuevoId = select?.value;
+  if (!nuevoId) { alert('Elige a qué proveedor reasignar la tarifa'); return; }
+  if (!confirm('¿Reasignar esta tarifa al proveedor elegido? Se borrarán sus alias de emparejamiento y se recalcularán las facturas afectadas de ambos proveedores.')) return;
+  try {
+    const r = await apiFetch(`/tarifas/${id}/reasignar`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ nuevo_proveedor_id: Number(nuevoId) }),
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || 'No se pudo reasignar la tarifa');
+    alert(`Tarifa reasignada a ${d.proveedor_nuevo_nif}. ${d.facturas_recalculadas} factura(s) recalculada(s).`);
+    proveedoresCache = null;
+    cargarListadoTarifas();
+  } catch (e) {
+    alert(e.message);
+  }
+}
+
+async function eliminarTarifaProveedorUI(id) {
+  if (!confirm('¿Eliminar esta tarifa? Se borran sus productos y sus alias de emparejamiento, y sus facturas quedarán sin tarifa.')) return;
+  try {
+    const r = await apiFetch(`/tarifas/${id}`, { method: 'DELETE' });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || 'No se pudo eliminar la tarifa');
+    alert(`Tarifa eliminada. ${d.facturas_actualizadas} factura(s) actualizada(s).`);
+    proveedoresCache = null;
+    cargarListadoTarifas();
+  } catch (e) {
+    alert(e.message);
   }
 }
 
