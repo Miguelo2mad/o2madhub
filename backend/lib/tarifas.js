@@ -191,11 +191,17 @@ Reglas:
 - Precios en formato español (1.234,56). Devuelve número.
 - Cualquier fila que no puedas interpretar va a dudas, no la inventes.`;
 
+// 16000 para todas las llamadas de tarifas (bloques de Excel, PDF, imagen):
+// mismo motivo que en extraccion.js — un catálogo denso (~90 productos en
+// pocas páginas, caso real: tarifa de Cuinanatural) supera de sobra los
+// 4096 de antes y la respuesta se corta a mitad de JSON.
+const TARIFA_MAX_TOKENS = 16000;
+
 async function extraerBloqueTarifa(textoTabular, nombreHoja) {
   const contexto = nombreHoja ? `Nombre de la hoja: "${nombreHoja}"\n\n` : '';
   const texto = `${TARIFA_IMPORT_PROMPT}\n\n${contexto}${textoTabular}`;
   return extraerJson({
-    maxTokens: 4096,
+    maxTokens: TARIFA_MAX_TOKENS,
     schema: TARIFA_IMPORT_SCHEMA,
     content: [{ type: 'text', text: texto }],
     mensajeError: 'La IA devolvió una respuesta incompleta al leer el listado de precios.',
@@ -213,9 +219,17 @@ const TARIFA_IMPORT_PROMPT_PDF_EXTRA = 'Ignora cabeceras y pies de página repet
 
 // Hasta este nº de páginas, todo el PDF en una sola llamada. Más allá, se
 // trocea (ver trocearPdf) porque una sola llamada con un documento largo
-// pierde precisión y es más fácil que trunque la respuesta.
+// pierde precisión y es más fácil que trunque la respuesta. 2 páginas por
+// grupo por defecto (antes 5: seguía cortándose con catálogos densos); si
+// un grupo devuelve más de DENSIDAD_UMBRAL_PRODUCTOS, señal de catálogo
+// denso, los grupos siguientes bajan a 1 página.
 const PDF_MAX_PAGINAS_SIN_TROCEAR = 6;
-const PDF_PAGINAS_POR_GRUPO = 5;
+const PDF_PAGINAS_POR_GRUPO = 2;
+const DENSIDAD_UMBRAL_PRODUCTOS = 60;
+// Salvaguarda del reintento por bloques de 40 (ver extraerPaginaPorBloques):
+// nunca más de esta vueltas, para no encadenar llamadas sin fin si una
+// página está genuinamente rota.
+const MAX_BLOQUES_DE_40 = 6;
 
 // Exportadas (ver module.exports): backend/lib/escandallo.js las reutiliza
 // para la importación de escandallos desde PDF/foto — es la misma
@@ -226,21 +240,30 @@ async function contarPaginasPdf(buffer) {
   return doc.getPageCount();
 }
 
+// Recorta el PDF original a solo las páginas de `indices` (0-based). Se
+// parte siempre del buffer ORIGINAL, nunca de un recorte previo — así el
+// reintento inteligente (partir un grupo en dos mitades) puede recortar
+// cualquier rango de páginas sin arrastrar pérdidas de una recompresión
+// anterior.
+async function recortarPaginasPdf(buffer, indices) {
+  const doc = await PDFDocument.load(buffer);
+  const nuevo = await PDFDocument.create();
+  const paginas = await nuevo.copyPages(doc, indices);
+  paginas.forEach(p => nuevo.addPage(p));
+  return Buffer.from(await nuevo.save());
+}
+
 // Trocea un PDF en grupos de `paginasPorGrupo` páginas consecutivas,
 // devolviendo un PDF (buffer) independiente por grupo — pdf-lib es la única
 // librería del repo que sabe recortar páginas (pdfkit, ya presente, solo
 // genera PDFs nuevos, no edita uno existente).
 async function trocearPdf(buffer, paginasPorGrupo) {
-  const doc = await PDFDocument.load(buffer);
-  const total = doc.getPageCount();
+  const total = await contarPaginasPdf(buffer);
   const grupos = [];
   for (let inicio = 0; inicio < total; inicio += paginasPorGrupo) {
     const fin = Math.min(inicio + paginasPorGrupo, total);
-    const nuevo = await PDFDocument.create();
     const indices = Array.from({ length: fin - inicio }, (_, k) => inicio + k);
-    const paginas = await nuevo.copyPages(doc, indices);
-    paginas.forEach(p => nuevo.addPage(p));
-    grupos.push({ buffer: Buffer.from(await nuevo.save()), desde: inicio + 1, hasta: fin });
+    grupos.push({ buffer: await recortarPaginasPdf(buffer, indices), desde: inicio + 1, hasta: fin });
   }
   return grupos;
 }
@@ -259,11 +282,107 @@ async function extraerTarifaDeArchivoVisual(fileBlock, { proveedorContexto, esPd
       + `tarifa, usa este proveedor en vez de null.`;
   }
   return extraerJson({
-    maxTokens: 4096,
+    maxTokens: TARIFA_MAX_TOKENS,
     schema: TARIFA_IMPORT_SCHEMA,
     content: [fileBlock, { type: 'text', text: texto }],
     mensajeError: 'La IA devolvió una respuesta incompleta al leer el documento de tarifas.',
   });
+}
+
+// Último recurso cuando ni una sola página cabe en una respuesta (catálogo
+// realmente muy denso): se pide por bloques de 40 productos, cada vez
+// "los siguientes 40 a partir de <último producto>" para no repetir ni
+// saltarse nada, acumulando hasta que un bloque devuelva menos de 40 (la
+// página se agotó) o dos intentos seguidos fallen (se rinde con lo que
+// haya, nunca lanza "respuesta incompleta" al usuario).
+async function extraerPaginaPorBloques(paginaBuffer, { desde, proveedorContexto }) {
+  const productos = [];
+  const dudas = [];
+  const usage = { input_tokens: 0, output_tokens: 0 };
+  let ultimoProducto = null;
+
+  for (let vuelta = 1; vuelta <= MAX_BLOQUES_DE_40; vuelta++) {
+    let texto = `${TARIFA_IMPORT_PROMPT}\n${TARIFA_IMPORT_PROMPT_PDF_EXTRA}`;
+    if (proveedorContexto) texto += `\n\nProveedor ya detectado en una página anterior: "${proveedorContexto}".`;
+    texto += ultimoProducto
+      ? `\n\nEsta página es muy densa y ya se han extraído productos de ella. Devuelve SOLO los siguientes 40 `
+        + `productos a partir de "${ultimoProducto}" (sin repetirlo), en el mismo orden en que aparecen en la `
+        + `página. Si no quedan 40 más, devuelve los que falten.`
+      : '\n\nEsta página es muy densa. Devuelve SOLO los primeros 40 productos de la página, en el orden en que aparecen.';
+
+    let data, u;
+    try {
+      ({ data, usage: u } = await extraerJson({
+        maxTokens: TARIFA_MAX_TOKENS,
+        schema: TARIFA_IMPORT_SCHEMA,
+        content: [buildFileBlock(paginaBuffer, 'application/pdf'), { type: 'text', text: texto }],
+        mensajeError: 'La IA devolvió una respuesta incompleta al leer el documento de tarifas.',
+      }));
+    } catch (e) {
+      console.error(`[tarifas] página ${desde}, bloque de 40 nº${vuelta}: sigue cortándose (${e.message}) — se para con lo acumulado`);
+      break;
+    }
+
+    const nuevos = data.productos || [];
+    for (const d of (data.dudas || [])) dudas.push(d);
+    usage.input_tokens  += u?.input_tokens  || 0;
+    usage.output_tokens += u?.output_tokens || 0;
+    console.log(`[tarifas] página ${desde}, bloque de 40 nº${vuelta}: ${nuevos.length} producto(s), ${u?.output_tokens || 0} tokens de salida`);
+
+    if (!nuevos.length) break;
+    productos.push(...nuevos);
+    ultimoProducto = nuevos[nuevos.length - 1].producto;
+    if (nuevos.length < 40) break; // menos de 40 = la página ya no da más
+  }
+
+  return { productos, dudas, usage };
+}
+
+// Extrae un rango de páginas [desde, hasta] (1-based, inclusive) del PDF
+// ORIGINAL, con reintento inteligente: si extraerTarifaDeArchivoVisual
+// lanza (JSON truncado incluso tras su propio reintento interno), el rango
+// se parte en dos mitades y cada una se reintenta por separado — de forma
+// recursiva, hasta llegar a una sola página. Si una sola página aún se
+// corta, cae a extraerPaginaPorBloques(). Nunca deja escapar el error al
+// caller: siempre devuelve lo que haya podido extraer.
+async function extraerRangoPdfConReintento(buffer, { desde, hasta, totalPaginas, proveedorContexto, onProgreso }) {
+  const indices = Array.from({ length: hasta - desde + 1 }, (_, k) => desde - 1 + k);
+  const rangoBuffer = await recortarPaginasPdf(buffer, indices);
+
+  if (onProgreso) {
+    onProgreso(desde === 1 && hasta === totalPaginas
+      ? `Leyendo ${totalPaginas} página${totalPaginas !== 1 ? 's' : ''}…`
+      : `Leyendo páginas ${desde}-${hasta} de ${totalPaginas}`);
+  }
+
+  try {
+    const { data, usage } = await extraerTarifaDeArchivoVisual(
+      buildFileBlock(rangoBuffer, 'application/pdf'),
+      { proveedorContexto, esPdf: true }
+    );
+    const productos = data.productos || [];
+    const dudas = data.dudas || [];
+    console.log(`[tarifas] páginas ${desde}-${hasta}: ${productos.length} producto(s), ${usage?.output_tokens || 0} tokens de salida`);
+    return { productos, dudas, usage: usage || { input_tokens: 0, output_tokens: 0 } };
+  } catch (e) {
+    if (hasta > desde) {
+      const finPrimeraMitad = desde + Math.floor((hasta - desde + 1) / 2) - 1;
+      console.warn(`[tarifas] páginas ${desde}-${hasta} truncadas (${e.message}) — partiendo en ${desde}-${finPrimeraMitad} y ${finPrimeraMitad + 1}-${hasta}`);
+      const primera = await extraerRangoPdfConReintento(buffer, { desde, hasta: finPrimeraMitad, totalPaginas, proveedorContexto, onProgreso });
+      const contextoTrasPrimera = proveedorContexto || primera.productos.find(p => p.proveedor)?.proveedor || null;
+      const segunda = await extraerRangoPdfConReintento(buffer, { desde: finPrimeraMitad + 1, hasta, totalPaginas, proveedorContexto: contextoTrasPrimera, onProgreso });
+      return {
+        productos: [...primera.productos, ...segunda.productos],
+        dudas: [...primera.dudas, ...segunda.dudas],
+        usage: {
+          input_tokens:  primera.usage.input_tokens  + segunda.usage.input_tokens,
+          output_tokens: primera.usage.output_tokens + segunda.usage.output_tokens,
+        },
+      };
+    }
+    console.warn(`[tarifas] página ${desde} truncada (${e.message}) incluso sola — pidiendo por bloques de 40 productos`);
+    return extraerPaginaPorBloques(rangoBuffer, { desde, proveedorContexto });
+  }
 }
 
 async function extraerProductosDePdf(buffer, { onProgreso } = {}) {
@@ -272,32 +391,32 @@ async function extraerProductosDePdf(buffer, { onProgreso } = {}) {
   const dudas = [];
   const usage = { input_tokens: 0, output_tokens: 0 };
 
-  const grupos = totalPaginas <= PDF_MAX_PAGINAS_SIN_TROCEAR
-    ? [{ buffer, desde: 1, hasta: totalPaginas }]
-    : await trocearPdf(buffer, PDF_PAGINAS_POR_GRUPO);
-
   let proveedorContexto = null;
-  for (const grupo of grupos) {
-    if (onProgreso) {
-      onProgreso(grupos.length > 1
-        ? `Leyendo páginas ${grupo.desde}-${grupo.hasta} de ${totalPaginas}`
-        : `Leyendo ${totalPaginas} página${totalPaginas !== 1 ? 's' : ''}…`);
-    }
-    const { data, usage: u } = await extraerTarifaDeArchivoVisual(
-      buildFileBlock(grupo.buffer, 'application/pdf'),
-      { proveedorContexto, esPdf: true }
-    );
-    for (const p of (data.productos || [])) productos.push({ ...p, hoja: null });
-    for (const d of (data.dudas || [])) dudas.push({ ...d, hoja: null });
-    usage.input_tokens  += u?.input_tokens  || 0;
-    usage.output_tokens += u?.output_tokens || 0;
+  let paginasPorGrupo = totalPaginas <= PDF_MAX_PAGINAS_SIN_TROCEAR ? totalPaginas : PDF_PAGINAS_POR_GRUPO;
+  let inicio = 1;
 
-    // Solo se toma del PRIMER grupo — es el que más probablemente lleva la
-    // cabecera con el nombre del proveedor.
+  while (inicio <= totalPaginas) {
+    const fin = Math.min(inicio + paginasPorGrupo - 1, totalPaginas);
+    const r = await extraerRangoPdfConReintento(buffer, { desde: inicio, hasta: fin, totalPaginas, proveedorContexto, onProgreso });
+
+    for (const p of r.productos) productos.push({ ...p, hoja: null });
+    for (const d of r.dudas) dudas.push({ ...d, hoja: null });
+    usage.input_tokens  += r.usage.input_tokens;
+    usage.output_tokens += r.usage.output_tokens;
+
+    // Solo se toma mientras no haya uno ya fijado — el primer grupo con
+    // proveedor detectado es el que más probablemente lleva la cabecera.
     if (!proveedorContexto) {
-      const detectado = (data.productos || []).find(p => p.proveedor)?.proveedor;
+      const detectado = r.productos.find(p => p.proveedor)?.proveedor;
       if (detectado) proveedorContexto = detectado;
     }
+
+    // Catálogo denso (>60 productos en este grupo): de aquí en adelante,
+    // páginas sueltas — un grupo de 2 páginas sería casi tan denso como la
+    // que ya falló, mejor no repetir el mismo problema.
+    if (r.productos.length > DENSIDAD_UMBRAL_PRODUCTOS) paginasPorGrupo = 1;
+
+    inicio = fin + 1;
   }
 
   return { productos, dudas, usage };
