@@ -47,6 +47,7 @@
     .tarifa-sugerencia { font-size: 10.5px; color: var(--accent); margin-top: 3px; }
     .tarifa-unir-bar { display: flex; align-items: center; justify-content: space-between; gap: 10px; background: rgba(217,164,65,.08); border: 1px solid rgba(217,164,65,.3); border-radius: 12px; padding: 10px 12px; margin-bottom: 14px; font-size: 12px; color: var(--ambar); }
     .tarifa-unir-bar button { flex-shrink: 0; }
+    .tarifa-aviso-pocos { background: rgba(217,107,82,.08); border: 1px solid rgba(217,107,82,.3); border-radius: 12px; padding: 10px 12px; margin-bottom: 10px; font-size: 12px; color: var(--alert); }
 
     .tarifa-listado-item { padding: 12px 0; border-bottom: 1px solid var(--border); }
     .tarifa-listado-item:last-child { border-bottom: none; }
@@ -216,6 +217,7 @@ function renderPreview(preview) {
     ${renderDudasBlock(preview.dudas)}
     ${renderUnirProveedoresBar()}
     <div id="tarifa-grupos">${ordenGrupos.map(({ g, i }) => renderGrupoCard(g, i)).join('')}</div>
+    <div id="tarifa-confirmar-aviso"></div>
     <div class="tarifa-confirmar-bar">
       <button class="btn-drive" id="btn-confirmar-tarifas">Confirmar e importar</button>
       <button class="tarifa-btn-secondary" id="btn-cancelar-tarifas">Cancelar</button>
@@ -224,6 +226,36 @@ function renderPreview(preview) {
   document.getElementById('tarifas-upload-box').classList.add('hidden');
   document.getElementById('btn-confirmar-tarifas').addEventListener('click', confirmarTarifasUI);
   document.getElementById('btn-cancelar-tarifas').addEventListener('click', cancelarPreviewTarifas);
+  actualizarBarraConfirmar();
+}
+
+// Cuenta productos leídos/marcados en TODOS los grupos (no solo el que se
+// acaba de tocar) y refresca el texto del botón + el aviso de encima —
+// se llama tras cualquier cambio que pueda alterar qué queda marcado
+// (checkbox, "Marcar todos", añadir/quitar producto, comprobar compras).
+function contarProductosTarifas() {
+  let total = 0, marcados = 0;
+  for (const g of previewState.grupos) {
+    for (const p of g.productos) {
+      total++;
+      if (p.importar !== false) marcados++;
+    }
+  }
+  return { total, marcados };
+}
+
+function actualizarBarraConfirmar() {
+  const btn = document.getElementById('btn-confirmar-tarifas');
+  if (!btn || !previewState) return;
+  const { total, marcados } = contarProductosTarifas();
+  btn.textContent = `Confirmar e importar (${marcados} de ${total})`;
+
+  const aviso = document.getElementById('tarifa-confirmar-aviso');
+  if (!aviso) return;
+  const restantes = total - marcados;
+  aviso.innerHTML = (total > 0 && marcados < total / 2)
+    ? `<div class="tarifa-aviso-pocos">Solo se importarán los productos marcados. Los ${restantes} restante${restantes !== 1 ? 's' : ''} están en "No comprados hasta ahora".</div>`
+    : '';
 }
 
 // Un archivo debería dar un proveedor por defecto (ver TARIFA_IMPORT_PROMPT
@@ -347,18 +379,22 @@ function actualizarProducto(i, j, campo, valor) {
 function eliminarProducto(i, j) {
   previewState.grupos[i].productos.splice(j, 1);
   document.getElementById(`grupo-card-${i}`).outerHTML = renderGrupoCard(previewState.grupos[i], i);
+  actualizarBarraConfirmar();
 }
 function agregarProducto(i) {
   previewState.grupos[i].productos.push({ producto: '', unidad: '', precio: null, notas: '', importar: true });
   document.getElementById(`grupo-card-${i}`).outerHTML = renderGrupoCard(previewState.grupos[i], i);
+  actualizarBarraConfirmar();
 }
 function toggleImportarProducto(i, j, checked) {
   previewState.grupos[i].productos[j].importar = checked;
   document.getElementById(`grupo-card-${i}`).outerHTML = renderGrupoCard(previewState.grupos[i], i);
+  actualizarBarraConfirmar();
 }
 function marcarTodosComprados(i) {
   for (const p of previewState.grupos[i].productos) p.importar = true;
   document.getElementById(`grupo-card-${i}`).outerHTML = renderGrupoCard(previewState.grupos[i], i);
+  actualizarBarraConfirmar();
 }
 
 // Elegir un proveedor del desplegable: rellena NIF (de solo lectura) y
@@ -419,6 +455,7 @@ async function verificarComprasProveedor(i) {
       k++;
     }
     document.getElementById(`grupo-card-${i}`).outerHTML = renderGrupoCard(grupo, i);
+    actualizarBarraConfirmar();
   } catch (e) {
     console.error('[tarifas] verificarComprasProveedor:', e.message);
   }
