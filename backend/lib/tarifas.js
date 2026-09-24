@@ -1185,5 +1185,5 @@ module.exports = {
   extraerTarifasDeArchivo, confirmarTarifas, tarifaVigente, listarProveedores,
   calcularEstadoLinea, compararConTarifa, corregirEmparejamiento, primerDiaSiguienteMes,
   verificarProductosComprados, contarPaginasPdf, trocearPdf, corregirUnidadEnvase,
-  reasignarProveedorTarifa, eliminarTarifaProveedor,
+  reasignarProveedorTarifa, eliminarTarifaProveedor, extraerTamanoEnvase,
 };

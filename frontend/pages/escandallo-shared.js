@@ -24,9 +24,38 @@
     .esc-card-cifras { display: flex; flex-wrap: wrap; gap: 10px; font-size: 12px; color: var(--text); }
     .esc-margen-positivo { color: var(--ok); font-weight: 700; }
     .esc-margen-negativo { color: var(--alert); font-weight: 700; }
+    .esc-coste-linea { font-size: 10.5px; color: var(--muted); margin-top: 2px; }
+    .esc-coste-linea-sin-precio { color: var(--alert); }
+    .esc-card-alerta { border-color: var(--alert) !important; }
+    .esc-card-alerta-texto { color: var(--alert); font-weight: 700; font-size: 11px; margin-top: 6px; }
+    .esc-card-ingredientes { margin-top: 8px; border-top: 1px dashed var(--border); padding-top: 6px; }
+    .esc-card-ingrediente { font-size: 11px; color: var(--muted); padding: 2px 0; }
+    .esc-card-ingrediente-sin-precio { color: var(--alert); }
   `;
   document.head.appendChild(style);
 })();
+
+// Desglose de coste de una línea (cantidad, unidad, precio usado, origen y
+// coste), para que un ingrediente raro se note a simple vista tanto en la
+// tarjeta del plato como en el panel de edición — mismo dato
+// (backend/lib/escandallo.js listarEscandallo: coste/origen/precio_usado/
+// precio_unidad por ingrediente), dos presentaciones distintas.
+const ESC_ORIGEN_LABEL = { tarifa: 'tarifa', ultima_compra: 'última factura', sin_precio: 'sin precio' };
+
+function renderCosteLineaHtml(it) {
+  if (it.origen === 'sin_precio') {
+    return '<div class="esc-coste-linea esc-coste-linea-sin-precio">Sin precio — revisa las unidades</div>';
+  }
+  const precio = it.precio_usado != null ? `${eur(it.precio_usado)}/${esc(it.precio_unidad)}` : '';
+  const coste = it.coste != null ? eur(it.coste) : '—';
+  return `<div class="esc-coste-linea">${ESC_ORIGEN_LABEL[it.origen] || esc(it.origen)}${precio ? ` · ${precio}` : ''} → ${coste}</div>`;
+}
+
+function renderLineaCosteCompacta(ing) {
+  const sinPrecio = ing.origen === 'sin_precio';
+  const detalle = sinPrecio ? 'sin precio' : `${eur(ing.precio_usado)}/${esc(ing.precio_unidad)} → ${eur(ing.coste)}`;
+  return `<div class="esc-card-ingrediente ${sinPrecio ? 'esc-card-ingrediente-sin-precio' : ''}">${esc(ing.ingrediente)} — ${ing.cantidad}${esc(ing.unidad)} · ${detalle}</div>`;
+}
 
 // ── Editor de ingredientes (reutilizado en los tres flujos) ───────────────
 function crearEditorEscandallo({ containerId, nombre = '', precioCarta = null, ingredientes = [], onConfirmar, onEliminar, tituloAyuda }) {
@@ -42,6 +71,13 @@ function crearEditorEscandallo({ containerId, nombre = '', precioCarta = null, i
     // a mano: no necesita revisión. Con confianza = viene de /proponer,
     // arranca sin revisar y se queda en gris hasta que se toque o confirme.
     revisado: !i.confianza,
+    // Desglose de coste (solo presente al editar un plato ya guardado, ver
+    // GET /escandallo) — informativo, nunca editable directamente: se
+    // recalcula al confirmar según lo que quede escrito en cantidad/unidad.
+    coste: i.coste !== undefined ? i.coste : null,
+    origen: i.origen || null,
+    precio_usado: i.precio_usado ?? null,
+    precio_unidad: i.precio_unidad || null,
   }));
 
   function pasoParaUnidad(u) {
@@ -62,6 +98,7 @@ function crearEditorEscandallo({ containerId, nombre = '', precioCarta = null, i
         ${it.visible === false ? '<div class="esc-tag">no se ve en la foto</div>' : ''}
         ${it.confianza ? `<div class="esc-confianza-pill esc-confianza-pill-${it.confianza}">confianza ${it.confianza}</div>` : ''}
         ${it.nota ? `<div class="esc-nota">${esc(it.nota)}</div>` : ''}
+        ${it.origen ? renderCosteLineaHtml(it) : ''}
       </td>
       <td class="num">
         <div class="esc-cantidad-wrap">
@@ -386,8 +423,9 @@ function estadoCosteSufijo(estado) {
 
 function renderPlatoCard(p) {
   const margenClase = p.margen_eur == null ? '' : (p.margen_eur >= 0 ? 'esc-margen-positivo' : 'esc-margen-negativo');
+  const ingredientes = p.ingredientes || [];
   return `
-    <div class="card esc-card" onclick="abrirEditorExistenteEscandallo(${p.id})">
+    <div class="card esc-card ${p.alerta_unidades ? 'esc-card-alerta' : ''}" onclick="abrirEditorExistenteEscandallo(${p.id})">
       <div class="esc-card-titulo">${esc(p.nombre)}</div>
       <div class="esc-card-meta">${p.num_ingredientes} ingrediente${p.num_ingredientes !== 1 ? 's' : ''}</div>
       <div class="esc-card-cifras">
@@ -395,6 +433,8 @@ function renderPlatoCard(p) {
         <span>Carta: ${p.precio_carta != null ? eur(p.precio_carta) : '—'}</span>
         <span class="${margenClase}">Margen: ${p.margen_eur != null ? `${eur(p.margen_eur)} · ${p.margen_pct}%` : '—'}</span>
       </div>
+      ${p.alerta_unidades ? '<div class="esc-card-alerta-texto">⚠ Coste por encima del precio de carta — revisa las unidades</div>' : ''}
+      ${ingredientes.length ? `<div class="esc-card-ingredientes">${ingredientes.map(renderLineaCosteCompacta).join('')}</div>` : ''}
     </div>
   `;
 }

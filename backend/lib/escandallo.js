@@ -11,7 +11,7 @@ const { supabase } = require('./supabase');
 const { buildFileBlock, extraerJson } = require('./claude-json');
 const {
   normalizarTextoProducto, normalizarUnidad, convertirUnidad,
-  contarPaginasPdf, trocearPdf,
+  contarPaginasPdf, trocearPdf, extraerTamanoEnvase,
 } = require('./tarifas');
 const { parsearArchivoTabular, construirBloques, filasATexto } = require('./archivo-tabular');
 
@@ -275,7 +275,10 @@ async function preciosPactadosVigentes(cliente) {
       const norm = normalizarTextoProducto(p.producto);
       if (!norm) continue;
       if (!porProducto.has(norm)) porProducto.set(norm, []);
-      porProducto.get(norm).push({ unidad: normalizarUnidad(p.unidad), precio: Number(p.precio) });
+      // `producto` (el nombre tal cual) se conserva para detectar si el
+      // precio es en realidad de un envase/caja (ver precioFiableParaUnidad)
+      // aunque la unidad guardada no lo refleje.
+      porProducto.get(norm).push({ producto: p.producto, unidad: normalizarUnidad(p.unidad), precio: Number(p.precio) });
     }
   }
   return porProducto;
@@ -308,33 +311,58 @@ async function ultimosPreciosFacturados(cliente) {
     const fecha = fechaPorFactura.get(l.factura_id);
     const actual = porProducto.get(norm);
     if (!actual || fecha > actual.fecha) {
-      porProducto.set(norm, { fecha, unidad: normalizarUnidad(l.unidad), precio: Number(l.precio_unitario) });
+      porProducto.set(norm, { producto: l.producto, fecha, unidad: normalizarUnidad(l.unidad), precio: Number(l.precio_unitario) });
     }
   }
   return porProducto;
 }
 
+// Un precio de tarifa/factura NO es fiable para una receta en peso o
+// volumen (g, kg, ml, l) si el nombre del producto menciona un envase o
+// caja (70CL, PET, LATA, CAJA 12...) — puede ser el precio de un envase
+// entero mal etiquetado como €/g o €/ml (unidad desactualizada, o el
+// detector de envases de tarifas.js no llegó a corregirlo en su momento).
+// Sin este filtro, un fallo así puede disparar el coste estimado muy por
+// encima del precio de carta. En 'ud' no aplica: ahí sí tiene sentido
+// pagar por envase.
+function precioFiableParaUnidad(nombreProducto, unidadReceta) {
+  const esPesoOVolumen = ['g', 'kg', 'ml', 'l'].includes(unidadReceta);
+  if (!esPesoOVolumen) return true;
+  return !extraerTamanoEnvase(nombreProducto);
+}
+
 // Coste de una línea de escandallo: precio pactado (el más barato entre
 // proveedores que convierta a la unidad del escandallo) si hay; si no, el
 // último precio facturado convertido; si no, sin_precio (coste null).
+// SIEMPRE convierte la cantidad de la receta a la unidad del precio ANTES
+// de multiplicar (convertirUnidad) — si no son compatibles (ud vs kg, por
+// ejemplo) o el precio parece ser de un envase que no encaja con la unidad
+// de la receta, la línea queda sin_precio: nunca se multiplica en crudo.
 function costeLinea({ ingrediente_norm, cantidad, unidad }, preciosTarifa, preciosCompra) {
-  const candidatosTarifa = preciosTarifa.get(ingrediente_norm) || [];
-  let mejorCoste = null;
+  const candidatosTarifa = (preciosTarifa.get(ingrediente_norm) || [])
+    .filter(c => precioFiableParaUnidad(c.producto, unidad));
+
+  let mejor = null;
   for (const c of candidatosTarifa) {
     const cantidadEnUnidadTarifa = convertirUnidad(Number(cantidad), unidad, c.unidad);
-    if (cantidadEnUnidadTarifa == null) continue;
+    if (cantidadEnUnidadTarifa == null) continue; // no convertible: no se suma, ni se intenta
     const coste = cantidadEnUnidadTarifa * c.precio;
-    if (mejorCoste == null || coste < mejorCoste) mejorCoste = coste;
+    if (!mejor || coste < mejor.coste) mejor = { coste, precio_usado: c.precio, precio_unidad: c.unidad };
   }
-  if (mejorCoste != null) return { coste: mejorCoste, origen: 'tarifa' };
+  if (mejor) return { ...mejor, origen: 'tarifa' };
 
   const ultimaCompra = preciosCompra.get(ingrediente_norm);
-  if (ultimaCompra) {
+  if (ultimaCompra && precioFiableParaUnidad(ultimaCompra.producto, unidad)) {
     const cantidadEnUnidadCompra = convertirUnidad(Number(cantidad), unidad, ultimaCompra.unidad);
-    if (cantidadEnUnidadCompra != null) return { coste: cantidadEnUnidadCompra * ultimaCompra.precio, origen: 'ultima_compra' };
+    if (cantidadEnUnidadCompra != null) {
+      return {
+        coste: cantidadEnUnidadCompra * ultimaCompra.precio, origen: 'ultima_compra',
+        precio_usado: ultimaCompra.precio, precio_unidad: ultimaCompra.unidad,
+      };
+    }
   }
 
-  return { coste: null, origen: 'sin_precio' };
+  return { coste: null, origen: 'sin_precio', precio_usado: null, precio_unidad: null };
 }
 
 // GET /escandallo: platos con nº de ingredientes, precio de carta, coste
@@ -371,9 +399,13 @@ async function listarEscandallo(cliente) {
     let todosConPrecio = true;
 
     const detalle = ingredientes.map(ing => {
-      const { coste, origen } = costeLinea(ing, preciosTarifa, preciosCompra);
+      const { coste, origen, precio_usado, precio_unidad } = costeLinea(ing, preciosTarifa, preciosCompra);
       if (coste != null) { costeTotal += coste; algunoConPrecio = true; } else { todosConPrecio = false; }
-      return { ingrediente: ing.ingrediente, cantidad: Number(ing.cantidad), unidad: ing.unidad, coste, origen };
+      return {
+        ingrediente: ing.ingrediente, cantidad: Number(ing.cantidad), unidad: ing.unidad,
+        coste: coste != null ? Number(coste.toFixed(4)) : null, origen,
+        precio_usado, precio_unidad,
+      };
     });
 
     const estado_coste = !algunoConPrecio ? 'sin_precio' : (todosConPrecio ? 'completo' : 'parcial');
@@ -381,12 +413,17 @@ async function listarEscandallo(cliente) {
     const precioCarta = p.precio_carta != null ? Number(p.precio_carta) : null;
     const margen_eur = (precioCarta != null && coste_estimado != null) ? Number((precioCarta - coste_estimado).toFixed(2)) : null;
     const margen_pct = (margen_eur != null && precioCarta > 0) ? Number(((margen_eur / precioCarta) * 100).toFixed(1)) : null;
+    // Coste por encima del precio de carta casi siempre es un problema de
+    // unidades (receta y precio no compatibles, envase mal etiquetado...),
+    // no que el plato realmente pierda dinero así de mal — se marca para
+    // que salte a la vista en vez de perderse entre los demás platos.
+    const alerta_unidades = coste_estimado != null && precioCarta != null && coste_estimado > precioCarta;
 
     return {
       id: p.id, nombre: p.nombre, precio_carta: precioCarta,
       num_ingredientes: ingredientes.length,
       ingredientes: detalle,
-      coste_estimado, estado_coste, margen_eur, margen_pct,
+      coste_estimado, estado_coste, margen_eur, margen_pct, alerta_unidades,
     };
   });
 }
