@@ -162,7 +162,7 @@ function agruparPorProveedor(productos) {
   return [...grupos.values()];
 }
 
-async function extraerTarifasDeArchivo(buffer, filename) {
+async function extraerTarifasDeArchivo(buffer, filename, cliente) {
   const hojas = await parsearArchivoTabular(buffer, filename);
   const productos = [];
   const dudas = [];
@@ -183,7 +183,13 @@ async function extraerTarifasDeArchivo(buffer, filename) {
   // al confirmar, por si el usuario edita el valor en la vista previa.
   for (const p of productos) p.unidad = normalizarUnidad(p.unidad) || p.unidad;
 
-  return { grupos: agruparPorProveedor(productos), dudas, usage };
+  const { lista: proveedoresFacturados, productosPorProveedor } = await datosProveedoresFacturados(cliente);
+  const grupos = agruparPorProveedor(productos).map(g => ({
+    ...g,
+    sugerencia: sugerirProveedorParaGrupo(g, { lista: proveedoresFacturados, productosPorProveedor }),
+  }));
+
+  return { grupos, dudas, proveedores_facturados: proveedoresFacturados, usage };
 }
 
 // ── Cruce con compras ya registradas (vista previa de importación) ───────
@@ -249,6 +255,103 @@ async function verificarProductosComprados(cliente, { nif, productos } = {}) {
     tiene_historial: true,
     resultado: (productos || []).map(p => ({ producto: p, comprado: comprados.some(c => coincidenParcialmente(p, c)) })),
   };
+}
+
+// Valor más frecuente de una lista (ignora vacíos) — desempate por orden de
+// aparición. Para elegir el nombre/NIF "de cara" de un proveedor entre
+// varias facturas suyas, que rara vez vienen escritos exactamente igual.
+function masFrecuente(valores) {
+  const conteo = new Map();
+  for (const v of valores) {
+    if (!v) continue;
+    conteo.set(v, (conteo.get(v) || 0) + 1);
+  }
+  let mejor = null, mejorCount = 0;
+  for (const [v, c] of conteo) {
+    if (c > mejorCount) { mejor = v; mejorCount = c; }
+  }
+  return mejor;
+}
+
+// Todos los proveedores que el cliente ya tiene en sus facturas (con NIF),
+// más los productos comprados a cada uno — una sola pasada por
+// ${cliente}_facturas/_factura_lineas para armar el desplegable "Proveedor"
+// de la vista previa de importación y la sugerencia automática por
+// coincidencia de productos, en vez de una consulta por proveedor.
+async function datosProveedoresFacturados(cliente) {
+  const tablaFacturas = `${cliente}_facturas`;
+  const tablaLineas = `${cliente}_factura_lineas`;
+
+  const { data: facturas, error: errF } = await supabase
+    .from(tablaFacturas).select('id, proveedor, cif_proveedor').not('cif_proveedor', 'is', null);
+  if (errF) throw new Error(`${tablaFacturas}: ${errF.message}`);
+
+  const porNif = new Map(); // nifNorm -> { nifs: [], nombres: [], facturaIds: [] }
+  for (const f of facturas) {
+    const nifNorm = normalizarNif(f.cif_proveedor);
+    if (!nifNorm) continue;
+    if (!porNif.has(nifNorm)) porNif.set(nifNorm, { nifs: [], nombres: [], facturaIds: [] });
+    const entrada = porNif.get(nifNorm);
+    entrada.nifs.push(f.cif_proveedor);
+    if (f.proveedor) entrada.nombres.push(f.proveedor);
+    entrada.facturaIds.push(f.id);
+  }
+
+  const facturaAProveedor = new Map();
+  for (const [nifNorm, e] of porNif) for (const fid of e.facturaIds) facturaAProveedor.set(fid, nifNorm);
+
+  const todosLosIds = [...facturaAProveedor.keys()];
+  const { data: lineas, error: errL } = todosLosIds.length
+    ? await supabase.from(tablaLineas).select('factura_id, producto').in('factura_id', todosLosIds).not('producto', 'is', null)
+    : { data: [] };
+  if (errL) throw new Error(`${tablaLineas}: ${errL.message}`);
+
+  const productosPorProveedor = new Map(); // nifNorm -> string[]
+  for (const l of lineas) {
+    const nifNorm = facturaAProveedor.get(l.factura_id);
+    if (!nifNorm) continue;
+    if (!productosPorProveedor.has(nifNorm)) productosPorProveedor.set(nifNorm, []);
+    productosPorProveedor.get(nifNorm).push(l.producto);
+  }
+
+  const lista = [...porNif.entries()]
+    .map(([nifNorm, e]) => ({ nif_norm: nifNorm, nif: masFrecuente(e.nifs), nombre: masFrecuente(e.nombres) || nifNorm }))
+    .sort((a, b) => a.nombre.localeCompare(b.nombre));
+
+  return { lista, productosPorProveedor };
+}
+
+// Sugerencia de proveedor para un bloque de la vista previa de importación:
+// 1. Si la IA detectó un nombre de proveedor y coincide (normalizado) con
+//    uno ya facturado, se usa directamente — es la comprobación que pide
+//    el punto "incluso cuando se detecta", sin necesidad de comparar
+//    productos.
+// 2. Si no, se compara cada producto extraído contra los productos ya
+//    comprados a CADA proveedor facturado (misma coincidencia parcial de
+//    palabras que verificarProductosComprados) y se toma el proveedor con
+//    más coincidencias — solo si supera 2 productos; si no, no hay
+//    sugerencia y el desplegable queda vacío para que el usuario elija.
+function sugerirProveedorParaGrupo(grupo, { lista, productosPorProveedor }) {
+  if (grupo.proveedor_detectado) {
+    const nombreNorm = normalizarTextoProducto(grupo.proveedor_detectado);
+    const porNombre = lista.find(p => normalizarTextoProducto(p.nombre) === nombreNorm);
+    if (porNombre) return { nif_norm: porNombre.nif_norm, tipo: 'nombre', coincidencias: null };
+  }
+
+  const nombresProductos = (grupo.productos || []).map(p => p.producto).filter(Boolean);
+  if (!nombresProductos.length) return null;
+
+  let mejor = null;
+  for (const proveedor of lista) {
+    const comprados = productosPorProveedor.get(proveedor.nif_norm);
+    if (!comprados || !comprados.length) continue;
+    const coincidencias = nombresProductos.filter(p => comprados.some(c => coincidenParcialmente(p, c))).length;
+    if (coincidencias > 0 && (!mejor || coincidencias > mejor.coincidencias)) {
+      mejor = { nif_norm: proveedor.nif_norm, coincidencias };
+    }
+  }
+  if (mejor && mejor.coincidencias > 2) return { nif_norm: mejor.nif_norm, tipo: 'productos', coincidencias: mejor.coincidencias };
+  return null;
 }
 
 // ── Persistencia ─────────────────────────────────────────────────────────

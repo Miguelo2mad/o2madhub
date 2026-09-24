@@ -20,7 +20,7 @@ function createTarifasRouter({ cliente, requireAuth, requireRole }) {
   router.post('/tarifas/importar', requireAuth, requireRole('gestor', 'admin'), upload.single('archivo'), async (req, res) => {
     if (!req.file) return res.status(400).json({ error: 'Se requiere un archivo en el campo "archivo"' });
     try {
-      const preview = await tarifasLib.extraerTarifasDeArchivo(req.file.buffer, req.file.originalname);
+      const preview = await tarifasLib.extraerTarifasDeArchivo(req.file.buffer, req.file.originalname, cliente);
       console.log(`[tarifas:${cliente}] preview ${req.file.originalname}: ${preview.grupos.length} grupo(s), ${preview.dudas.length} duda(s)`);
       res.json({ ok: true, origen_archivo: req.file.originalname, ...preview });
     } catch (e) {

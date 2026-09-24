@@ -39,6 +39,12 @@
     .tarifa-no-comprados summary { cursor: pointer; font-size: 12px; color: var(--muted); display: flex; align-items: center; justify-content: space-between; gap: 8px; list-style: none; }
     .tarifa-no-comprados summary::-webkit-details-marker { display: none; }
     .btn-marcar-todos { background: transparent; border: 1px solid var(--border); color: var(--accent); border-radius: 8px; padding: 4px 8px; font-size: 11px; cursor: pointer; }
+    .tarifa-proveedor-elegido, .tarifa-proveedor-nuevo { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 12px; align-items: start; margin-bottom: 8px; }
+    .tarifa-proveedor-elegido .field, .tarifa-proveedor-nuevo .field { margin-bottom: 0; }
+    .tarifa-proveedor-elegido select { width: 100%; background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; color: var(--text); font-size: 13px; padding: 7px 9px; }
+    .tarifa-proveedor-elegido input[readonly] { opacity: .7; }
+    .tarifa-proveedor-toggle { grid-column: 1 / -1; font-size: 11px; color: var(--accent); text-decoration: none; }
+    .tarifa-sugerencia { font-size: 10.5px; color: var(--accent); margin-top: 3px; }
 
     .tarifa-listado-item { padding: 12px 0; border-bottom: 1px solid var(--border); }
     .tarifa-listado-item:last-child { border-bottom: none; }
@@ -102,21 +108,45 @@ async function subirArchivoTarifa(file) {
   }
 }
 
-// Prioridad visual: dudas primero, luego los grupos sin proveedor detectado,
+// Prioridad visual: dudas primero, luego los grupos sin proveedor elegido,
 // por último el resto — el usuario tiene que ver de un vistazo qué necesita
 // su atención antes de confirmar, si no confirma sin mirar.
 function renderPreview(preview) {
   previewState = preview;
-  // Sin comprobar aún contra las facturas del proveedor (eso llega al
-  // fijar el NIF, ver verificarComprasProveedor): todo marcado por
-  // defecto, igual que el comportamiento de siempre.
+  previewState.proveedores_facturados = preview.proveedores_facturados || [];
+  const hayProveedoresFacturados = previewState.proveedores_facturados.length > 0;
+
   for (const g of previewState.grupos) {
+    // Sin comprobar aún contra las facturas del proveedor elegido (eso
+    // llega al fijar uno, ver verificarComprasProveedor): todo marcado por
+    // defecto, igual que el comportamiento de siempre.
     for (const p of (g.productos || [])) if (p.importar === undefined) p.importar = true;
+
+    g.nif = '';
+    g.nombre = g.proveedor_detectado || '';
+    g.proveedor_nif_norm = '';
+    g.sugerencia_label = null;
+    // Sin ningún proveedor facturado todavía en este cliente, el
+    // desplegable no serviría de nada — se entra directo en modo "proveedor
+    // nuevo" con NIF/nombre editables, como el comportamiento de siempre.
+    g.modo_nuevo = !hayProveedoresFacturados;
+
+    if (g.sugerencia) {
+      const elegido = previewState.proveedores_facturados.find(p => p.nif_norm === g.sugerencia.nif_norm);
+      if (elegido) {
+        g.nif = elegido.nif;
+        g.nombre = elegido.nombre;
+        g.proveedor_nif_norm = elegido.nif_norm;
+        if (g.sugerencia.tipo === 'productos') {
+          g.sugerencia_label = `Sugerido: coincide con ${g.sugerencia.coincidencias} producto${g.sugerencia.coincidencias !== 1 ? 's' : ''} de sus facturas`;
+        }
+      }
+    }
   }
 
   const ordenGrupos = preview.grupos
     .map((g, i) => ({ g, i }))
-    .sort((a, b) => (a.g.proveedor_detectado ? 1 : 0) - (b.g.proveedor_detectado ? 1 : 0));
+    .sort((a, b) => (a.g.nif ? 1 : 0) - (b.g.nif ? 1 : 0));
 
   document.getElementById('tarifas-preview').innerHTML = `
     ${renderDudasBlock(preview.dudas)}
@@ -143,7 +173,7 @@ function renderDudasBlock(dudas) {
 }
 
 function renderGrupoCard(g, i) {
-  const sinProveedor = !g.proveedor_detectado;
+  const sinProveedor = !g.nif;
   const productos = g.productos || [];
   const conIndice = productos.map((p, j) => ({ p, j }));
   const comprados = conIndice.filter(({ p }) => p.importar !== false);
@@ -151,11 +181,10 @@ function renderGrupoCard(g, i) {
 
   return `<div class="tarifa-grupo-card ${sinProveedor ? 'sin-proveedor' : ''}" id="grupo-card-${i}">
     <div class="tarifa-grupo-header">
-      ${sinProveedor ? '<span class="badge badge-alert">❓ Proveedor no detectado</span>' : ''}
+      ${sinProveedor ? '<span class="badge badge-alert">❓ Elige un proveedor</span>' : ''}
       ${g.hoja ? `<span class="tarifa-hoja-tag">Hoja: ${esc(g.hoja)}</span>` : ''}
+      ${renderCampoProveedor(g, i)}
       <div class="tarifa-grupo-fields">
-        <div class="field"><label>NIF *</label><input type="text" placeholder="B12345678" value="${esc(g.nif || '')}" oninput="actualizarGrupoCampo(${i}, 'nif', this.value)" onchange="verificarComprasProveedor(${i})"></div>
-        <div class="field"><label>Nombre proveedor</label><input type="text" value="${esc(g.nombre ?? g.proveedor_detectado ?? '')}" oninput="actualizarGrupoCampo(${i}, 'nombre', this.value)"></div>
         <div class="field"><label>Nombre tarifa (opcional)</label><input type="text" placeholder="Temporada 2027" value="${esc(g.nombre_tarifa || '')}" oninput="actualizarGrupoCampo(${i}, 'nombre_tarifa', this.value)"></div>
         <div class="field"><label>Vigente desde</label><input type="date" value="${g.vigente_desde || new Date().toISOString().slice(0,10)}" oninput="actualizarGrupoCampo(${i}, 'vigente_desde', this.value)"></div>
       </div>
@@ -167,6 +196,36 @@ function renderGrupoCard(g, i) {
     </table>
     <button class="btn-add-producto" onclick="agregarProducto(${i})">+ Añadir producto</button>
     ${noComprados.length ? renderNoCompradosBlock(i, noComprados) : ''}
+  </div>`;
+}
+
+// Desplegable con los proveedores ya facturados por el cliente (nombre +
+// NIF, sacados de cif_proveedor/proveedor en ${cliente}_facturas — ver
+// backend/lib/tarifas.js datosProveedoresFacturados), o el par NIF/nombre
+// editable de siempre para un proveedor nuevo sin facturas todavía.
+function renderCampoProveedor(g, i) {
+  if (g.modo_nuevo) {
+    return `<div class="tarifa-proveedor-nuevo">
+      <div class="field"><label>NIF *</label><input type="text" placeholder="B12345678" value="${esc(g.nif || '')}" oninput="actualizarGrupoCampo(${i}, 'nif', this.value)" onchange="verificarComprasProveedor(${i})"></div>
+      <div class="field"><label>Nombre proveedor</label><input type="text" value="${esc(g.nombre || '')}" oninput="actualizarGrupoCampo(${i}, 'nombre', this.value)"></div>
+      ${(previewState.proveedores_facturados || []).length
+        ? `<a href="#" class="tarifa-proveedor-toggle" onclick="event.preventDefault(); volverAListaProveedores(${i})">← Elegir de la lista de proveedores facturados</a>`
+        : ''}
+    </div>`;
+  }
+
+  const opciones = previewState.proveedores_facturados || [];
+  return `<div class="tarifa-proveedor-elegido">
+    <div class="field">
+      <label>Proveedor *</label>
+      <select onchange="elegirProveedor(${i}, this.value)">
+        <option value="" ${!g.proveedor_nif_norm ? 'selected' : ''}>Elegir proveedor…</option>
+        ${opciones.map(p => `<option value="${esc(p.nif_norm)}" ${p.nif_norm === g.proveedor_nif_norm ? 'selected' : ''}>${esc(p.nombre)} (${esc(p.nif)})</option>`).join('')}
+      </select>
+      ${g.sugerencia_label ? `<div class="tarifa-sugerencia">${esc(g.sugerencia_label)}</div>` : ''}
+    </div>
+    <div class="field"><label>NIF</label><input type="text" value="${esc(g.nif || '')}" readonly></div>
+    <a href="#" class="tarifa-proveedor-toggle" onclick="event.preventDefault(); activarProveedorNuevo(${i})">Es un proveedor nuevo</a>
   </div>`;
 }
 
@@ -214,6 +273,36 @@ function marcarTodosComprados(i) {
   document.getElementById(`grupo-card-${i}`).outerHTML = renderGrupoCard(previewState.grupos[i], i);
 }
 
+// Elegir un proveedor del desplegable: rellena NIF (de solo lectura) y
+// nombre, y relanza la comprobación de qué productos ya se le han comprado
+// a ESE proveedor exacto (no al sugerido, si eran distintos).
+function elegirProveedor(i, nifNorm) {
+  const grupo = previewState.grupos[i];
+  const elegido = (previewState.proveedores_facturados || []).find(p => p.nif_norm === nifNorm);
+  grupo.proveedor_nif_norm = elegido ? elegido.nif_norm : '';
+  grupo.nif = elegido ? elegido.nif : '';
+  grupo.nombre = elegido ? elegido.nombre : (grupo.proveedor_detectado || '');
+  grupo.sugerencia_label = null;
+  document.getElementById(`grupo-card-${i}`).outerHTML = renderGrupoCard(grupo, i);
+  if (elegido) verificarComprasProveedor(i);
+}
+
+// "Es un proveedor nuevo": vuelve a NIF/nombre editables para un proveedor
+// sin facturas todavía. Conserva lo que hubiera como punto de partida.
+function activarProveedorNuevo(i) {
+  const grupo = previewState.grupos[i];
+  grupo.modo_nuevo = true;
+  grupo.proveedor_nif_norm = '';
+  grupo.sugerencia_label = null;
+  document.getElementById(`grupo-card-${i}`).outerHTML = renderGrupoCard(grupo, i);
+}
+
+function volverAListaProveedores(i) {
+  const grupo = previewState.grupos[i];
+  grupo.modo_nuevo = false;
+  document.getElementById(`grupo-card-${i}`).outerHTML = renderGrupoCard(grupo, i);
+}
+
 // Al fijar (blur/commit) el NIF de un grupo: cruza sus productos contra las
 // facturas ya subidas de ese proveedor (backend/lib/tarifas.js
 // verificarProductosComprados — normalizarTextoProducto + coincidencia
@@ -254,11 +343,14 @@ async function confirmarTarifasUI() {
   const grupos = previewState.grupos
     .map(g => ({ ...g, productos: g.productos.filter(p => p.importar !== false) }))
     .filter(g => g.productos.length > 0);
-  for (const g of grupos) {
-    if (!g.nif || !g.nif.trim()) {
-      alert(`Falta el NIF del proveedor para el grupo "${g.nombre || g.proveedor_detectado || g.hoja || '(sin nombre)'}"`);
-      return;
-    }
+  // Un bloque solo se confirma con un proveedor elegido (desplegable o
+  // modo "proveedor nuevo" con NIF puesto) — se avisa de TODOS los que
+  // faltan de una vez, no solo del primero.
+  const faltantes = grupos.filter(g => !g.nif || !g.nif.trim());
+  if (faltantes.length) {
+    const nombres = faltantes.map(g => g.nombre || g.proveedor_detectado || g.hoja || '(sin nombre)').join(', ');
+    alert(`Elige un proveedor para: ${nombres}`);
+    return;
   }
   const btn = document.getElementById('btn-confirmar-tarifas');
   btn.disabled = true;
