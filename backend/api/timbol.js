@@ -14,6 +14,7 @@ const ventasLib = require('../lib/ventas');
 const resumenLib = require('../lib/resumen-analisis');
 const resumenPendientesLib = require('../lib/resumen-pendientes');
 const { createInventarioRouter } = require('./inventario');
+const { createEscandalloRouter } = require('./escandallo');
 const { createBancoRouter } = require('./banco');
 const { createChecklistsRouter } = require('./checklists');
 const { createGastosPersonalRouter } = require('./gastos-personal');
@@ -88,6 +89,10 @@ router.use(createVentasRouter({ cliente: 'timbol', requireAuth, requireRole }));
 // Inventario estimado — módulo reutilizable (ver backend/api/inventario.js).
 // Sin prefijo: las rutas ya incluyen /inventario.
 router.use(createInventarioRouter({ cliente: 'timbol', requireAuth, requireRole }));
+
+// Escandallo asistido — módulo reutilizable (ver backend/api/escandallo.js).
+// Sin prefijo: las rutas ya incluyen /escandallo.
+router.use(createEscandalloRouter({ cliente: 'timbol', requireAuth, requireRole }));
 
 // Banco — módulo reutilizable (ver backend/api/banco.js).
 // Sin prefijo: las rutas ya incluyen /banco y /analytics/banco-resumen.
