@@ -5,6 +5,12 @@
 alter table public.platos
   add column if not exists precio_carta numeric(10, 2);
 
+-- Ya existe desde 042, pero el ON CONFLICT (cliente, nombre_norm) de
+-- confirmar_escandallo() necesita esta unique constraint para funcionar —
+-- se repite aquí (idempotente) para que esta migración sea autocontenida.
+create unique index if not exists platos_cliente_nombre_norm_idx
+  on public.platos (cliente, nombre_norm);
+
 -- Upsert de un plato + reemplazo completo de sus líneas de escandallo en
 -- UNA transacción real: el cliente Supabase-JS del backend no tiene
 -- transacciones multi-tabla, así que esto vive en una función de Postgres
