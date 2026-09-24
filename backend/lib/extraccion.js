@@ -104,11 +104,12 @@ function construirPromptFactura(numPaginas) {
 }
 
 // Generoso a propósito: el desglose de líneas + los campos de clasificación
-// puede superar fácilmente el límite anterior (1024) y truncar el JSON a
-// mitad — origen del bug "Unexpected end of JSON input" visto en producción.
-// Una factura de varias páginas puede tener bastantes más líneas, de ahí
-// el margen extra frente al de una sola página.
-const MAX_TOKENS = 6144;
+// puede superar fácilmente el límite anterior y truncar el JSON a mitad —
+// origen del bug "Unexpected end of JSON input" visto en producción, y del
+// mismo problema en tarifas.js con catálogos densos (ver ese commit). Una
+// factura de varias páginas o con muchas líneas puede necesitar bastante
+// más que el límite anterior (6144), de ahí subirlo a 16000 aquí también.
+const MAX_TOKENS = 16000;
 
 const FECHA_NUMERO_SCHEMA = {
   type: 'object',
@@ -139,7 +140,7 @@ async function reintentarFechaYNumero(archivos, data) {
   const fileBlocks = archivos.map(a => buildFileBlock(a.buffer, a.mimeType));
   try {
     const { data: extra } = await extraerJson({
-      maxTokens: 512,
+      maxTokens: MAX_TOKENS,
       schema: FECHA_NUMERO_SCHEMA,
       content: [...fileBlocks, { type: 'text', text: FECHA_NUMERO_PROMPT }],
       mensajeError: 'reintento de fecha/número incompleto',
