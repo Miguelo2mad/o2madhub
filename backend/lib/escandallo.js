@@ -10,6 +10,7 @@
 const { supabase } = require('./supabase');
 const { buildFileBlock, extraerJson } = require('./claude-json');
 const { normalizarTextoProducto, normalizarUnidad, convertirUnidad } = require('./tarifas');
+const { parsearArchivoTabular, construirBloques, filasATexto } = require('./archivo-tabular');
 
 const DIAS_HISTORICO_COMPRAS = 90;
 const MAX_EJEMPLOS = 8;
@@ -387,6 +388,150 @@ async function listarEscandallo(cliente) {
   });
 }
 
+// ── Importación desde Excel ──────────────────────────────────────────────
+// Plantilla con dos hojas: "Platos" (nombre, precio_carta) y "Escandallo"
+// (plato, ingrediente, cantidad, unidad). Un CSV solo trae una hoja sin
+// nombre — se trata como "Escandallo" sola, sin precio de carta.
+const PLATO_IMPORT_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    platos: {
+      type: 'array',
+      items: {
+        type: 'object', additionalProperties: false,
+        properties: { nombre: { type: 'string' }, precio_carta: { type: ['number', 'null'] } },
+        required: ['nombre', 'precio_carta'],
+      },
+    },
+    dudas: {
+      type: 'array',
+      items: {
+        type: 'object', additionalProperties: false,
+        properties: { fila: { type: 'string' }, motivo: { type: 'string' } },
+        required: ['fila', 'motivo'],
+      },
+    },
+  },
+  required: ['platos', 'dudas'],
+};
+
+const PLATO_IMPORT_PROMPT = 'Esta es la hoja "Platos" de una plantilla de escandallo, en formato libre. '
+  + 'Devuelve SOLO un JSON: { platos: [{ nombre, precio_carta }], dudas: [{ fila, motivo }] }\n'
+  + '- Detecta tú la fila de cabecera; puede no ser la primera.\n'
+  + '- precio_carta en EUR, o null si no aparece.\n'
+  + '- Cualquier fila que no puedas interpretar va a dudas, no la inventes.';
+
+const ESCANDALLO_IMPORT_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    lineas: {
+      type: 'array',
+      items: {
+        type: 'object', additionalProperties: false,
+        properties: {
+          plato:       { type: 'string' },
+          ingrediente: { type: 'string' },
+          cantidad:    { type: 'number' },
+          unidad:      { type: 'string', description: 'kg | g | l | ml | ud | caja | pack | docena' },
+        },
+        required: ['plato', 'ingrediente', 'cantidad', 'unidad'],
+      },
+    },
+    dudas: {
+      type: 'array',
+      items: {
+        type: 'object', additionalProperties: false,
+        properties: { fila: { type: 'string' }, motivo: { type: 'string' } },
+        required: ['fila', 'motivo'],
+      },
+    },
+  },
+  required: ['lineas', 'dudas'],
+};
+
+const ESCANDALLO_IMPORT_PROMPT = 'Esta es la hoja "Escandallo" de una plantilla de recetas de un restaurante, '
+  + 'en formato libre: cada fila es un ingrediente de un plato. Devuelve SOLO un JSON: '
+  + '{ lineas: [{ plato, ingrediente, cantidad, unidad }], dudas: [{ fila, motivo }] }\n'
+  + '- Detecta tú la fila de cabecera; puede no ser la primera.\n'
+  + '- plato es el nombre del plato al que pertenece esa línea (puede repetirse en varias filas seguidas).\n'
+  + '- Normaliza unidad a: kg, g, l, ml, ud, caja, pack, docena.\n'
+  + '- Cualquier fila que no puedas interpretar va a dudas, no la inventes.';
+
+async function extraerBloquePlatos(textoTabular) {
+  return extraerJson({
+    maxTokens: 2048,
+    schema: PLATO_IMPORT_SCHEMA,
+    content: [{ type: 'text', text: `${PLATO_IMPORT_PROMPT}\n\n${textoTabular}` }],
+    mensajeError: 'La IA devolvió una respuesta incompleta al leer la hoja de Platos.',
+  });
+}
+
+async function extraerBloqueEscandallo(textoTabular) {
+  return extraerJson({
+    maxTokens: 4096,
+    schema: ESCANDALLO_IMPORT_SCHEMA,
+    content: [{ type: 'text', text: `${ESCANDALLO_IMPORT_PROMPT}\n\n${textoTabular}` }],
+    mensajeError: 'La IA devolvió una respuesta incompleta al leer la hoja de Escandallo.',
+  });
+}
+
+async function extraerEscandallosDeArchivo(buffer, filename) {
+  const hojas = await parsearArchivoTabular(buffer, filename);
+
+  const platosInfo = [];
+  const lineasInfo = [];
+  const dudas = [];
+
+  for (const hoja of hojas) {
+    const esHojaPlatos = !!(hoja.hoja && /platos/i.test(hoja.hoja));
+    for (const bloque of construirBloques(hoja.filas)) {
+      const texto = filasATexto(bloque);
+      if (esHojaPlatos) {
+        const { data } = await extraerBloquePlatos(texto);
+        for (const p of (data.platos || [])) platosInfo.push(p);
+        for (const d of (data.dudas || [])) dudas.push({ ...d, hoja: hoja.hoja });
+      } else {
+        const { data } = await extraerBloqueEscandallo(texto);
+        for (const l of (data.lineas || [])) lineasInfo.push(l);
+        for (const d of (data.dudas || [])) dudas.push({ ...d, hoja: hoja.hoja || 'Escandallo' });
+      }
+    }
+  }
+
+  const precioCartaPorNorm = new Map(platosInfo.map(p => [normalizarTextoProducto(p.nombre), p.precio_carta]));
+
+  const grupos = new Map(); // nombre_norm -> { nombre, precio_carta, ingredientes }
+  for (const l of lineasInfo) {
+    const norm = normalizarTextoProducto(l.plato);
+    if (!norm) { dudas.push({ fila: JSON.stringify(l), motivo: 'Fila de escandallo sin nombre de plato', hoja: 'Escandallo' }); continue; }
+    if (!grupos.has(norm)) {
+      grupos.set(norm, {
+        nombre: l.plato,
+        precio_carta: precioCartaPorNorm.has(norm) ? precioCartaPorNorm.get(norm) : null,
+        ingredientes: [],
+      });
+    }
+    grupos.get(norm).ingredientes.push({
+      ingrediente: l.ingrediente,
+      cantidad: l.cantidad,
+      unidad: normalizarUnidad(l.unidad) || l.unidad,
+    });
+  }
+
+  // Platos de la hoja "Platos" sin ninguna línea en "Escandallo" — se
+  // muestran igual, vacíos, para completarlos a mano en vez de que
+  // desaparezcan en silencio.
+  for (const p of platosInfo) {
+    const norm = normalizarTextoProducto(p.nombre);
+    if (!grupos.has(norm)) grupos.set(norm, { nombre: p.nombre, precio_carta: p.precio_carta, ingredientes: [] });
+  }
+
+  return { platos: [...grupos.values()], dudas };
+}
+
 module.exports = {
-  proponerEscandallo, confirmarEscandallo, actualizarPlato, borrarPlato, listarEscandallo,
+  proponerEscandallo, confirmarEscandallo, actualizarPlato, borrarPlato,
+  listarEscandallo, extraerEscandallosDeArchivo,
 };

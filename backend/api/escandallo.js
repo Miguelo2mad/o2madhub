@@ -80,7 +80,20 @@ function createEscandalloRouter({ cliente, requireAuth, requireRole }) {
     }
   });
 
-  // POST /escandallo/importar se añade en el siguiente commit (importación).
+  // POST /escandallo/importar — xlsx/csv (plantilla con hojas "Platos" y
+  // "Escandallo"). Devuelve VISTA PREVIA agrupada por plato; no guarda
+  // nada. Cada grupo se confirma aparte contra POST /escandallo/confirmar.
+  router.post('/escandallo/importar', requireAuth, requireRole('gestor', 'admin'), upload.single('archivo'), async (req, res) => {
+    if (!req.file) return res.status(400).json({ error: 'Se requiere un archivo en el campo "archivo"' });
+    try {
+      const preview = await escandalloLib.extraerEscandallosDeArchivo(req.file.buffer, req.file.originalname);
+      console.log(`[escandallo:${cliente}] preview ${req.file.originalname}: ${preview.platos.length} plato(s), ${preview.dudas.length} duda(s)`);
+      res.json({ ok: true, ...preview });
+    } catch (e) {
+      console.error(`[escandallo:${cliente}] importar error:`, e.message);
+      res.status(500).json({ error: e.message });
+    }
+  });
 
   return router;
 }
