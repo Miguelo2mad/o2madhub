@@ -12,6 +12,7 @@ const { PDFDocument } = require('pdf-lib');
 const { supabase } = require('./supabase');
 const { extraerJson, buildFileBlock } = require('./claude-json');
 const { parsearArchivoTabular, construirBloques, filasATexto } = require('./archivo-tabular');
+const { ensureFolderPath, uploadFile } = require('./google');
 
 // NIF/CIF de proveedor: "B-12345678", "ES B12345678", "b12345678", con o
 // sin espacios, todos deben normalizar al mismo valor para que el join con
@@ -685,13 +686,52 @@ async function buscarOCrearProveedor(cliente, nif, nombre) {
   return { proveedor: creado, creado: true };
 }
 
+// ── Trazabilidad del archivo de origen ───────────────────────────────────
+function detectarOrigenTipo(filename, mimeType) {
+  const ext = (filename || '').toLowerCase().split('.').pop();
+  if (mimeType === 'application/pdf' || ext === 'pdf') return 'pdf';
+  if ((mimeType && mimeType.startsWith('image/')) || ['jpg', 'jpeg', 'png'].includes(ext)) return 'imagen';
+  if (ext === 'csv') return 'csv';
+  return 'xlsx';
+}
+
+// Sube el archivo de tarifa original a Drive en cliente/tarifas/AAAA-MM/ —
+// mismo árbol que checklist-fotos.js/gastos-personal.js (cliente/<módulo>/
+// AAAA-MM/), no el de facturas. `mes` es el mes de vigente_desde del
+// primer grupo del confirm (o el mes actual si no hay ninguno) — el mismo
+// archivo puede dar varios grupos/proveedores en un solo /confirmar, así
+// que se sube UNA vez y todos comparten el mismo origen_drive_id.
+async function subirArchivoOrigenTarifa(cliente, mes, { buffer, mimeType, nombre }) {
+  const folderId = await ensureFolderPath([cliente, 'tarifas', mes]);
+  const safeName = (nombre || `tarifa-${Date.now()}`).replace(/[/\\:*?"<>|]/g, '-');
+  return uploadFile(safeName, buffer, folderId, mimeType || 'application/octet-stream');
+}
+
 // Guarda una tarifa nueva por proveedor: cierra la anterior (vigente_hasta
 // = el día antes de que empiece esta) sin borrarla, crea la tarifa y sus
 // productos. No hay transacción entre proveedores de un mismo /confirmar —
 // si uno falla a mitad, los anteriores ya guardados quedan guardados; el
 // backend corta y reporta el error, el usuario puede reintentar el resto.
-async function confirmarTarifas(cliente, grupos, origenArchivo) {
+// `archivoOriginal` es opcional: { buffer, mimeType } del archivo tal cual
+// se subió — si viene, se guarda una vez en Drive y todas las tarifas de
+// este confirm comparten el mismo origen_drive_id/origen_tipo.
+async function confirmarTarifas(cliente, grupos, origenArchivo, archivoOriginal) {
   const resumen = { proveedores_creados: 0, proveedores_existentes: 0, tarifas_creadas: 0, productos_guardados: 0 };
+
+  let origenDriveId = null;
+  let origenTipo = null;
+  if (archivoOriginal && archivoOriginal.buffer) {
+    origenTipo = detectarOrigenTipo(origenArchivo, archivoOriginal.mimeType);
+    const primerVigenteDesde = grupos.find(g => g.vigente_desde)?.vigente_desde || new Date().toISOString().slice(0, 10);
+    try {
+      const subido = await subirArchivoOrigenTarifa(cliente, primerVigenteDesde.slice(0, 7), {
+        buffer: archivoOriginal.buffer, mimeType: archivoOriginal.mimeType, nombre: origenArchivo,
+      });
+      origenDriveId = subido.id;
+    } catch (e) {
+      console.error('[tarifas] no se pudo subir el archivo de origen a Drive, se guarda sin enlace:', e.message);
+    }
+  }
 
   for (const grupo of grupos) {
     if (!Array.isArray(grupo.productos) || !grupo.productos.length) continue;
@@ -717,6 +757,8 @@ async function confirmarTarifas(cliente, grupos, origenArchivo) {
         nombre: grupo.nombre_tarifa || null,
         vigente_desde: vigenteDesde,
         origen_archivo: origenArchivo || null,
+        origen_drive_id: origenDriveId,
+        origen_tipo: origenTipo,
       })
       .select().single();
     if (errTarifa) throw new Error(`Supabase (crear tarifa de ${grupo.nif}): ${errTarifa.message}`);
@@ -773,7 +815,7 @@ async function listarProveedores(cliente) {
 
   const { data: tarifas, error: errT } = await supabase
     .from('tarifas')
-    .select('id, proveedor_id, nombre, vigente_desde, tarifa_productos(count)')
+    .select('id, proveedor_id, nombre, vigente_desde, origen_archivo, origen_drive_id, origen_tipo, tarifa_productos(count)')
     .eq('cliente', cliente).is('vigente_hasta', null);
   if (errT) throw new Error(`Supabase (listar tarifas vigentes): ${errT.message}`);
 
@@ -785,9 +827,127 @@ async function listarProveedores(cliente) {
       tarifa_vigente: t ? {
         id: t.id, nombre: t.nombre, vigente_desde: t.vigente_desde,
         num_productos: t.tarifa_productos?.[0]?.count ?? 0,
+        origen_archivo: t.origen_archivo, origen_drive_id: t.origen_drive_id, origen_tipo: t.origen_tipo,
       } : null,
     };
   });
+}
+
+// ── Recalcular facturas tras reasignar/eliminar una tarifa ──────────────
+// Vuelve a comparar TODAS las facturas ya guardadas de un proveedor (por
+// NIF, igual que datosProveedoresFacturados) contra su tarifa vigente
+// ACTUAL y persiste el resultado en sus líneas — mismo cálculo que al
+// subir (compararConTarifa), pero sobre facturas ya en BD en vez de sobre
+// una extracción recién hecha. Se usa después de mover una tarifa a otro
+// proveedor o de borrarla: las facturas de ese NIF pasan a comparar contra
+// lo que haya ahora (otra tarifa, o sin_tarifa si no queda ninguna).
+async function recalcularFacturasDeProveedor(cliente, nif) {
+  const nifNorm = normalizarNif(nif);
+  if (!nifNorm) return { recalculadas: 0 };
+
+  const tablaFacturas = `${cliente}_facturas`;
+  const tablaLineas = `${cliente}_factura_lineas`;
+
+  const { data: facturas, error: errF } = await supabase
+    .from(tablaFacturas).select('id, cif_proveedor, fecha_factura').not('cif_proveedor', 'is', null);
+  if (errF) throw new Error(`${tablaFacturas}: ${errF.message}`);
+  const afectadas = facturas.filter(f => normalizarNif(f.cif_proveedor) === nifNorm);
+  if (!afectadas.length) return { recalculadas: 0 };
+
+  let recalculadas = 0;
+  for (const factura of afectadas) {
+    const { data: lineas, error: errL } = await supabase
+      .from(tablaLineas).select('*').eq('factura_id', factura.id);
+    if (errL) { console.error(`[tarifas] no se pudieron leer las líneas de la factura ${factura.id}:`, errL.message); continue; }
+    if (!lineas.length) continue;
+
+    try {
+      const { lineas: lineasRecalculadas, totalSobreprecioEur } = await compararConTarifa({
+        cliente, cifProveedor: factura.cif_proveedor, fechaFactura: factura.fecha_factura, lineas,
+      });
+      for (const l of lineasRecalculadas) {
+        const { error: errUpdLinea } = await supabase.from(tablaLineas).update({
+          producto_tarifa: l.producto_tarifa ?? null,
+          precio_pactado:  l.precio_pactado ?? null,
+          desviacion_eur:  l.desviacion_eur ?? null,
+          desviacion_pct:  l.desviacion_pct ?? null,
+          estado_precio:   l.estado_precio ?? null,
+        }).eq('id', l.id);
+        if (errUpdLinea) console.error(`[tarifas] no se pudo actualizar la línea ${l.id}:`, errUpdLinea.message);
+      }
+      const { error: errUpdFactura } = await supabase
+        .from(tablaFacturas).update({ total_sobreprecio_eur: totalSobreprecioEur }).eq('id', factura.id);
+      if (errUpdFactura) console.error(`[tarifas] no se pudo actualizar el total de la factura ${factura.id}:`, errUpdFactura.message);
+      recalculadas++;
+    } catch (e) {
+      console.error(`[tarifas] no se pudo recalcular la factura ${factura.id}:`, e.message);
+    }
+  }
+  return { recalculadas };
+}
+
+// "Cambiar de proveedor": mueve la tarifa VIGENTE de `proveedorActualId` a
+// `nuevoProveedorId`, sin reimportar nada. Borra los alias de
+// emparejamiento del proveedor de origen (aprendidos en el contexto de esa
+// asignación, ya no válidos) y recalcula las facturas de AMBOS NIF: las
+// del proveedor de origen (que se quedan sin esta tarifa) y las del nuevo
+// (que a partir de ahora sí la tienen).
+async function reasignarProveedorTarifa(cliente, proveedorActualId, nuevoProveedorId) {
+  if (String(proveedorActualId) === String(nuevoProveedorId)) throw new Error('Elige un proveedor distinto');
+
+  const tarifa = await tarifaVigente(cliente, proveedorActualId);
+  if (!tarifa) throw new Error('Este proveedor no tiene una tarifa vigente que reasignar');
+
+  const { data: proveedorActual, error: errPA } = await supabase
+    .from('proveedores').select('id, nif').eq('cliente', cliente).eq('id', proveedorActualId).maybeSingle();
+  if (errPA) throw new Error(`Supabase (proveedor actual): ${errPA.message}`);
+
+  const { data: nuevoProveedor, error: errNP } = await supabase
+    .from('proveedores').select('id, nif').eq('cliente', cliente).eq('id', nuevoProveedorId).maybeSingle();
+  if (errNP) throw new Error(`Supabase (proveedor destino): ${errNP.message}`);
+  if (!nuevoProveedor) throw new Error('Proveedor destino no encontrado');
+
+  const { error: errUpd } = await supabase.from('tarifas').update({ proveedor_id: nuevoProveedorId }).eq('id', tarifa.id);
+  if (errUpd) throw new Error(`Supabase (reasignar tarifa): ${errUpd.message}`);
+
+  const { error: errDelAlias } = await supabase
+    .from('producto_alias').delete().eq('cliente', cliente).eq('proveedor_id', proveedorActualId);
+  if (errDelAlias) console.error('[tarifas] no se pudieron borrar los alias del proveedor de origen:', errDelAlias.message);
+
+  const [recalculoAnterior, recalculoNuevo] = await Promise.all([
+    proveedorActual ? recalcularFacturasDeProveedor(cliente, proveedorActual.nif) : Promise.resolve({ recalculadas: 0 }),
+    recalcularFacturasDeProveedor(cliente, nuevoProveedor.nif),
+  ]);
+
+  return {
+    proveedor_anterior_nif: proveedorActual?.nif || null,
+    proveedor_nuevo_nif: nuevoProveedor.nif,
+    facturas_recalculadas: recalculoAnterior.recalculadas + recalculoNuevo.recalculadas,
+  };
+}
+
+// "Eliminar tarifa": borra la tarifa vigente de un proveedor (sus
+// tarifa_productos caen en cascada, migración 041) y sus alias de
+// emparejamiento, y recalcula sus facturas — quedan sin_tarifa, ya que no
+// queda ninguna tarifa vigente para ese proveedor.
+async function eliminarTarifaProveedor(cliente, proveedorId) {
+  const { data: proveedor, error: errP } = await supabase
+    .from('proveedores').select('id, nif').eq('cliente', cliente).eq('id', proveedorId).maybeSingle();
+  if (errP) throw new Error(`Supabase (proveedor): ${errP.message}`);
+  if (!proveedor) throw new Error('Proveedor no encontrado');
+
+  const tarifa = await tarifaVigente(cliente, proveedorId);
+  if (!tarifa) throw new Error('Este proveedor no tiene una tarifa vigente que eliminar');
+
+  const { error: errDelTarifa } = await supabase.from('tarifas').delete().eq('id', tarifa.id);
+  if (errDelTarifa) throw new Error(`Supabase (eliminar tarifa): ${errDelTarifa.message}`);
+
+  const { error: errDelAlias } = await supabase
+    .from('producto_alias').delete().eq('cliente', cliente).eq('proveedor_id', proveedorId);
+  if (errDelAlias) console.error('[tarifas] no se pudieron borrar los alias:', errDelAlias.message);
+
+  const { recalculadas } = await recalcularFacturasDeProveedor(cliente, proveedor.nif);
+  return { facturas_actualizadas: recalculadas };
 }
 
 // Primer día del mes siguiente a "YYYY-MM", para filtros de rango
@@ -1025,4 +1185,5 @@ module.exports = {
   extraerTarifasDeArchivo, confirmarTarifas, tarifaVigente, listarProveedores,
   calcularEstadoLinea, compararConTarifa, corregirEmparejamiento, primerDiaSiguienteMes,
   verificarProductosComprados, contarPaginasPdf, trocearPdf, corregirUnidadEnvase,
+  reasignarProveedorTarifa, eliminarTarifaProveedor,
 };

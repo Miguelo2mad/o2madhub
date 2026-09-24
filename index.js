@@ -30,7 +30,10 @@ const app = express();
 app.use(cors());
 // Límite amplio: el kit de marca por cliente embebe logo y fuentes (TTF/OTF) como
 // data URI en el JSON, que superan de largo el 100kb por defecto de express.json.
-app.use(express.json({ limit: '10mb' }));
+// 20mb (no 10mb): POST /tarifas/confirmar reenvía el archivo original en
+// base64 para subirlo a Drive (trazabilidad del origen) — hasta 15MB de
+// archivo (límite de multer) más ~33% del propio base64 se acerca a los 20MB.
+app.use(express.json({ limit: '20mb' }));
 app.use(express.static(path.join(__dirname, 'frontend', 'pages')));
 
 const PORT = process.env.PORT || 8080;

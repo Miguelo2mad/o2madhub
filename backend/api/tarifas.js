@@ -56,15 +56,22 @@ function createTarifasRouter({ cliente, requireAuth, requireRole }) {
     }
   });
 
-  // POST /tarifas/confirmar — guarda la vista previa ya revisada por el usuario
-  // (proveedor/NIF asignado a cada grupo). Body: { origen_archivo, grupos }.
+  // POST /tarifas/confirmar — guarda la vista previa ya revisada por el
+  // usuario (proveedor/NIF asignado a cada grupo). Body: { origen_archivo,
+  // grupos, archivo_base64?, archivo_mime? }. archivo_base64 es el propio
+  // archivo importado (el frontend lo guarda en memoria desde /importar,
+  // no hace falta que el backend lo reenvíe) — si viene, se sube a Drive
+  // para la trazabilidad del origen (backend/lib/tarifas.js confirmarTarifas).
   router.post('/tarifas/confirmar', requireAuth, requireRole('gestor', 'admin'), async (req, res) => {
-    const { origen_archivo, grupos } = req.body || {};
+    const { origen_archivo, grupos, archivo_base64, archivo_mime } = req.body || {};
     if (!Array.isArray(grupos) || !grupos.length) {
       return res.status(400).json({ error: 'Se requiere al menos un grupo de proveedor con productos' });
     }
     try {
-      const resumen = await tarifasLib.confirmarTarifas(cliente, grupos, origen_archivo);
+      const archivoOriginal = archivo_base64
+        ? { buffer: Buffer.from(archivo_base64, 'base64'), mimeType: archivo_mime }
+        : null;
+      const resumen = await tarifasLib.confirmarTarifas(cliente, grupos, origen_archivo, archivoOriginal);
       console.log(`[tarifas:${cliente}] confirmado por ${req.user.email}:`, resumen);
       res.json({ ok: true, ...resumen });
     } catch (e) {
@@ -92,6 +99,37 @@ function createTarifasRouter({ cliente, requireAuth, requireRole }) {
     } catch (e) {
       console.error(`[tarifas:${cliente}] detalle error:`, e.message);
       res.status(500).json({ error: e.message });
+    }
+  });
+
+  // PATCH /tarifas/:proveedorId/reasignar  body: { nuevo_proveedor_id } —
+  // mueve la tarifa vigente de este proveedor a otro ya existente en la
+  // lista, sin reimportar. Borra los alias de emparejamiento del proveedor
+  // de origen y recalcula las facturas de ambos NIF.
+  router.patch('/tarifas/:proveedorId/reasignar', requireAuth, requireRole('gestor', 'admin'), async (req, res) => {
+    const { nuevo_proveedor_id } = req.body || {};
+    if (!nuevo_proveedor_id) return res.status(400).json({ error: 'Se requiere nuevo_proveedor_id' });
+    try {
+      const resultado = await tarifasLib.reasignarProveedorTarifa(cliente, req.params.proveedorId, nuevo_proveedor_id);
+      console.log(`[tarifas:${cliente}] tarifa reasignada por ${req.user.email}:`, resultado);
+      res.json({ ok: true, ...resultado });
+    } catch (e) {
+      console.error(`[tarifas:${cliente}] reasignar error:`, e.message);
+      res.status(400).json({ error: e.message });
+    }
+  });
+
+  // DELETE /tarifas/:proveedorId — elimina la tarifa vigente de este
+  // proveedor (productos y alias incluidos) y recalcula sus facturas, que
+  // quedan sin_tarifa.
+  router.delete('/tarifas/:proveedorId', requireAuth, requireRole('gestor', 'admin'), async (req, res) => {
+    try {
+      const resultado = await tarifasLib.eliminarTarifaProveedor(cliente, req.params.proveedorId);
+      console.log(`[tarifas:${cliente}] tarifa eliminada por ${req.user.email}:`, resultado);
+      res.json({ ok: true, ...resultado });
+    } catch (e) {
+      console.error(`[tarifas:${cliente}] eliminar error:`, e.message);
+      res.status(400).json({ error: e.message });
     }
   });
 
