@@ -111,19 +111,46 @@ async function sendNoCifNotice(items, scanLabel = '') {
   return info;
 }
 
-// TODO: integrar con GoHighLevel (GHL) u otro proveedor de WhatsApp Business
-// API cuando el hub tenga ese canal — hoy notifications.js solo envía email
-// (Gmail/nodemailer). Mientras tanto, este stub mantiene la firma que ya
-// usan los avisos de checklist (backend/jobs/checklists-avisos-job.js):
-// nunca envía nada de verdad, así que el caller debe registrar igual el
-// aviso con canal='pendiente' para no reintentarlo indefinidamente.
-async function enviarAvisoWhatsapp({ numero, mensaje }) {
-  if (!numero) {
-    console.warn('[notifications] aviso WhatsApp sin número configurado, no se envía:', mensaje);
-    return { enviado: false, motivo: 'sin numero_whatsapp_avisos configurado' };
-  }
-  console.warn(`[notifications] TODO WhatsApp/GHL no implementado — pendiente para ${numero}: ${mensaje}`);
-  return { enviado: false, motivo: 'canal WhatsApp no implementado' };
+// Aviso de checklist con tareas vencidas (backend/jobs/checklists-avisos-job.js):
+// un email por checklist/ejecución, con todas sus tareas pendientes de esa
+// pasada, al dueño del cliente. Destinatario: variable de entorno
+// EMAIL_AVISOS_<CLIENTE> (p.ej. EMAIL_AVISOS_TIMBOL) — solución de paso
+// hasta que exista una tabla `clientes` con este dato en la migración de
+// acceso. Si no está configurada, no se envía nada (el caller registra el
+// aviso igual, marcado como pendiente, para no reintentarlo indefinidamente).
+function buildTextoAvisoChecklist({ local, checklistNombre, tareas, tableroUrl }) {
+  const lineas = tareas.map(t => `  - ${t.titulo} (hora límite ${t.hora_limite})`).join('\n');
+  return [
+    `Local: ${local}`,
+    `Checklist: ${checklistNombre}`,
+    '',
+    'Tareas pendientes:',
+    lineas,
+    '',
+    `Ver tablero: ${tableroUrl}`,
+  ].join('\n');
 }
 
-module.exports = { sendDailySummary, buildHtml, sendNoCifNotice, enviarAvisoWhatsapp };
+async function enviarAvisoChecklist({ cliente, local, checklistNombre, tareas }) {
+  const envVar = `EMAIL_AVISOS_${cliente.toUpperCase()}`;
+  const to = process.env[envVar];
+  if (!to) {
+    console.warn(`[notifications] aviso de checklist sin destinatario configurado (${envVar}), no se envía`);
+    return { enviado: false, motivo: `sin ${envVar} configurado`, destinatario: null };
+  }
+
+  const appUrl = process.env.PUBLIC_APP_URL || process.env.RAILWAY_URL || `http://localhost:${process.env.PORT || 8080}`;
+  const tableroUrl = `${appUrl}/${cliente}.html`;
+  const clienteLabel = cliente.charAt(0).toUpperCase() + cliente.slice(1);
+
+  const info = await getTransport().sendMail({
+    from: `O2MAD Hub <${process.env.GMAIL_USER}>`,
+    to,
+    subject: `[${clienteLabel}] Checklist pendiente: ${checklistNombre}`,
+    text: buildTextoAvisoChecklist({ local, checklistNombre, tareas, tableroUrl }),
+  });
+  console.log(`[notifications] aviso checklist enviado: ${info.messageId} → ${to}`);
+  return { enviado: true, motivo: null, destinatario: to };
+}
+
+module.exports = { sendDailySummary, buildHtml, sendNoCifNotice, enviarAvisoChecklist };
