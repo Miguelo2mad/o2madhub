@@ -95,6 +95,7 @@ function normalizarTextoProducto(raw) {
 const PATRONES_ENVASE = [
   /\b\d+([.,]\d+)?\s?(cl|ml)\b/i,   // 70CL, 33 CL, 500ML
   /\b\d+([.,]\d+)?\s?l\b/i,         // 1L, 3L, 1.5L
+  /\bl[º°]/i,                       // Lº, L° — abreviatura de "litro" muy habitual en tarifas de bebidas
   /\blitro[s]?\b/i,
   /\bpet\b/i,
   /\blata[s]?\b/i,
