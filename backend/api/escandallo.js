@@ -33,6 +33,55 @@ function createEscandalloRouter({ cliente, requireAuth, requireRole }) {
     }
   });
 
+  // POST /escandallo/confirmar  body: { nombre, precio_carta, ingredientes:
+  // [{ ingrediente, cantidad, unidad }] } — upsert del plato + reemplazo de
+  // sus líneas. Mismo endpoint para "Nuevo plato con foto", la edición de
+  // un plato existente y cada plato de una importación.
+  router.post('/escandallo/confirmar', requireAuth, requireRole('gestor', 'admin'), async (req, res) => {
+    try {
+      const resultado = await escandalloLib.confirmarEscandallo(cliente, req.body || {});
+      res.json({ ok: true, ...resultado });
+    } catch (e) {
+      console.error(`[escandallo:${cliente}] confirmar error:`, e.message);
+      res.status(400).json({ error: e.message });
+    }
+  });
+
+  // GET /escandallo — platos con coste estimado y margen.
+  router.get('/escandallo', requireAuth, requireRole('gestor', 'admin'), async (req, res) => {
+    try {
+      res.json(await escandalloLib.listarEscandallo(cliente));
+    } catch (e) {
+      console.error(`[escandallo:${cliente}] listar error:`, e.message);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // PATCH /escandallo/:platoId  body: { nombre?, precio_carta?, activo? }
+  // Edición ligera de metadatos — para tocar ingredientes usa /confirmar.
+  router.patch('/escandallo/:platoId', requireAuth, requireRole('gestor', 'admin'), async (req, res) => {
+    try {
+      const plato = await escandalloLib.actualizarPlato(cliente, req.params.platoId, req.body || {});
+      res.json({ ok: true, plato });
+    } catch (e) {
+      console.error(`[escandallo:${cliente}] actualizar error:`, e.message);
+      res.status(400).json({ error: e.message });
+    }
+  });
+
+  // DELETE /escandallo/:platoId
+  router.delete('/escandallo/:platoId', requireAuth, requireRole('gestor', 'admin'), async (req, res) => {
+    try {
+      await escandalloLib.borrarPlato(cliente, req.params.platoId);
+      res.json({ ok: true, id: req.params.platoId });
+    } catch (e) {
+      console.error(`[escandallo:${cliente}] borrar error:`, e.message);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // POST /escandallo/importar se añade en el siguiente commit (importación).
+
   return router;
 }
 
