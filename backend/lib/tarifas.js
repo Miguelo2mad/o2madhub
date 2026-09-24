@@ -186,6 +186,71 @@ async function extraerTarifasDeArchivo(buffer, filename) {
   return { grupos: agruparPorProveedor(productos), dudas, usage };
 }
 
+// ── Cruce con compras ya registradas (vista previa de importación) ───────
+// Nombres de producto tal cual aparecen en las facturas ya subidas de un
+// proveedor (por NIF, sin filtro de fecha: aquí interesa "¿le hemos
+// comprado esto alguna vez?", no un periodo concreto). cif_proveedor se
+// guarda tal cual lo extrajo Claude (sin normalizar), así que el filtro se
+// hace en JS tras traer los candidatos — mismo motivo por el que
+// compararConTarifa normaliza antes de comparar.
+async function productosCompradosDeProveedor(cliente, nif) {
+  const nifNorm = normalizarNif(nif);
+  if (!nifNorm) return [];
+
+  const tablaFacturas = `${cliente}_facturas`;
+  const tablaLineas = `${cliente}_factura_lineas`;
+
+  const { data: facturas, error: errF } = await supabase
+    .from(tablaFacturas).select('id, cif_proveedor').not('cif_proveedor', 'is', null);
+  if (errF) throw new Error(`${tablaFacturas}: ${errF.message}`);
+  const facturaIds = facturas.filter(f => normalizarNif(f.cif_proveedor) === nifNorm).map(f => f.id);
+  if (!facturaIds.length) return [];
+
+  const { data: lineas, error: errL } = await supabase
+    .from(tablaLineas).select('producto').in('factura_id', facturaIds).not('producto', 'is', null);
+  if (errL) throw new Error(`${tablaLineas}: ${errL.message}`);
+
+  return [...new Set(lineas.map(l => l.producto).filter(Boolean))];
+}
+
+function tokenizarProducto(texto) {
+  return normalizarTextoProducto(texto).split(' ').filter(t => t.length > 1);
+}
+
+// Coincidencia parcial de palabras: ni exacta (el nombre de una tarifa casi
+// nunca coincide letra a letra con el de una factura del mismo producto,
+// ej. "Pechuga de pollo" vs "Pechuga pollo fileteada") ni por substring
+// (demasiados falsos positivos con nombres genéricos cortos). Se queda con
+// que al menos el 60% de las palabras del nombre más corto aparezcan tal
+// cual en el más largo — umbral elegido a ojo, ajustar aquí si en la
+// práctica marca de más o de menos.
+const UMBRAL_COINCIDENCIA_PARCIAL = 0.6;
+
+function coincidenParcialmente(a, b) {
+  const tokensA = tokenizarProducto(a);
+  const tokensB = tokenizarProducto(b);
+  if (!tokensA.length || !tokensB.length) return false;
+  const [cortos, largos] = tokensA.length <= tokensB.length ? [tokensA, tokensB] : [tokensB, tokensA];
+  const setLargos = new Set(largos);
+  const comunes = cortos.filter(t => setLargos.has(t)).length;
+  return (comunes / cortos.length) >= UMBRAL_COINCIDENCIA_PARCIAL;
+}
+
+// Para la vista previa de importación de tarifas: qué productos extraídos
+// ya se le han comprado a este proveedor. `tiene_historial: false` cuando
+// el proveedor no tiene ninguna factura todavía — el caller (frontend)
+// marca todo para importar en ese caso, igual que hacía antes de esto.
+async function verificarProductosComprados(cliente, { nif, productos } = {}) {
+  const comprados = await productosCompradosDeProveedor(cliente, nif);
+  if (!comprados.length) {
+    return { tiene_historial: false, resultado: (productos || []).map(p => ({ producto: p, comprado: true })) };
+  }
+  return {
+    tiene_historial: true,
+    resultado: (productos || []).map(p => ({ producto: p, comprado: comprados.some(c => coincidenParcialmente(p, c)) })),
+  };
+}
+
 // ── Persistencia ─────────────────────────────────────────────────────────
 
 // Un proveedor por (cliente, nif normalizado). Crea si no existe; si ya
@@ -548,4 +613,5 @@ module.exports = {
   normalizarNif, normalizarUnidad, convertirUnidad, normalizarTextoProducto,
   extraerTarifasDeArchivo, confirmarTarifas, tarifaVigente, listarProveedores,
   calcularEstadoLinea, compararConTarifa, corregirEmparejamiento, primerDiaSiguienteMes,
+  verificarProductosComprados,
 };

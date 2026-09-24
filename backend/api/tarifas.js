@@ -29,6 +29,19 @@ function createTarifasRouter({ cliente, requireAuth, requireRole }) {
     }
   });
 
+  // POST /tarifas/comprados  body: { nif, productos: [nombre, ...] } — qué
+  // productos de la vista previa ya se le han comprado a este proveedor
+  // (para marcar por defecto qué importar). No requiere que el proveedor
+  // exista aún en /proveedores, solo que tenga facturas subidas.
+  router.post('/tarifas/comprados', requireAuth, requireRole('gestor', 'admin'), async (req, res) => {
+    try {
+      res.json(await tarifasLib.verificarProductosComprados(cliente, req.body || {}));
+    } catch (e) {
+      console.error(`[tarifas:${cliente}] comprados error:`, e.message);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
   // POST /tarifas/confirmar — guarda la vista previa ya revisada por el usuario
   // (proveedor/NIF asignado a cada grupo). Body: { origen_archivo, grupos }.
   router.post('/tarifas/confirmar', requireAuth, requireRole('gestor', 'admin'), async (req, res) => {

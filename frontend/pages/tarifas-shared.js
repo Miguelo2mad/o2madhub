@@ -33,6 +33,12 @@
     .tarifa-confirmar-bar { display: flex; gap: 10px; margin: 16px 0; }
     .tarifa-confirmar-bar button { flex: 1; }
     .tarifa-btn-secondary { background: transparent; border: 1px solid var(--border); color: var(--text); padding: 10px 16px; border-radius: 10px; font-size: 14px; cursor: pointer; }
+    .tarifa-productos-table td.chk { width: 22px; }
+    .tarifa-resumen-compras { font-size: 12px; color: var(--accent); margin: 2px 0 10px; }
+    .tarifa-no-comprados { margin-top: 10px; border-top: 1px dashed var(--border); padding-top: 8px; }
+    .tarifa-no-comprados summary { cursor: pointer; font-size: 12px; color: var(--muted); display: flex; align-items: center; justify-content: space-between; gap: 8px; list-style: none; }
+    .tarifa-no-comprados summary::-webkit-details-marker { display: none; }
+    .btn-marcar-todos { background: transparent; border: 1px solid var(--border); color: var(--accent); border-radius: 8px; padding: 4px 8px; font-size: 11px; cursor: pointer; }
 
     .tarifa-listado-item { padding: 12px 0; border-bottom: 1px solid var(--border); }
     .tarifa-listado-item:last-child { border-bottom: none; }
@@ -101,6 +107,12 @@ async function subirArchivoTarifa(file) {
 // su atención antes de confirmar, si no confirma sin mirar.
 function renderPreview(preview) {
   previewState = preview;
+  // Sin comprobar aún contra las facturas del proveedor (eso llega al
+  // fijar el NIF, ver verificarComprasProveedor): todo marcado por
+  // defecto, igual que el comportamiento de siempre.
+  for (const g of previewState.grupos) {
+    for (const p of (g.productos || [])) if (p.importar === undefined) p.importar = true;
+  }
 
   const ordenGrupos = preview.grupos
     .map((g, i) => ({ g, i }))
@@ -132,33 +144,53 @@ function renderDudasBlock(dudas) {
 
 function renderGrupoCard(g, i) {
   const sinProveedor = !g.proveedor_detectado;
+  const productos = g.productos || [];
+  const conIndice = productos.map((p, j) => ({ p, j }));
+  const comprados = conIndice.filter(({ p }) => p.importar !== false);
+  const noComprados = conIndice.filter(({ p }) => p.importar === false);
+
   return `<div class="tarifa-grupo-card ${sinProveedor ? 'sin-proveedor' : ''}" id="grupo-card-${i}">
     <div class="tarifa-grupo-header">
       ${sinProveedor ? '<span class="badge badge-alert">❓ Proveedor no detectado</span>' : ''}
       ${g.hoja ? `<span class="tarifa-hoja-tag">Hoja: ${esc(g.hoja)}</span>` : ''}
       <div class="tarifa-grupo-fields">
-        <div class="field"><label>NIF *</label><input type="text" placeholder="B12345678" value="${esc(g.nif || '')}" oninput="actualizarGrupoCampo(${i}, 'nif', this.value)"></div>
+        <div class="field"><label>NIF *</label><input type="text" placeholder="B12345678" value="${esc(g.nif || '')}" oninput="actualizarGrupoCampo(${i}, 'nif', this.value)" onchange="verificarComprasProveedor(${i})"></div>
         <div class="field"><label>Nombre proveedor</label><input type="text" value="${esc(g.nombre ?? g.proveedor_detectado ?? '')}" oninput="actualizarGrupoCampo(${i}, 'nombre', this.value)"></div>
         <div class="field"><label>Nombre tarifa (opcional)</label><input type="text" placeholder="Temporada 2027" value="${esc(g.nombre_tarifa || '')}" oninput="actualizarGrupoCampo(${i}, 'nombre_tarifa', this.value)"></div>
         <div class="field"><label>Vigente desde</label><input type="date" value="${g.vigente_desde || new Date().toISOString().slice(0,10)}" oninput="actualizarGrupoCampo(${i}, 'vigente_desde', this.value)"></div>
       </div>
     </div>
+    ${g.tiene_historial ? `<div class="tarifa-resumen-compras">${comprados.length} producto${comprados.length !== 1 ? 's' : ''} de ${productos.length} coinciden con tus facturas</div>` : ''}
     <table class="tarifa-productos-table">
-      <thead><tr><th>Producto</th><th>Unidad</th><th class="num">Precio</th><th>Notas</th><th></th></tr></thead>
-      <tbody>${g.productos.map((p, j) => renderProductoRow(i, j, p)).join('')}</tbody>
+      <thead><tr><th></th><th>Producto</th><th>Unidad</th><th class="num">Precio</th><th>Notas</th><th></th></tr></thead>
+      <tbody>${comprados.map(({ p, j }) => renderProductoRow(i, j, p)).join('')}</tbody>
     </table>
     <button class="btn-add-producto" onclick="agregarProducto(${i})">+ Añadir producto</button>
+    ${noComprados.length ? renderNoCompradosBlock(i, noComprados) : ''}
   </div>`;
 }
 
 function renderProductoRow(i, j, p) {
   return `<tr>
+    <td class="chk"><input type="checkbox" ${p.importar !== false ? 'checked' : ''} onchange="toggleImportarProducto(${i},${j},this.checked)" title="Importar este producto"></td>
     <td><input type="text" value="${esc(p.producto || '')}" oninput="actualizarProducto(${i},${j},'producto',this.value)"></td>
     <td><input type="text" value="${esc(p.unidad || '')}" oninput="actualizarProducto(${i},${j},'unidad',this.value)"></td>
     <td class="num"><input type="number" step="0.0001" value="${p.precio ?? ''}" oninput="actualizarProducto(${i},${j},'precio',this.value)"></td>
     <td><input type="text" value="${esc(p.notas || '')}" oninput="actualizarProducto(${i},${j},'notas',this.value)"></td>
     <td><button class="fi-delete" onclick="eliminarProducto(${i},${j})" title="Quitar producto">🗑</button></td>
   </tr>`;
+}
+
+function renderNoCompradosBlock(i, noComprados) {
+  return `<details class="tarifa-no-comprados">
+    <summary>No comprados hasta ahora (${noComprados.length})
+      <button type="button" class="btn-marcar-todos" onclick="event.preventDefault(); event.stopPropagation(); marcarTodosComprados(${i})">Marcar todos</button>
+    </summary>
+    <table class="tarifa-productos-table">
+      <thead><tr><th></th><th>Producto</th><th>Unidad</th><th class="num">Precio</th><th>Notas</th><th></th></tr></thead>
+      <tbody>${noComprados.map(({ p, j }) => renderProductoRow(i, j, p)).join('')}</tbody>
+    </table>
+  </details>`;
 }
 
 function actualizarGrupoCampo(i, campo, valor) { previewState.grupos[i][campo] = valor; }
@@ -170,12 +202,58 @@ function eliminarProducto(i, j) {
   document.getElementById(`grupo-card-${i}`).outerHTML = renderGrupoCard(previewState.grupos[i], i);
 }
 function agregarProducto(i) {
-  previewState.grupos[i].productos.push({ producto: '', unidad: '', precio: null, notas: '' });
+  previewState.grupos[i].productos.push({ producto: '', unidad: '', precio: null, notas: '', importar: true });
+  document.getElementById(`grupo-card-${i}`).outerHTML = renderGrupoCard(previewState.grupos[i], i);
+}
+function toggleImportarProducto(i, j, checked) {
+  previewState.grupos[i].productos[j].importar = checked;
+  document.getElementById(`grupo-card-${i}`).outerHTML = renderGrupoCard(previewState.grupos[i], i);
+}
+function marcarTodosComprados(i) {
+  for (const p of previewState.grupos[i].productos) p.importar = true;
   document.getElementById(`grupo-card-${i}`).outerHTML = renderGrupoCard(previewState.grupos[i], i);
 }
 
+// Al fijar (blur/commit) el NIF de un grupo: cruza sus productos contra las
+// facturas ya subidas de ese proveedor (backend/lib/tarifas.js
+// verificarProductosComprados — normalizarTextoProducto + coincidencia
+// parcial de palabras) y marca por defecto qué importar. Fallo silencioso:
+// es una ayuda para no partir de cero, nunca debe bloquear la importación.
+async function verificarComprasProveedor(i) {
+  const grupo = previewState.grupos[i];
+  if (!grupo) return;
+  const nif = (grupo.nif || '').trim();
+  if (!normalizarNifClient(nif)) return;
+  const nombres = grupo.productos.map(p => p.producto).filter(Boolean);
+  if (!nombres.length) return;
+  try {
+    const r = await apiFetch('/tarifas/comprados', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ nif, productos: nombres }),
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || 'No se pudo comprobar las compras de este proveedor');
+    grupo.tiene_historial = d.tiene_historial;
+    let k = 0;
+    for (const p of grupo.productos) {
+      if (!p.producto) continue;
+      p.importar = d.tiene_historial ? !!d.resultado[k]?.comprado : true;
+      k++;
+    }
+    document.getElementById(`grupo-card-${i}`).outerHTML = renderGrupoCard(grupo, i);
+  } catch (e) {
+    console.error('[tarifas] verificarComprasProveedor:', e.message);
+  }
+}
+
 async function confirmarTarifasUI() {
-  const grupos = previewState.grupos.filter(g => g.productos.length > 0);
+  // Confirmar importa solo los productos marcados (checkbox por fila; "No
+  // comprados hasta ahora" empieza desmarcado salvo que el proveedor no
+  // tenga historial todavía, ver verificarComprasProveedor).
+  const grupos = previewState.grupos
+    .map(g => ({ ...g, productos: g.productos.filter(p => p.importar !== false) }))
+    .filter(g => g.productos.length > 0);
   for (const g of grupos) {
     if (!g.nif || !g.nif.trim()) {
       alert(`Falta el NIF del proveedor para el grupo "${g.nombre || g.proveedor_detectado || g.hoja || '(sin nombre)'}"`);
