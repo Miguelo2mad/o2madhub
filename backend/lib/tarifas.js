@@ -8,8 +8,9 @@
 // tanto al escribir (importar tarifa, confirmar alias) como al leer
 // (buscar proveedor, buscar alias) — si alguna vez divergen, el join deja
 // de casar en silencio y todo cae a sin_tarifa sin que nadie sepa por qué.
+const { PDFDocument } = require('pdf-lib');
 const { supabase } = require('./supabase');
-const { extraerJson } = require('./claude-json');
+const { extraerJson, buildFileBlock } = require('./claude-json');
 const { parsearArchivoTabular, construirBloques, filasATexto } = require('./archivo-tabular');
 
 // NIF/CIF de proveedor: "B-12345678", "ES B12345678", "b12345678", con o
@@ -147,6 +148,112 @@ async function extraerBloqueTarifa(textoTabular, nombreHoja) {
   });
 }
 
+// ── Ingesta desde PDF/foto (además de xlsx/csv) ──────────────────────────
+// Mismo esquema y prompt que el listado tabular; para PDF se añade una
+// instrucción extra porque un documento de verdad (a diferencia de una
+// hoja de cálculo) suele traer cabeceras/pies repetidos, código de
+// artículo y columnas de precio ambiguas.
+const TARIFA_IMPORT_PROMPT_PDF_EXTRA = 'Ignora cabeceras y pies de página repetidos, códigos de artículo y '
+  + 'columnas que no sean el nombre del producto, la unidad y el precio de venta al restaurante. Si hay varias '
+  + 'columnas de precio, usa la marcada como tarifa del cliente o, si no está claro, la primera.';
+
+// Hasta este nº de páginas, todo el PDF en una sola llamada. Más allá, se
+// trocea (ver trocearPdf) porque una sola llamada con un documento largo
+// pierde precisión y es más fácil que trunque la respuesta.
+const PDF_MAX_PAGINAS_SIN_TROCEAR = 6;
+const PDF_PAGINAS_POR_GRUPO = 5;
+
+async function contarPaginasPdf(buffer) {
+  const doc = await PDFDocument.load(buffer);
+  return doc.getPageCount();
+}
+
+// Trocea un PDF en grupos de `paginasPorGrupo` páginas consecutivas,
+// devolviendo un PDF (buffer) independiente por grupo — pdf-lib es la única
+// librería del repo que sabe recortar páginas (pdfkit, ya presente, solo
+// genera PDFs nuevos, no edita uno existente).
+async function trocearPdf(buffer, paginasPorGrupo) {
+  const doc = await PDFDocument.load(buffer);
+  const total = doc.getPageCount();
+  const grupos = [];
+  for (let inicio = 0; inicio < total; inicio += paginasPorGrupo) {
+    const fin = Math.min(inicio + paginasPorGrupo, total);
+    const nuevo = await PDFDocument.create();
+    const indices = Array.from({ length: fin - inicio }, (_, k) => inicio + k);
+    const paginas = await nuevo.copyPages(doc, indices);
+    paginas.forEach(p => nuevo.addPage(p));
+    grupos.push({ buffer: Buffer.from(await nuevo.save()), desde: inicio + 1, hasta: fin });
+  }
+  return grupos;
+}
+
+// `fileBlock` es un bloque de imagen o documento ya construido con
+// buildFileBlock(). `proveedorContexto` es el nombre de proveedor detectado
+// en un grupo de páginas anterior del mismo PDF — la cabecera con el
+// nombre del proveedor suele estar solo en la página 1, así que sin esto
+// los grupos siguientes devolverían proveedor: null.
+async function extraerTarifaDeArchivoVisual(fileBlock, { proveedorContexto, esPdf } = {}) {
+  let texto = TARIFA_IMPORT_PROMPT;
+  if (esPdf) texto += `\n${TARIFA_IMPORT_PROMPT_PDF_EXTRA}`;
+  if (proveedorContexto) {
+    texto += `\n\nProveedor ya detectado en una página anterior de este mismo documento: `
+      + `"${proveedorContexto}". Si esta página no repite su nombre pero es evidente que sigue siendo la misma `
+      + `tarifa, usa este proveedor en vez de null.`;
+  }
+  return extraerJson({
+    maxTokens: 4096,
+    schema: TARIFA_IMPORT_SCHEMA,
+    content: [fileBlock, { type: 'text', text: texto }],
+    mensajeError: 'La IA devolvió una respuesta incompleta al leer el documento de tarifas.',
+  });
+}
+
+async function extraerProductosDePdf(buffer, { onProgreso } = {}) {
+  const totalPaginas = await contarPaginasPdf(buffer);
+  const productos = [];
+  const dudas = [];
+  const usage = { input_tokens: 0, output_tokens: 0 };
+
+  const grupos = totalPaginas <= PDF_MAX_PAGINAS_SIN_TROCEAR
+    ? [{ buffer, desde: 1, hasta: totalPaginas }]
+    : await trocearPdf(buffer, PDF_PAGINAS_POR_GRUPO);
+
+  let proveedorContexto = null;
+  for (const grupo of grupos) {
+    if (onProgreso) {
+      onProgreso(grupos.length > 1
+        ? `Leyendo páginas ${grupo.desde}-${grupo.hasta} de ${totalPaginas}`
+        : `Leyendo ${totalPaginas} página${totalPaginas !== 1 ? 's' : ''}…`);
+    }
+    const { data, usage: u } = await extraerTarifaDeArchivoVisual(
+      buildFileBlock(grupo.buffer, 'application/pdf'),
+      { proveedorContexto, esPdf: true }
+    );
+    for (const p of (data.productos || [])) productos.push({ ...p, hoja: null });
+    for (const d of (data.dudas || [])) dudas.push({ ...d, hoja: null });
+    usage.input_tokens  += u?.input_tokens  || 0;
+    usage.output_tokens += u?.output_tokens || 0;
+
+    // Solo se toma del PRIMER grupo — es el que más probablemente lleva la
+    // cabecera con el nombre del proveedor.
+    if (!proveedorContexto) {
+      const detectado = (data.productos || []).find(p => p.proveedor)?.proveedor;
+      if (detectado) proveedorContexto = detectado;
+    }
+  }
+
+  return { productos, dudas, usage };
+}
+
+async function extraerProductosDeImagen(buffer, mimeType) {
+  const { data, usage } = await extraerTarifaDeArchivoVisual(buildFileBlock(buffer, mimeType), { esPdf: false });
+  return {
+    productos: (data.productos || []).map(p => ({ ...p, hoja: null })),
+    dudas: (data.dudas || []).map(d => ({ ...d, hoja: null })),
+    usage,
+  };
+}
+
 // Agrupa por (hoja, proveedor detectado) para que la vista previa se
 // presente como bloques editables — el usuario asigna el NIF/proveedor
 // real por bloque antes de confirmar.
@@ -162,19 +269,38 @@ function agruparPorProveedor(productos) {
   return [...grupos.values()];
 }
 
-async function extraerTarifasDeArchivo(buffer, filename, cliente) {
-  const hojas = await parsearArchivoTabular(buffer, filename);
-  const productos = [];
-  const dudas = [];
+// `mimeType` decide la vía: xlsx/csv (tabular, como siempre), PDF (una
+// llamada si tiene pocas páginas, trociado si no) o imagen (una foto = una
+// tarifa, igual que una foto de cierre de caja). `onProgreso(mensaje)` es
+// opcional — solo lo usa el trociado de PDFs largos para avisar por qué
+// grupo de páginas va la lectura.
+async function extraerTarifasDeArchivo(buffer, filename, cliente, mimeType, { onProgreso } = {}) {
+  const ext = (filename || '').toLowerCase().split('.').pop();
+  const esPdf = mimeType === 'application/pdf' || ext === 'pdf';
+  const esImagen = (mimeType && mimeType.startsWith('image/')) || ['jpg', 'jpeg', 'png'].includes(ext);
+
+  let productos = [];
+  let dudas = [];
   const usage = { input_tokens: 0, output_tokens: 0 };
 
-  for (const hoja of hojas) {
-    for (const bloque of construirBloques(hoja.filas)) {
-      const { data, usage: u } = await extraerBloqueTarifa(filasATexto(bloque), hoja.hoja);
-      for (const p of (data.productos || [])) productos.push({ ...p, hoja: hoja.hoja });
-      for (const d of (data.dudas || [])) dudas.push({ ...d, hoja: hoja.hoja });
-      usage.input_tokens  += u?.input_tokens  || 0;
-      usage.output_tokens += u?.output_tokens || 0;
+  if (esPdf) {
+    const r = await extraerProductosDePdf(buffer, { onProgreso });
+    productos = r.productos; dudas = r.dudas;
+    usage.input_tokens += r.usage.input_tokens; usage.output_tokens += r.usage.output_tokens;
+  } else if (esImagen) {
+    const r = await extraerProductosDeImagen(buffer, mimeType || (ext === 'png' ? 'image/png' : 'image/jpeg'));
+    productos = r.productos; dudas = r.dudas;
+    usage.input_tokens += r.usage.input_tokens; usage.output_tokens += r.usage.output_tokens;
+  } else {
+    const hojas = await parsearArchivoTabular(buffer, filename);
+    for (const hoja of hojas) {
+      for (const bloque of construirBloques(hoja.filas)) {
+        const { data, usage: u } = await extraerBloqueTarifa(filasATexto(bloque), hoja.hoja);
+        for (const p of (data.productos || [])) productos.push({ ...p, hoja: hoja.hoja });
+        for (const d of (data.dudas || [])) dudas.push({ ...d, hoja: hoja.hoja });
+        usage.input_tokens  += u?.input_tokens  || 0;
+        usage.output_tokens += u?.output_tokens || 0;
+      }
     }
   }
 

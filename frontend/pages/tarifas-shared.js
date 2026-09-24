@@ -89,6 +89,44 @@ async function buscarProveedorPorNif(nif) {
 // ── Pestaña Tarifas: subir, vista previa, confirmar ─────────────────────
 let previewState = null;
 
+// La respuesta de /tarifas/importar es NDJSON (una línea JSON por evento),
+// no un único JSON — un PDF largo se trocea en varias llamadas a Claude
+// (backend/lib/tarifas.js extraerProductosDePdf) y hay que ir mostrando
+// "Leyendo páginas X-Y de Z" mientras llegan, no solo al final. Los
+// errores también van como línea NDJSON: la cabecera 200 ya se mandó con
+// la primera línea, antes de saber si algo falla a mitad.
+async function leerImportacionTarifasNdjson(r, onProgreso) {
+  if (!r.body || !r.body.getReader) {
+    // Navegador sin streams body (rarísimo hoy): se lee todo de golpe.
+    const d = await r.json();
+    if (d.tipo === 'error') throw new Error(d.error || 'No se pudo procesar el archivo');
+    return d;
+  }
+  const reader = r.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let resultado = null;
+  let errorMsg = null;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    let salto;
+    while ((salto = buffer.indexOf('\n')) >= 0) {
+      const linea = buffer.slice(0, salto).trim();
+      buffer = buffer.slice(salto + 1);
+      if (!linea) continue;
+      const evento = JSON.parse(linea);
+      if (evento.tipo === 'progreso') onProgreso(evento.mensaje);
+      else if (evento.tipo === 'resultado') resultado = evento;
+      else if (evento.tipo === 'error') errorMsg = evento.error;
+    }
+  }
+  if (errorMsg) throw new Error(errorMsg);
+  if (!resultado) throw new Error('No se pudo procesar el archivo');
+  return resultado;
+}
+
 async function subirArchivoTarifa(file) {
   if (!file) return;
   const status = document.getElementById('tarifas-upload-status');
@@ -98,8 +136,7 @@ async function subirArchivoTarifa(file) {
     const fd = new FormData();
     fd.append('archivo', file);
     const r = await apiFetch('/tarifas/importar', { method: 'POST', body: fd });
-    const d = await r.json();
-    if (!r.ok) throw new Error(d.error || 'No se pudo procesar el archivo');
+    const d = await leerImportacionTarifasNdjson(r, (mensaje) => { status.textContent = mensaje; });
     status.classList.add('hidden');
     renderPreview(d);
   } catch (e) {

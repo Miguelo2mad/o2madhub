@@ -16,16 +16,30 @@ const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 15 
 function createTarifasRouter({ cliente, requireAuth, requireRole }) {
   const router = express.Router();
 
-  // POST /tarifas/importar — sube xlsx/csv, devuelve VISTA PREVIA. No guarda nada.
+  // POST /tarifas/importar — xlsx, csv, pdf, jpg o png; devuelve VISTA
+  // PREVIA. No guarda nada. Respuesta en NDJSON (una línea JSON por evento)
+  // en vez de un único JSON: un PDF largo se trocea en varias llamadas a
+  // Claude (backend/lib/tarifas.js extraerProductosDePdf) y el frontend
+  // necesita ir mostrando "Leyendo páginas X-Y de Z" mientras tanto, no
+  // solo al final. Por eso los errores también van como línea NDJSON
+  // ({tipo:'error'}) y no como status HTTP: la cabecera 200 ya se mandó
+  // con la primera línea, antes de saber si algo falla a mitad.
   router.post('/tarifas/importar', requireAuth, requireRole('gestor', 'admin'), upload.single('archivo'), async (req, res) => {
     if (!req.file) return res.status(400).json({ error: 'Se requiere un archivo en el campo "archivo"' });
+    res.setHeader('Content-Type', 'application/x-ndjson');
+    res.setHeader('Cache-Control', 'no-cache');
     try {
-      const preview = await tarifasLib.extraerTarifasDeArchivo(req.file.buffer, req.file.originalname, cliente);
+      const preview = await tarifasLib.extraerTarifasDeArchivo(
+        req.file.buffer, req.file.originalname, cliente, req.file.mimetype,
+        { onProgreso: (mensaje) => res.write(`${JSON.stringify({ tipo: 'progreso', mensaje })}\n`) }
+      );
       console.log(`[tarifas:${cliente}] preview ${req.file.originalname}: ${preview.grupos.length} grupo(s), ${preview.dudas.length} duda(s)`);
-      res.json({ ok: true, origen_archivo: req.file.originalname, ...preview });
+      res.write(`${JSON.stringify({ tipo: 'resultado', ok: true, origen_archivo: req.file.originalname, ...preview })}\n`);
+      res.end();
     } catch (e) {
       console.error(`[tarifas:${cliente}] importar error:`, e.message);
-      res.status(500).json({ error: e.message });
+      res.write(`${JSON.stringify({ tipo: 'error', error: e.message })}\n`);
+      res.end();
     }
   });
 
