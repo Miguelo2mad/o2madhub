@@ -81,17 +81,31 @@ function createEscandalloRouter({ cliente, requireAuth, requireRole }) {
   });
 
   // POST /escandallo/importar — xlsx/csv (plantilla con hojas "Platos" y
-  // "Escandallo"). Devuelve VISTA PREVIA agrupada por plato; no guarda
-  // nada. Cada grupo se confirma aparte contra POST /escandallo/confirmar.
+  // "Escandallo"), o pdf/jpg/png de una receta escrita. Devuelve VISTA
+  // PREVIA agrupada por plato; no guarda nada. Cada grupo se confirma
+  // aparte contra POST /escandallo/confirmar.
+  //
+  // Respuesta en NDJSON (una línea JSON por evento), no un único JSON: un
+  // PDF largo se trocea en varias llamadas a Claude (extraerLineasDePdf) y
+  // el frontend necesita ir mostrando "Leyendo páginas X-Y de Z" mientras
+  // tanto. Los errores también van como línea NDJSON ({tipo:'error'}) y no
+  // como status HTTP: la cabecera 200 ya se manda con la primera línea.
   router.post('/escandallo/importar', requireAuth, requireRole('gestor', 'admin'), upload.single('archivo'), async (req, res) => {
     if (!req.file) return res.status(400).json({ error: 'Se requiere un archivo en el campo "archivo"' });
+    res.setHeader('Content-Type', 'application/x-ndjson');
+    res.setHeader('Cache-Control', 'no-cache');
     try {
-      const preview = await escandalloLib.extraerEscandallosDeArchivo(req.file.buffer, req.file.originalname);
+      const preview = await escandalloLib.extraerEscandallosDeArchivo(
+        req.file.buffer, req.file.originalname, req.file.mimetype,
+        { onProgreso: (mensaje) => res.write(`${JSON.stringify({ tipo: 'progreso', mensaje })}\n`) }
+      );
       console.log(`[escandallo:${cliente}] preview ${req.file.originalname}: ${preview.platos.length} plato(s), ${preview.dudas.length} duda(s)`);
-      res.json({ ok: true, ...preview });
+      res.write(`${JSON.stringify({ tipo: 'resultado', ok: true, ...preview })}\n`);
+      res.end();
     } catch (e) {
       console.error(`[escandallo:${cliente}] importar error:`, e.message);
-      res.status(500).json({ error: e.message });
+      res.write(`${JSON.stringify({ tipo: 'error', error: e.message })}\n`);
+      res.end();
     }
   });
 

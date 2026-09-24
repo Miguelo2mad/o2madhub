@@ -9,7 +9,10 @@
 // migrations/042 y 045 para el esquema de esas tablas).
 const { supabase } = require('./supabase');
 const { buildFileBlock, extraerJson } = require('./claude-json');
-const { normalizarTextoProducto, normalizarUnidad, convertirUnidad } = require('./tarifas');
+const {
+  normalizarTextoProducto, normalizarUnidad, convertirUnidad,
+  contarPaginasPdf, trocearPdf,
+} = require('./tarifas');
 const { parsearArchivoTabular, construirBloques, filasATexto } = require('./archivo-tabular');
 
 const DIAS_HISTORICO_COMPRAS = 90;
@@ -477,29 +480,78 @@ async function extraerBloqueEscandallo(textoTabular) {
   });
 }
 
-async function extraerEscandallosDeArchivo(buffer, filename) {
-  const hojas = await parsearArchivoTabular(buffer, filename);
+// ── Importación desde PDF/foto de una receta escrita ─────────────────────
+// No es una plantilla tabular (sin hojas "Platos"/"Escandallo"): una foto o
+// PDF de una receta a mano o a máquina. Mismo esquema que la hoja
+// "Escandallo" (lineas: plato/ingrediente/cantidad/unidad + dudas) — así la
+// agrupación por plato al final es una sola implementación para las dos
+// vías. precio_carta no sale de aquí, se completa a mano en la vista
+// previa como cualquier plato sin precio de carta detectado.
+const RECETA_IMPORT_PROMPT = 'Esto es una foto o documento de una receta de un restaurante, escrita a mano o a '
+  + 'máquina (no una hoja de cálculo). Devuelve SOLO un JSON: '
+  + '{ lineas: [{ plato, ingrediente, cantidad, unidad }], dudas: [{ fila, motivo }] }\n'
+  + '- plato es el nombre del plato de la receta; si el documento tiene varias recetas, usa el nombre de cada una '
+  + 'para las líneas que le correspondan.\n'
+  + '- ingrediente, cantidad y unidad tal como aparecen en la receta — no inventes una cantidad que no esté escrita.\n'
+  + '- Normaliza unidad a: kg, g, l, ml, ud, caja, pack, docena.\n'
+  + '- Ignora lo que no sea ingredientes (pasos de preparación, tiempos, temperatura de horno, notas de emplatado...).\n'
+  + '- Cualquier línea que no puedas interpretar va a dudas, no la inventes.';
 
-  const platosInfo = [];
-  const lineasInfo = [];
+async function extraerBloqueReceta(fileBlock) {
+  return extraerJson({
+    maxTokens: 4096,
+    schema: ESCANDALLO_IMPORT_SCHEMA,
+    content: [fileBlock, { type: 'text', text: RECETA_IMPORT_PROMPT }],
+    mensajeError: 'La IA devolvió una respuesta incompleta al leer la receta.',
+  });
+}
+
+// Igual que el trociado de PDFs largos en tarifas.js: hasta este nº de
+// páginas, todo en una llamada; más allá, grupos de 5. A diferencia de una
+// tarifa (un proveedor, cabecera solo en la página 1), un PDF de recetas
+// puede traer varias recetas distintas por página, así que no se arrastra
+// contexto de un grupo al siguiente — cada uno se lee independiente y se
+// concatenan los resultados.
+const PDF_MAX_PAGINAS_SIN_TROCEAR = 6;
+const PDF_PAGINAS_POR_GRUPO = 5;
+
+async function extraerLineasDePdf(buffer, { onProgreso } = {}) {
+  const totalPaginas = await contarPaginasPdf(buffer);
+  const lineas = [];
   const dudas = [];
 
-  for (const hoja of hojas) {
-    const esHojaPlatos = !!(hoja.hoja && /platos/i.test(hoja.hoja));
-    for (const bloque of construirBloques(hoja.filas)) {
-      const texto = filasATexto(bloque);
-      if (esHojaPlatos) {
-        const { data } = await extraerBloquePlatos(texto);
-        for (const p of (data.platos || [])) platosInfo.push(p);
-        for (const d of (data.dudas || [])) dudas.push({ ...d, hoja: hoja.hoja });
-      } else {
-        const { data } = await extraerBloqueEscandallo(texto);
-        for (const l of (data.lineas || [])) lineasInfo.push(l);
-        for (const d of (data.dudas || [])) dudas.push({ ...d, hoja: hoja.hoja || 'Escandallo' });
-      }
+  const grupos = totalPaginas <= PDF_MAX_PAGINAS_SIN_TROCEAR
+    ? [{ buffer, desde: 1, hasta: totalPaginas }]
+    : await trocearPdf(buffer, PDF_PAGINAS_POR_GRUPO);
+
+  for (const grupo of grupos) {
+    if (onProgreso) {
+      onProgreso(grupos.length > 1
+        ? `Leyendo páginas ${grupo.desde}-${grupo.hasta} de ${totalPaginas}`
+        : `Leyendo ${totalPaginas} página${totalPaginas !== 1 ? 's' : ''}…`);
     }
+    const { data } = await extraerBloqueReceta(buildFileBlock(grupo.buffer, 'application/pdf'));
+    for (const l of (data.lineas || [])) lineas.push(l);
+    for (const d of (data.dudas || [])) dudas.push({ ...d, hoja: 'Receta' });
   }
 
+  return { lineas, dudas };
+}
+
+async function extraerLineasDeImagen(buffer, mimeType) {
+  const { data } = await extraerBloqueReceta(buildFileBlock(buffer, mimeType));
+  return {
+    lineas: data.lineas || [],
+    dudas: (data.dudas || []).map(d => ({ ...d, hoja: 'Receta' })),
+  };
+}
+
+// Agrupa las líneas ya extraídas (de la hoja "Escandallo", de un PDF o de
+// una foto de receta — mismo shape en los tres casos) por nombre de plato
+// normalizado, con el precio_carta de `platosInfo` si coincide (vacío en
+// PDF/foto, que no tienen hoja "Platos" — el plato sale igual, sin precio,
+// para completarlo a mano).
+function agruparLineasEscandallo(lineasInfo, platosInfo, dudas) {
   const precioCartaPorNorm = new Map(platosInfo.map(p => [normalizarTextoProducto(p.nombre), p.precio_carta]));
 
   const grupos = new Map(); // nombre_norm -> { nombre, precio_carta, ingredientes }
@@ -528,7 +580,49 @@ async function extraerEscandallosDeArchivo(buffer, filename) {
     if (!grupos.has(norm)) grupos.set(norm, { nombre: p.nombre, precio_carta: p.precio_carta, ingredientes: [] });
   }
 
-  return { platos: [...grupos.values()], dudas };
+  return [...grupos.values()];
+}
+
+// `mimeType` decide la vía: xlsx/csv (plantilla de dos hojas, como
+// siempre), PDF (una llamada si tiene pocas páginas, trociado si no) o
+// imagen (una foto de una receta = un plato, como una foto de cierre de
+// caja). `onProgreso(mensaje)` es opcional — solo lo usa el trociado de
+// PDFs largos.
+async function extraerEscandallosDeArchivo(buffer, filename, mimeType, { onProgreso } = {}) {
+  const ext = (filename || '').toLowerCase().split('.').pop();
+  const esPdf = mimeType === 'application/pdf' || ext === 'pdf';
+  const esImagen = (mimeType && mimeType.startsWith('image/')) || ['jpg', 'jpeg', 'png'].includes(ext);
+
+  const platosInfo = [];
+  let lineasInfo = [];
+  let dudas = [];
+
+  if (esPdf) {
+    const r = await extraerLineasDePdf(buffer, { onProgreso });
+    lineasInfo = r.lineas; dudas = r.dudas;
+  } else if (esImagen) {
+    const r = await extraerLineasDeImagen(buffer, mimeType || (ext === 'png' ? 'image/png' : 'image/jpeg'));
+    lineasInfo = r.lineas; dudas = r.dudas;
+  } else {
+    const hojas = await parsearArchivoTabular(buffer, filename);
+    for (const hoja of hojas) {
+      const esHojaPlatos = !!(hoja.hoja && /platos/i.test(hoja.hoja));
+      for (const bloque of construirBloques(hoja.filas)) {
+        const texto = filasATexto(bloque);
+        if (esHojaPlatos) {
+          const { data } = await extraerBloquePlatos(texto);
+          for (const p of (data.platos || [])) platosInfo.push(p);
+          for (const d of (data.dudas || [])) dudas.push({ ...d, hoja: hoja.hoja });
+        } else {
+          const { data } = await extraerBloqueEscandallo(texto);
+          for (const l of (data.lineas || [])) lineasInfo.push(l);
+          for (const d of (data.dudas || [])) dudas.push({ ...d, hoja: hoja.hoja || 'Escandallo' });
+        }
+      }
+    }
+  }
+
+  return { platos: agruparLineasEscandallo(lineasInfo, platosInfo, dudas), dudas };
 }
 
 module.exports = {

@@ -272,6 +272,42 @@ async function guardarEscandallo(payload) {
 }
 
 // ── Importación desde Excel ────────────────────────────────────────────
+// La respuesta de /escandallo/importar es NDJSON (una línea JSON por
+// evento), no un único JSON: un PDF largo se trocea en varias llamadas a
+// Claude (backend/lib/escandallo.js extraerLineasDePdf) y hay que ir
+// mostrando "Leyendo páginas X-Y de Z" mientras llegan. Mismo patrón que
+// tarifas-shared.js leerImportacionTarifasNdjson.
+async function leerImportacionEscandalloNdjson(r, onProgreso) {
+  if (!r.body || !r.body.getReader) {
+    const d = await r.json();
+    if (d.tipo === 'error') throw new Error(d.error || 'No se pudo procesar el archivo');
+    return d;
+  }
+  const reader = r.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let resultado = null;
+  let errorMsg = null;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    let salto;
+    while ((salto = buffer.indexOf('\n')) >= 0) {
+      const linea = buffer.slice(0, salto).trim();
+      buffer = buffer.slice(salto + 1);
+      if (!linea) continue;
+      const evento = JSON.parse(linea);
+      if (evento.tipo === 'progreso') onProgreso(evento.mensaje);
+      else if (evento.tipo === 'resultado') resultado = evento;
+      else if (evento.tipo === 'error') errorMsg = evento.error;
+    }
+  }
+  if (errorMsg) throw new Error(errorMsg);
+  if (!resultado) throw new Error('No se pudo procesar el archivo');
+  return resultado;
+}
+
 async function subirExcelEscandallo(file) {
   if (!file) return;
   const status = document.getElementById('escandallo-import-status');
@@ -281,8 +317,7 @@ async function subirExcelEscandallo(file) {
     const fd = new FormData();
     fd.append('archivo', file);
     const r = await apiFetch('/escandallo/importar', { method: 'POST', body: fd });
-    const d = await r.json();
-    if (!r.ok) throw new Error(d.error || 'No se pudo procesar el archivo');
+    const d = await leerImportacionEscandalloNdjson(r, (mensaje) => { status.textContent = mensaje; });
     status.classList.add('hidden');
     renderImportPreviewEscandallo(d);
   } catch (e) {

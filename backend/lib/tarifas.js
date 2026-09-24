@@ -163,6 +163,10 @@ const TARIFA_IMPORT_PROMPT_PDF_EXTRA = 'Ignora cabeceras y pies de página repet
 const PDF_MAX_PAGINAS_SIN_TROCEAR = 6;
 const PDF_PAGINAS_POR_GRUPO = 5;
 
+// Exportadas (ver module.exports): backend/lib/escandallo.js las reutiliza
+// para la importación de escandallos desde PDF/foto — es la misma
+// necesidad genérica ("trocear un PDF largo en grupos de páginas para
+// mandarlos a Claude por separado"), sin nada específico de tarifas.
 async function contarPaginasPdf(buffer) {
   const doc = await PDFDocument.load(buffer);
   return doc.getPageCount();
@@ -842,5 +846,5 @@ module.exports = {
   normalizarNif, normalizarUnidad, convertirUnidad, normalizarTextoProducto,
   extraerTarifasDeArchivo, confirmarTarifas, tarifaVigente, listarProveedores,
   calcularEstadoLinea, compararConTarifa, corregirEmparejamiento, primerDiaSiguienteMes,
-  verificarProductosComprados,
+  verificarProductosComprados, contarPaginasPdf, trocearPdf,
 };
