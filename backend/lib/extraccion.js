@@ -4,7 +4,7 @@
 // mismo esquema y el mismo prompt — quedaba duplicada y con riesgo de que
 // cada uno acabara clasificando con criterios distintos.
 const { buildFileBlock, extraerJson } = require('./claude-json');
-const { compararConTarifa } = require('./tarifas');
+const { compararConTarifa, corregirUnidadEnvase } = require('./tarifas');
 
 const FACTURA_LINEA_SCHEMA = {
   type: 'object',
@@ -69,6 +69,7 @@ const FACTURA_SCHEMA = {
 
 const FACTURA_PROMPT_BASE = 'Extrae los datos de esta factura de proveedor. fecha_factura en YYYY-MM-DD. iva_porcentaje como número (ej: 21). Si no encuentras un campo devuelve null. '
   + 'Además, en "lineas" desglosa cada línea de producto: producto (nombre tal cual), cantidad, unidad de medida en minúsculas (kg, l, ud, caja...) y precio_unitario. '
+  + 'Si el nombre del producto lleva un tamaño de envase (70CL, 75CL, LITRO, 1L, 3L, PET, LATA, 33CL, 20CL, BOTELLA, CAJA 12...), la unidad es "ud" y el precio es por envase, no por peso ni volumen — usa kg, g, l o ml solo cuando el precio esté explícitamente marcado por peso o volumen (€/kg, €/l, "precio por kilo"). '
   + 'Si la factura no tiene una tabla de productos clara (por ejemplo es un servicio), devuelve "lineas" como array vacío []. No inventes líneas ni valores.\n\n'
   + 'Clasifica el documento en "tipo": "factura", "albaran" o "ticket". Criterios por orden de prioridad:\n'
   + '- factura: desglosa base imponible, tipo y cuota de IVA, y lleva número de factura y NIF del receptor.\n'
@@ -192,6 +193,13 @@ async function extraerFactura(archivos, { cliente } = {}) {
   if (data.pagina_total != null && data.pagina_total > archivos.length) {
     data.pagina_parcial = true;
   }
+
+  // Mismo criterio que tarifas.js (corregirUnidadEnvase): un envase (70CL,
+  // PET, LATA...) en el nombre del producto se compra por unidad, no por
+  // peso ni volumen — se corrige aquí, determinista, para que la
+  // comparación con la tarifa pactada de abajo compare unidad contra
+  // unidad y no l/ml contra ud del mismo producto.
+  if (Array.isArray(data.lineas)) data.lineas = data.lineas.map(corregirUnidadEnvase);
 
   await reintentarFechaYNumero(archivos, data);
 

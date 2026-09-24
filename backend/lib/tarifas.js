@@ -84,6 +84,49 @@ function normalizarTextoProducto(raw) {
   return quitarAcentos(String(raw).toLowerCase().trim()).replace(/\s+/g, ' ');
 }
 
+// ── Envases: se compran por unidad, no por peso/volumen ──────────────────
+// Un tamaño de envase en el nombre del producto (70CL, 1L, PET, LATA,
+// BOTELLA, CAJA...) significa que el precio es por envase, no por litro o
+// kilo — aunque el propio envase contenga un líquido. Compartido por
+// tarifas.js (importación de tarifas) y extraccion.js (líneas de factura):
+// exportada aquí para que ambos lados corrijan exactamente igual — una
+// botella es una unidad tanto en la tarifa pactada como en la factura que
+// se compara contra ella.
+const PATRONES_ENVASE = [
+  /\b\d+([.,]\d+)?\s?(cl|ml)\b/i,   // 70CL, 33 CL, 500ML
+  /\b\d+([.,]\d+)?\s?l\b/i,         // 1L, 3L, 1.5L
+  /\blitro[s]?\b/i,
+  /\bpet\b/i,
+  /\blata[s]?\b/i,
+  /\bbotella[s]?\b/i,
+  /\bcaja\b/i,
+];
+
+function extraerTamanoEnvase(texto) {
+  for (const patron of PATRONES_ENVASE) {
+    const m = String(texto || '').match(patron);
+    if (m) return m[0].trim();
+  }
+  return null;
+}
+
+// Corrección determinista tras la extracción (además de pedírselo al
+// modelo en el prompt, que no siempre lo respeta): si el nombre del
+// producto lleva un tamaño de envase y la unidad detectada es de peso o
+// volumen (l, ml — kg/g se dejan: un producto vendido a granel puede
+// mencionar un tamaño de referencia sin que eso cambie nada), se corrige a
+// 'ud' y el tamaño pasa a notas para no perder el dato.
+function corregirUnidadEnvase(item) {
+  // Normaliza solo para la comparación — si no es un envase, el item vuelve
+  // tal cual llegó (esta función no es responsable de normalizar unidad en
+  // general, cada caller ya lo hace donde le corresponde).
+  const unidadNorm = normalizarUnidad(item.unidad) || item.unidad;
+  if (unidadNorm !== 'l' && unidadNorm !== 'ml') return item;
+  const tamano = extraerTamanoEnvase(item.producto);
+  if (!tamano) return item;
+  return { ...item, unidad: 'ud', notas: [item.notas, tamano].filter(Boolean).join(' · ') };
+}
+
 // ── Ingesta de tarifas ───────────────────────────────────────────────────
 // Vista previa: sube xlsx/csv → texto tabular por hoja (backend/lib/
 // archivo-tabular.js) → Claude normaliza por bloques de 150 filas →
@@ -130,10 +173,20 @@ proveedores, en formato libre. Devuelve SOLO un JSON:
   dudas: [{ fila, motivo }] }
 Reglas:
 - Detecta tú la fila de cabecera; puede no ser la primera.
-- Si el proveedor no está en las columnas, puede estar en el nombre de la
-  hoja o en una fila de título. Si no lo encuentras, deja proveedor en null.
-- Normaliza unidades a: kg, g, l, ml, ud, caja, pack, docena. Si el precio
-  es por caja, indica en notas cuántas unidades o kilos trae.
+- El proveedor es UNO SOLO para todo el documento, salvo que haya una
+  columna de proveedor explícita en la tabla, o secciones separadas con su
+  propia cabecera de proveedor (nombre y/o NIF). Una marca o fabricante que
+  aparece DENTRO del nombre de un producto (Bacardi, Diageo, Osborne, Moya,
+  Torres...) NUNCA es el proveedor — es el fabricante de ese producto
+  concreto; el proveedor es quien vende/factura el listado completo. Si no
+  encuentras el proveedor real, deja proveedor en null, no pongas ahí una
+  marca del producto.
+- Normaliza unidades a: kg, g, l, ml, ud, caja, pack, docena. Si el nombre
+  del producto lleva un tamaño de envase (70CL, 75CL, LITRO, 1L, 3L, PET,
+  LATA, 33CL, 20CL, BOTELLA, CAJA 12...), la unidad es 'ud' y el precio es
+  por envase — el tamaño va en notas, no cambia la unidad. Usa kg, g, l o
+  ml SOLO cuando el precio esté explícitamente marcado por peso o volumen
+  (€/kg, €/l, "precio por kilo").
 - Precios en formato español (1.234,56). Devuelve número.
 - Cualquier fila que no puedas interpretar va a dudas, no la inventes.`;
 
@@ -311,7 +364,12 @@ async function extraerTarifasDeArchivo(buffer, filename, cliente, mimeType, { on
   // Defensa en profundidad: el prompt ya le pide al modelo normalizar la
   // unidad, pero no nos fiamos a ciegas — se re-normaliza aquí y otra vez
   // al confirmar, por si el usuario edita el valor en la vista previa.
-  for (const p of productos) p.unidad = normalizarUnidad(p.unidad) || p.unidad;
+  // corregirUnidadEnvase después: aunque el modelo ya normalizó, un envase
+  // (70CL, PET, LATA...) que se haya colado como l/ml se corrige a ud aquí,
+  // determinista, sin depender de que el prompt se cumpla siempre.
+  productos = productos
+    .map(p => ({ ...p, unidad: normalizarUnidad(p.unidad) || p.unidad }))
+    .map(corregirUnidadEnvase);
 
   const { lista: proveedoresFacturados, productosPorProveedor } = await datosProveedoresFacturados(cliente);
   const grupos = agruparPorProveedor(productos).map(g => ({
@@ -846,5 +904,5 @@ module.exports = {
   normalizarNif, normalizarUnidad, convertirUnidad, normalizarTextoProducto,
   extraerTarifasDeArchivo, confirmarTarifas, tarifaVigente, listarProveedores,
   calcularEstadoLinea, compararConTarifa, corregirEmparejamiento, primerDiaSiguienteMes,
-  verificarProductosComprados, contarPaginasPdf, trocearPdf,
+  verificarProductosComprados, contarPaginasPdf, trocearPdf, corregirUnidadEnvase,
 };

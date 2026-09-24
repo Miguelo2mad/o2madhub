@@ -45,6 +45,8 @@
     .tarifa-proveedor-elegido input[readonly] { opacity: .7; }
     .tarifa-proveedor-toggle { grid-column: 1 / -1; font-size: 11px; color: var(--accent); text-decoration: none; }
     .tarifa-sugerencia { font-size: 10.5px; color: var(--accent); margin-top: 3px; }
+    .tarifa-unir-bar { display: flex; align-items: center; justify-content: space-between; gap: 10px; background: rgba(217,164,65,.08); border: 1px solid rgba(217,164,65,.3); border-radius: 12px; padding: 10px 12px; margin-bottom: 14px; font-size: 12px; color: var(--ambar); }
+    .tarifa-unir-bar button { flex-shrink: 0; }
 
     .tarifa-listado-item { padding: 12px 0; border-bottom: 1px solid var(--border); }
     .tarifa-listado-item:last-child { border-bottom: none; }
@@ -187,6 +189,7 @@ function renderPreview(preview) {
 
   document.getElementById('tarifas-preview').innerHTML = `
     ${renderDudasBlock(preview.dudas)}
+    ${renderUnirProveedoresBar()}
     <div id="tarifa-grupos">${ordenGrupos.map(({ g, i }) => renderGrupoCard(g, i)).join('')}</div>
     <div class="tarifa-confirmar-bar">
       <button class="btn-drive" id="btn-confirmar-tarifas">Confirmar e importar</button>
@@ -196,6 +199,29 @@ function renderPreview(preview) {
   document.getElementById('tarifas-upload-box').classList.add('hidden');
   document.getElementById('btn-confirmar-tarifas').addEventListener('click', confirmarTarifasUI);
   document.getElementById('btn-cancelar-tarifas').addEventListener('click', cancelarPreviewTarifas);
+}
+
+// Un archivo debería dar un proveedor por defecto (ver TARIFA_IMPORT_PROMPT
+// en backend/lib/tarifas.js); si aun así la IA detectó varios bloques —
+// normalmente porque confundió una marca dentro del nombre de un producto
+// con el proveedor — este botón los fusiona en uno y deja elegir cuál es.
+function renderUnirProveedoresBar() {
+  if (!previewState.grupos || previewState.grupos.length <= 1) return '';
+  return `<div class="tarifa-unir-bar">
+    <span>Se han detectado ${previewState.grupos.length} proveedores distintos en este archivo.</span>
+    <button type="button" class="tarifa-btn-secondary" onclick="unirTodosLosProveedores()">Unir todo en un proveedor</button>
+  </div>`;
+}
+
+function unirTodosLosProveedores() {
+  if (!previewState.grupos || previewState.grupos.length <= 1) return;
+  previewState.grupos = [{
+    hoja: null,
+    proveedor_detectado: null,
+    productos: previewState.grupos.flatMap(g => g.productos),
+    sugerencia: null,
+  }];
+  renderPreview(previewState);
 }
 
 function renderDudasBlock(dudas) {
