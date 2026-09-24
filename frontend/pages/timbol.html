@@ -685,6 +685,50 @@
       <div id="personal-listado"><div class="empty">Cargando…</div></div>
     </div>
 
+    <!-- TAB ESCANDALLO -->
+    <div class="tab-panel" id="panel-escandallo">
+      <div id="escandallo-home">
+        <p class="section-title">Escandallo</p>
+        <div class="form-actions" style="margin-bottom:14px">
+          <button class="btn-drive" id="btn-escandallo-nuevo-foto">📷 Nuevo plato con foto</button>
+          <button class="banco-btn-secundario" id="btn-escandallo-importar">Importar Excel</button>
+        </div>
+        <input type="file" id="escandallo-importar-input" accept=".xlsx,.xls,.csv" class="hidden">
+
+        <div id="escandallo-import-status" class="empty hidden">Analizando archivo…</div>
+        <div id="escandallo-import-preview"></div>
+
+        <div id="escandallo-listado"><div class="empty">Cargando…</div></div>
+      </div>
+
+      <!-- Captura de foto para "Nuevo plato con foto" -->
+      <div id="escandallo-captura" class="hidden">
+        <p class="captura-ayuda-texto">Foto del plato (solo hace falta una), nombre y precio de carta.</p>
+        <div class="field"><label>Nombre del plato</label><input id="esc-captura-nombre"></div>
+        <div class="field"><label>Precio de carta (opcional)</label><input type="number" step="0.01" id="esc-captura-precio"></div>
+        <div class="field"><label>Descripción (opcional)</label><input id="esc-captura-descripcion"></div>
+        <div class="captura-thumbs" id="escandallo-captura-thumbs"></div>
+        <div class="captura-peso" id="escandallo-captura-peso"></div>
+        <div class="captura-acciones">
+          <button class="btn-drive" id="btn-escandallo-hacer-foto">📷 Hacer foto</button>
+          <button class="tarifa-btn-secondary" id="btn-escandallo-galeria">Galería</button>
+          <button class="tarifa-btn-secondary hidden" id="btn-escandallo-pdf">PDF</button>
+        </div>
+        <div class="tarifa-confirmar-bar">
+          <button class="btn-drive captura-btn-procesar" id="btn-escandallo-procesar" disabled>Procesar (0 fotos)</button>
+          <button class="tarifa-btn-secondary" id="btn-escandallo-cancelar-captura">Cancelar</button>
+        </div>
+        <input type="file" id="input-escandallo-camara" accept="image/*" capture="environment" class="hidden">
+        <input type="file" id="input-escandallo-galeria" accept="image/*" class="hidden">
+        <input type="file" id="input-escandallo-pdf" accept="application/pdf" class="hidden">
+      </div>
+
+      <div id="escandallo-proponer-status" class="empty hidden">Analizando plato…</div>
+
+      <!-- Editor (plato nuevo tras /proponer, o edición de uno existente) -->
+      <div id="escandallo-editor" class="hidden"></div>
+    </div>
+
     <!-- TAB GESTOR -->
     <div class="tab-panel" id="panel-gestor">
       <div id="gestor-ia-wrap" class="hidden">
@@ -748,6 +792,10 @@
         <button class="sheet-item" data-tab="checklists" id="nav-checklists" style="display:none">
           <svg viewBox="0 0 24 24"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
           Checklists
+        </button>
+        <button class="sheet-item" data-tab="escandallo" id="nav-escandallo" style="display:none">
+          <svg viewBox="0 0 24 24"><path d="M4 3h16M4 3v12a4 4 0 0 0 4 4h0a4 4 0 0 0 4-4V3M16 3v18"/></svg>
+          Escandallo
         </button>
         <button class="sheet-item" data-tab="gestor" id="nav-gestor" style="display:none">
           <svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M20 21a8 8 0 1 0-16 0"/></svg>
@@ -1351,6 +1399,7 @@ function switchTab(tab) {
   if (tab === 'inventario') refreshInventarioTab();
   if (tab === 'banco') refreshBancoTab();
   if (tab === 'checklists') { refreshChecklistsTab(); refreshConfigChecklists(); }
+  if (tab === 'escandallo') refreshEscandalloTab();
 
   clearInterval(fichajeAutoRefresh); fichajeAutoRefresh = null;
   if (tab === 'fichaje') {
@@ -1808,6 +1857,7 @@ function showApp() {
   document.getElementById('nav-inventario').style.display = isGestor ? '' : 'none';
   document.getElementById('nav-banco').style.display = isGestor ? '' : 'none';
   document.getElementById('nav-checklists').style.display = isGestor ? '' : 'none';
+  document.getElementById('nav-escandallo').style.display = isGestor ? '' : 'none';
   document.getElementById('nav-mas').style.display = isGestor ? '' : 'none';
   if (isGestor) refreshResumenPendientesBadge();
 }
@@ -1909,6 +1959,9 @@ function boot() {
       document.getElementById('nav-inventario').style.display = isGestor ? '' : 'none';
       document.getElementById('nav-banco').style.display = isGestor ? '' : 'none';
       document.getElementById('nav-checklists').style.display = isGestor ? '' : 'none';
+      document.getElementById('nav-escandallo').style.display = isGestor ? '' : 'none';
+      document.getElementById('nav-mas').style.display = isGestor ? '' : 'none';
+      if (isGestor) refreshResumenPendientesBadge();
     }).catch(() => {});
   }
 }
@@ -1924,5 +1977,6 @@ document.addEventListener('DOMContentLoaded', boot);
 <script src="checklists-shared.js"></script>
 <script src="personal-shared.js"></script>
 <script src="nav-mas-shared.js"></script>
+<script src="escandallo-shared.js"></script>
 </body>
 </html>
