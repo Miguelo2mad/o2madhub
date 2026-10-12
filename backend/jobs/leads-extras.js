@@ -200,7 +200,10 @@ async function respuestaDeLead(cliente, lead) {
 // Revisa como mucho `max` leads: primero los que nunca se han mirado (más
 // recientes antes) y luego los que aún pueden recibir respuesta (menos de 7
 // días desde el alta, sin respuesta manual y revisados hace más de 1 h).
-async function syncRespuestas(cliente, { max = 150, alProgreso } = {}) {
+// concurrencia: leads en paralelo dentro de la subcuenta. Cada worker hace
+// ~3 peticiones/s, así que 4 se quedan holgadas bajo el límite de GHL (100 /
+// 10 s por location). La sync horaria usa 1; el script de histórico, 4.
+async function syncRespuestas(cliente, { max = 150, concurrencia = 1, alProgreso } = {}) {
   const [leads, revisados] = await Promise.all([
     fetchAll(() => supabase.from('leads').select('ghl_contact_id, fecha_creacion')
       .eq('location_id', cliente.location_id).eq('importado', false)
@@ -221,21 +224,30 @@ async function syncRespuestas(cliente, { max = 150, alProgreso } = {}) {
 
   const filas = [];
   let errores = 0;
-  for (const lead of cola) {
-    try {
-      filas.push(await respuestaDeLead(cliente, lead));
-    } catch (e) {
-      errores += 1;
-      if (errores <= 3) console.warn(`[leads] respuesta ${cliente.nombre}/${lead.ghl_contact_id}: ${e.message}`);
-      if (errores > 20) throw new Error(`demasiados errores leyendo conversaciones (${e.message})`);
+  let hechos = 0;
+  let siguiente = 0;
+  const guardar = async () => {
+    if (!filas.length) return;
+    const { error } = await supabase.from('leads_respuesta').upsert(filas.splice(0), { onConflict: 'ghl_contact_id' });
+    if (error) throw new Error(`leads_respuesta: ${error.message}`);
+  };
+  const worker = async () => {
+    while (siguiente < cola.length) {
+      const lead = cola[siguiente++];
+      try {
+        filas.push(await respuestaDeLead(cliente, lead));
+      } catch (e) {
+        errores += 1;
+        if (errores <= 3) console.warn(`[leads] respuesta ${cliente.nombre}/${lead.ghl_contact_id}: ${e.message}`);
+        if (errores > 20) throw new Error(`demasiados errores leyendo conversaciones (${e.message})`);
+      }
+      if (filas.length >= 50) await guardar();
+      hechos += 1;
+      if (alProgreso) alProgreso(hechos, cola.length);
+      await ghl.sleep(150);
     }
-    if (filas.length >= 50) {
-      const { error } = await supabase.from('leads_respuesta').upsert(filas.splice(0), { onConflict: 'ghl_contact_id' });
-      if (error) throw new Error(`leads_respuesta: ${error.message}`);
-    }
-    if (alProgreso) alProgreso(cola.indexOf(lead) + 1, cola.length);
-    await ghl.sleep(150);
-  }
+  };
+  await Promise.all(Array.from({ length: Math.max(1, concurrencia) }, worker));
   if (filas.length) {
     const { error } = await supabase.from('leads_respuesta').upsert(filas, { onConflict: 'ghl_contact_id' });
     if (error) throw new Error(`leads_respuesta: ${error.message}`);

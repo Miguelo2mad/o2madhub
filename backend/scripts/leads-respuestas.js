@@ -5,7 +5,7 @@
 // GHL por lead con 150 ms de pausa (dentro del rate limit de 100 / 10 s).
 //
 //   node backend/scripts/leads-respuestas.js                    → subcuentas en captación con token
-//   node backend/scripts/leads-respuestas.js --location=<id> --max=20000
+//   node backend/scripts/leads-respuestas.js --location=<id> --max=20000 --concurrencia=4
 //
 // En Railway:  railway run node backend/scripts/leads-respuestas.js
 const { supabase } = require('../lib/supabase');
@@ -24,6 +24,7 @@ const arg = n => (process.argv.find(a => a.startsWith(`--${n}=`)) || '').split('
     const t0 = Date.now();
     const r = await syncRespuestas(c, {
       max,
+      concurrencia: Number(arg('concurrencia')) || 4,
       alProgreso: (i, n) => { if (i % 250 === 0) console.log(`  ${c.nombre}: ${i}/${n}`); },
     });
     console.log(`${c.nombre}: ${JSON.stringify(r)} en ${Math.round((Date.now() - t0) / 1000)} s`);
