@@ -2,20 +2,23 @@
 // leads, leads_sync_log). Cron horario en index.js y POST /api/leads/sync.
 //   1. /locations/search → alta de subcuentas nuevas en clientes_ghl, siempre
 //      INACTIVAS: en Leads solo cuenta lo que Miguel marca "en captación".
-//   2. Por cada subcuenta activa (= en captación) CON token_privado: backfill de 12 meses si
-//      nunca se sincronizó; si no, desde ultima_sync − 24 h (solape). Las que
+//   2. Por cada subcuenta activa (= en captación) CON token_privado: backfill
+//      desde BACKFILL_DESDE (1-ene-2024) si nunca se sincronizó; si no, desde
+//      ultima_sync − 24 h (solape). syncLeads({ desde }) fuerza otra fecha. Las que
 //      no tienen token se apuntan en el log como "sin token" y se saltan (no
 //      es un error: es que aún no se ha configurado).
 //   3. Upsert por ghl_contact_id y una fila en leads_sync_log por subcuenta.
 // Un error en una subcuenta se registra y se sigue con las demás.
 const { supabase } = require('../lib/supabase');
 const ghl = require('../lib/ghl');
+const { extrasCliente } = require('./leads-extras');
 
 const PAGE_LIMIT = 100;
 const VENTANA_DIAS = 30;          // trocea el rango para no rozar el tope de 10.000 de page
 const SOLAPE_MS = 24 * 3600_000;
 const PAUSA_PAGINA_MS = 150;
 const SIN_TOKEN = 'sin token'; // valor de leads_sync_log.error para subcuentas saltadas
+const BACKFILL_DESDE = '2024-01-01T00:00:00.000Z'; // histórico completo del primer sync
 
 let enCurso = false;
 
@@ -84,7 +87,7 @@ async function syncVentana(cliente, gte, lte, totales) {
   }
 }
 
-async function syncCliente(cliente) {
+async function syncCliente(cliente, { desde: desdeForzado } = {}) {
   const inicio = new Date();
   if (!cliente.token_privado) {
     const { error: logErr } = await supabase.from('leads_sync_log').insert({
@@ -94,9 +97,11 @@ async function syncCliente(cliente) {
     return { location_id: cliente.location_id, nombre: cliente.nombre, leads_nuevos: 0, leads_actualizados: 0, error: null, sin_token: true };
   }
 
-  const desde = cliente.ultima_sync
-    ? new Date(new Date(cliente.ultima_sync).getTime() - SOLAPE_MS)
-    : new Date(Date.UTC(inicio.getUTCFullYear() - 1, inicio.getUTCMonth(), inicio.getUTCDate()));
+  const desde = desdeForzado
+    ? new Date(desdeForzado)
+    : cliente.ultima_sync
+      ? new Date(new Date(cliente.ultima_sync).getTime() - SOLAPE_MS)
+      : new Date(BACKFILL_DESDE);
   const totales = { nuevos: 0, actualizados: 0 };
   let error = null;
 
@@ -112,6 +117,12 @@ async function syncCliente(cliente) {
   } catch (e) {
     error = e.message;
     console.error(`[leads] ERROR ${cliente.nombre} (${cliente.location_id}): ${error}`);
+  }
+  // Duplicados, oportunidades y velocidad de respuesta (ver leads-extras.js).
+  // Sus fallos quedan en el log de la subcuenta, pero no anulan la sync de leads.
+  if (!error) {
+    const errExtras = await extrasCliente(cliente);
+    if (errExtras) error = `Leads OK; extras con error — ${errExtras}`;
   }
 
   const { error: logErr } = await supabase.from('leads_sync_log').insert({
@@ -131,7 +142,7 @@ async function syncCliente(cliente) {
   };
 }
 
-async function syncLeads({ locationId } = {}) {
+async function syncLeads({ locationId, desde } = {}) {
   if (enCurso) {
     const err = new Error('Ya hay una sincronización de leads en curso');
     err.code = 'EN_CURSO';
@@ -158,7 +169,7 @@ async function syncLeads({ locationId } = {}) {
     if (error) throw new Error(`clientes_ghl: ${error.message}`);
 
     const resultados = [];
-    for (const cliente of clientes) resultados.push(await syncCliente(cliente));
+    for (const cliente of clientes) resultados.push(await syncCliente(cliente, { desde }));
 
     const resumen = {
       subcuentas_ghl: alta?.subcuentas ?? null,

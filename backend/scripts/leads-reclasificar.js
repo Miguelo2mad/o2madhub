@@ -14,7 +14,7 @@ const { supabase } = require('../lib/supabase');
 const { contactoALead } = require('../lib/ghl');
 
 const APPLY = process.argv.includes('--apply');
-const CAMPOS = ['canal', 'utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'campaign_id', 'ad_id'];
+const CAMPOS = ['canal', 'utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'campaign_id', 'ad_id', 'sin_contacto'];
 const LOTE = 500;
 
 async function main() {

@@ -72,7 +72,7 @@ const locationsAmbito = async locationId => (locationId ? [locationId] : locatio
 async function diarios({ locationId, desde, hasta }) {
   const ambito = locationId ? [locationId] : await locationsActivas();
   return fetchAll(() => supabase.from('leads_diarios')
-    .select('location_id, dia, canal, total')
+    .select('location_id, dia, canal, total, unicos')
     .in('location_id', ambito)
     .gte('dia', desde.toISODate())
     .lte('dia', hasta.toISODate())
@@ -80,6 +80,23 @@ async function diarios({ locationId, desde, hasta }) {
 }
 
 const sumar = (filas, pred) => filas.reduce((s, f) => (pred(f) ? s + f.total : s), 0);
+const sumarUnicos = (filas, pred) => filas.reduce((s, f) => (pred(f) ? s + f.unicos : s), 0);
+const pct = (n, d) => (d > 0 ? Math.round((n / d) * 1000) / 10 : null);
+function mediana(nums) {
+  if (!nums.length) return null;
+  const v = [...nums].sort((a, b) => a - b);
+  const m = Math.floor(v.length / 2);
+  return v.length % 2 ? v[m] : (v[m - 1] + v[m]) / 2;
+}
+// Franjas horarias (Madrid) de heatmap y velocidad de respuesta.
+const FRANJAS = [
+  { nombre: 'Madrugada', desde: 0, hasta: 8 },
+  { nombre: 'Mañana', desde: 8, hasta: 14 },
+  { nombre: 'Tarde', desde: 14, hasta: 20 },
+  { nombre: 'Noche', desde: 20, hasta: 24 },
+];
+const franjaDeHora = h => FRANJAS.find(f => h >= f.desde && h < f.hasta).nombre;
+const DIAS = ['lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado', 'domingo'];
 const variacion = (actual, anterior) => (anterior > 0 ? Math.round(((actual - anterior) / anterior) * 1000) / 10 : null);
 
 function claveBucket(dia, granularidad) {
@@ -136,7 +153,7 @@ function sanitizarBusqueda(q) {
 // Filtros comunes del listado, el CSV, el desglose y el heatmap sobre la
 // tabla leads. ambito = location_ids permitidos (ver locationsAmbito).
 function filtrosLeads(q, ambito, { desde, hasta, canal, q: busqueda }) {
-  q = q.in('location_id', ambito);
+  q = q.in('location_id', ambito).eq('importado', false); // importaciones masivas: no son leads
   const d = parseDia(desde, null);
   const h = parseDia(hasta, null);
   if (d) q = q.gte('fecha_creacion', d.toUTC().toISO());
@@ -287,8 +304,12 @@ router.get('/resumen', requireAuth, async (req, res) => {
 
     res.json({
       hoy: sumar(filas, enRango(hoy, hoy)),
+      hoy_unicos: sumarUnicos(filas, enRango(hoy, hoy)),
       semana: sumar(filas, enRango(iniSemana, hoy)),
+      semana_unicos: sumarUnicos(filas, enRango(iniSemana, hoy)),
       mes,
+      mes_unicos: sumarUnicos(filas, enRango(iniMes, hoy)),
+      mes_anterior_unicos: sumarUnicos(filas, enRango(iniMesAnt, finMesAnt)),
       mes_anterior: mesAnterior,
       mes_anterior_mismo_dia: mesAnteriorMismoDia,
       variacion_pct: variacion(mes, mesAnterior),
@@ -309,16 +330,30 @@ router.get('/serie', requireAuth, async (req, res) => {
     const { granularidad, desde, hasta } = rangoSerie(req.query);
     if (desde > hasta) return res.status(400).json({ error: 'desde debe ser anterior a hasta' });
 
-    const filas = await diarios({ locationId: req.query.location_id || null, desde, hasta });
+    // En diario se piden 6 días más para la media móvil de 7 días desde el primer día.
+    const desdeDatos = granularidad === 'dia' ? desde.minus({ days: 6 }) : desde;
+    const filas = await diarios({ locationId: req.query.location_id || null, desde: desdeDatos, hasta });
 
-    const buckets = crearBuckets(desde, hasta, granularidad, () => ({ total: 0, ...Object.fromEntries(CANALES.map(c => [c, 0])) }));
+    const buckets = crearBuckets(desde, hasta, granularidad, () => ({ total: 0, unicos: 0, ...Object.fromEntries(CANALES.map(c => [c, 0])) }));
+    const porDia = {};
     for (const f of filas) {
+      porDia[f.dia] = (porDia[f.dia] || 0) + f.total;
       const b = buckets.get(claveBucket(DateTime.fromISO(f.dia, { zone: TZ }), granularidad));
       if (!b) continue;
       b.total += f.total;
+      b.unicos += f.unicos;
       b[f.canal] = (b[f.canal] || 0) + f.total;
     }
-    res.json({ granularidad, desde: desde.toISODate(), hasta: hasta.toISODate(), canales: CANALES, serie: [...buckets.values()] });
+    const serie = [...buckets.values()];
+    if (granularidad === 'dia') {
+      for (const b of serie) {
+        const d = DateTime.fromISO(b.periodo, { zone: TZ });
+        let suma = 0;
+        for (let i = 0; i < 7; i++) suma += porDia[d.minus({ days: i }).toISODate()] || 0;
+        b.media7 = Math.round((suma / 7) * 10) / 10;
+      }
+    }
+    res.json({ granularidad, desde: desde.toISODate(), hasta: hasta.toISODate(), canales: CANALES, serie });
   } catch (e) {
     console.error('[leads] GET /serie:', e.message);
     res.status(500).json({ error: e.message });
@@ -429,14 +464,9 @@ router.get('/ranking', requireAuth, async (req, res) => {
 });
 
 // GET /heatmap?location_id=&desde=&hasta= — leads por día de la semana (0 =
-// lunes) × hora, en Europe/Madrid, con totales por día, por hora y por franja.
-const FRANJAS = [
-  { nombre: 'Madrugada', desde: 0, hasta: 7 },
-  { nombre: 'Mañana', desde: 7, hasta: 13 },
-  { nombre: 'Mediodía', desde: 13, hasta: 16 },
-  { nombre: 'Tarde', desde: 16, hasta: 20 },
-  { nombre: 'Noche', desde: 20, hasta: 24 },
-];
+// lunes) × hora, en Europe/Madrid, con totales por día, hora y franja, top 3
+// celdas y una frase resumen (la ventana de 3 días seguidos × 3 horas
+// seguidas que más leads concentra).
 router.get('/heatmap', requireAuth, async (req, res) => {
   try {
     const { desde, hasta } = rangoPeriodo(req.query);
@@ -450,14 +480,40 @@ router.get('/heatmap', requireAuth, async (req, res) => {
       const d = DateTime.fromISO(l.fecha_creacion).setZone(TZ);
       matriz[d.weekday - 1][d.hour] += 1;
     }
+    const total = leads.length;
+    const porDia = matriz.map(fila => fila.reduce((a, b) => a + b, 0));
     const porHora = Array.from({ length: 24 }, (_, h) => matriz.reduce((s, fila) => s + fila[h], 0));
+
+    const celdas = matriz.flatMap((fila, d) => fila.map((n, h) => ({ dia: d, hora: h, total: n })));
+    const top = celdas.filter(c => c.total > 0).sort((a, b) => b.total - a.total).slice(0, 3)
+      .map(c => ({ ...c, dia_nombre: DIAS[c.dia], pct: pct(c.total, total) }));
+
+    let mejor = null;
+    for (let d = 0; d <= 4; d++) {
+      for (let h = 0; h <= 21; h++) {
+        let n = 0;
+        for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) n += matriz[d + i][h + j];
+        if (!mejor || n > mejor.total) mejor = { dia_desde: d, dia_hasta: d + 2, hora_desde: h, hora_hasta: h + 3, total: n };
+      }
+    }
+    const diaTop = porDia.indexOf(Math.max(...porDia));
+    const franjas = FRANJAS.map(f => ({ ...f, total: porHora.slice(f.desde, f.hasta).reduce((a, b) => a + b, 0) }));
+    const franjaTop = franjas.reduce((a, b) => (b.total > a.total ? b : a));
+    const resumen = total >= 20 && mejor
+      ? `El ${Math.round((mejor.total / total) * 100)}% entra de ${DIAS[mejor.dia_desde]} a ${DIAS[mejor.dia_hasta]} entre las ${mejor.hora_desde} y las ${mejor.hora_hasta} h. ` +
+        `El día más fuerte es el ${DIAS[diaTop]} (${Math.round((porDia[diaTop] / total) * 100)}%) y la franja, la ${franjaTop.nombre.toLowerCase()} (${Math.round((franjaTop.total / total) * 100)}%).`
+      : total ? 'Pocos leads en el periodo para sacar conclusiones (menos de 20).' : null;
+
     res.json({
       desde: desde.toISODate(), hasta: hasta.toISODate(),
-      total: leads.length,
+      total,
       matriz,
-      por_dia: matriz.map(fila => fila.reduce((a, b) => a + b, 0)),
+      por_dia: porDia,
       por_hora: porHora,
-      por_franja: FRANJAS.map(f => ({ ...f, total: porHora.slice(f.desde, f.hasta).reduce((a, b) => a + b, 0) })),
+      por_franja: franjas.map(f => ({ ...f, pct: pct(f.total, total) })),
+      top,
+      ventana: mejor && { ...mejor, pct: pct(mejor.total, total) },
+      resumen,
     });
   } catch (e) {
     console.error('[leads] GET /heatmap:', e.message);
@@ -528,6 +584,247 @@ router.get('/coste', requireAuth, async (req, res) => {
     });
   } catch (e) {
     console.error('[leads] GET /coste:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// GET /anual?location_id= — leads por mes y año desde 2024 (año Madrid), con
+// el acumulado del año en curso frente al mismo periodo del año anterior.
+const PRIMER_ANIO = 2024;
+router.get('/anual', requireAuth, async (req, res) => {
+  try {
+    const hoy = hoyMadrid();
+    const filas = await diarios({ locationId: req.query.location_id || null, desde: DateTime.fromObject({ year: PRIMER_ANIO, month: 1, day: 1 }, { zone: TZ }), hasta: hoy });
+    const anios = [];
+    for (let y = PRIMER_ANIO; y <= hoy.year; y++) anios.push(y);
+    const meses = Object.fromEntries(anios.map(y => [y, Array(12).fill(0)]));
+    const unicos = Object.fromEntries(anios.map(y => [y, Array(12).fill(0)]));
+    for (const f of filas) {
+      const y = Number(f.dia.slice(0, 4)), m = Number(f.dia.slice(5, 7)) - 1;
+      meses[y][m] += f.total;
+      unicos[y][m] += f.unicos;
+    }
+    const ytd = (y, pred) => filas.filter(f => f.dia >= `${y}-01-01` && f.dia <= hoy.set({ year: y }).toISODate()).reduce((s, f) => s + (pred ? f.unicos : f.total), 0);
+    const actual = ytd(hoy.year), anterior = ytd(hoy.year - 1);
+    res.json({
+      anios,
+      // Años sin ningún lead (subcuenta creada después): el frontend no los pinta.
+      anios_con_datos: anios.filter(y => meses[y].some(n => n > 0)),
+      meses, unicos,
+      totales: Object.fromEntries(anios.map(y => [y, meses[y].reduce((a, b) => a + b, 0)])),
+      mes_actual: hoy.month,
+      acumulado: {
+        anio: hoy.year, hasta: hoy.toISODate(),
+        actual, actual_unicos: ytd(hoy.year, true),
+        anterior, anterior_hasta: hoy.minus({ years: 1 }).toISODate(),
+        variacion_pct: variacion(actual, anterior),
+      },
+    });
+  } catch (e) {
+    console.error('[leads] GET /anual:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// GET /calidad?location_id=&desde=&hasta= — totales, únicos, duplicados y sin
+// contacto, por canal y por campaña. Los importados no cuentan (se informan aparte).
+router.get('/calidad', requireAuth, async (req, res) => {
+  try {
+    const { desde, hasta } = rangoPeriodo(req.query);
+    const ambito = await locationsAmbito(req.query.location_id || null);
+    const rango = { desde: desde.toISODate(), hasta: hasta.toISODate() };
+    const [leads, { count: importados }] = await Promise.all([
+      fetchAll(() => filtrosLeads(
+        supabase.from('leads').select('canal, utm_campaign, es_duplicado, sin_contacto').order('ghl_contact_id'), ambito, rango)),
+      supabase.from('leads').select('ghl_contact_id', { count: 'exact', head: true })
+        .in('location_id', ambito).eq('importado', true)
+        .gte('fecha_creacion', desde.toUTC().toISO()).lte('fecha_creacion', hasta.endOf('day').toUTC().toISO()),
+    ]);
+    const bloque = () => ({ total: 0, unicos: 0, duplicados: 0, sin_contacto: 0 });
+    const sumarA = (b, l) => { b.total++; if (l.es_duplicado) b.duplicados++; else b.unicos++; if (l.sin_contacto) b.sin_contacto++; };
+    const conTasas = b => ({ ...b, tasa_duplicados_pct: pct(b.duplicados, b.total), tasa_sin_contacto_pct: pct(b.sin_contacto, b.total) });
+    const total = bloque(), porCanal = {}, porCampana = {};
+    for (const l of leads) {
+      sumarA(total, l);
+      sumarA(porCanal[l.canal] ||= bloque(), l);
+      const k = l.utm_campaign || '(sin campaña)';
+      sumarA(porCampana[k] ||= { ...bloque(), utm_campaign: l.utm_campaign }, l);
+    }
+    res.json({
+      ...rango,
+      ...conTasas(total),
+      importados_excluidos: importados || 0,
+      por_canal: CANALES.filter(c => porCanal[c]).map(c => ({ canal: c, ...conTasas(porCanal[c]) })),
+      por_campana: Object.values(porCampana).map(conTasas).sort((a, b) => b.total - a.total).slice(0, 25),
+    });
+  } catch (e) {
+    console.error('[leads] GET /calidad:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// GET /embudo?location_id=&desde=&hasta= — de los leads del periodo: cuántos
+// tienen oportunidad, en qué etapa está cada oportunidad (pipelines y etapas
+// tal cual en GHL, en su orden), cuántos se ganan, valor y tiempos.
+// En la práctica los clientes no cambian el ESTADO de la oportunidad (todas
+// "open", oct 2026) sino que la mueven a una ETAPA "Presupuesto Ganado" /
+// "Perdido": ganada = estado won o etapa con nombre de ganada; igual perdida.
+// Un pipeline está "en uso" si alguna oportunidad salió de la primera etapa o
+// cambió de estado; si no, lead → ganado no significa nada y se avisa.
+const ETAPA_GANADA = /ganad|\bwon\b|\bsale\b|venta|vendid/i;
+const ETAPA_PERDIDA = /perdid|\blost\b|no interesad|descartad/i;
+router.get('/embudo', requireAuth, async (req, res) => {
+  const locationId = req.query.location_id;
+  if (!locationId) return res.status(400).json({ error: 'location_id es obligatorio' });
+  try {
+    const { desde, hasta } = rangoPeriodo(req.query);
+    const [leads, opps, { data: pipelines, error: pErr }] = await Promise.all([
+      fetchAll(() => filtrosLeads(
+        supabase.from('leads').select('ghl_contact_id, fecha_creacion, es_duplicado').order('ghl_contact_id'),
+        [locationId], { desde: desde.toISODate(), hasta: hasta.toISODate() })),
+      fetchAll(() => supabase.from('oportunidades')
+        .select('id, contact_id, pipeline_id, etapa_id, estado, valor, creada_at, cambio_estado_at, cambio_etapa_at')
+        .eq('location_id', locationId).order('id')),
+      supabase.from('ghl_pipelines').select('id, nombre, etapas').eq('location_id', locationId).order('nombre'),
+    ]);
+    if (pErr) throw new Error(pErr.message);
+
+    const altaLead = new Map(leads.map(l => [l.ghl_contact_id, new Date(l.fecha_creacion).getTime()]));
+    const etapaPorId = new Map(pipelines.flatMap(p => (p.etapas || []).map((e, i) => [e.id, { ...e, indice: i }])));
+    const nombreEtapa = o => etapaPorId.get(o.etapa_id)?.nombre || '';
+    const ganada = o => o.estado === 'won' || (o.estado === 'open' && ETAPA_GANADA.test(nombreEtapa(o)));
+    const perdida = o => ['lost', 'abandoned'].includes(o.estado) || (o.estado === 'open' && ETAPA_PERDIDA.test(nombreEtapa(o)));
+    const trabajada = o => o.estado !== 'open' || (etapaPorId.get(o.etapa_id)?.indice || 0) > 0;
+
+    const delPeriodo = opps.filter(o => altaLead.has(o.contact_id));
+    const contactosCon = new Set(delPeriodo.map(o => o.contact_id));
+    const ganadas = delPeriodo.filter(ganada);
+    const contactosGanados = new Set(ganadas.map(o => o.contact_id));
+    const valorGanado = ganadas.reduce((s, o) => s + (Number(o.valor) || 0), 0);
+    const dias = ganadas
+      .map(o => (o.estado === 'won' ? o.cambio_estado_at : o.cambio_etapa_at) || o.cambio_estado_at)
+      .map((t, i) => (t ? (new Date(t).getTime() - altaLead.get(ganadas[i].contact_id)) / 86400_000 : null))
+      .filter(d => d != null && d >= 0);
+
+    const ESTADOS = ['open', 'won', 'lost', 'abandoned'];
+    const porPipeline = pipelines.map(p => {
+      const suyas = delPeriodo.filter(o => o.pipeline_id === p.id);
+      return {
+        id: p.id, nombre: p.nombre, total: suyas.length,
+        en_uso: suyas.some(trabajada),
+        ganadas: suyas.filter(ganada).length,
+        perdidas: suyas.filter(perdida).length,
+        estados: Object.fromEntries(ESTADOS.map(e => [e, suyas.filter(o => o.estado === e).length])),
+        valor_abierto: Math.round(suyas.filter(o => !ganada(o) && !perdida(o)).reduce((s, o) => s + (Number(o.valor) || 0), 0) * 100) / 100,
+        etapas: (p.etapas || []).map(e => ({
+          id: e.id, nombre: e.nombre, total: suyas.filter(o => o.etapa_id === e.id).length,
+          tipo: ETAPA_GANADA.test(e.nombre) ? 'ganada' : ETAPA_PERDIDA.test(e.nombre) ? 'perdida' : null,
+        })),
+      };
+    }).filter(p => p.total > 0);
+    const enUso = porPipeline.some(p => p.en_uso);
+
+    res.json({
+      desde: desde.toISODate(), hasta: hasta.toISODate(),
+      leads: leads.length,
+      leads_unicos: leads.filter(l => !l.es_duplicado).length,
+      con_oportunidad: contactosCon.size,
+      oportunidades: delPeriodo.length,
+      ganados: contactosGanados.size,
+      oportunidades_ganadas: ganadas.length,
+      tasa_oportunidad_pct: pct(contactosCon.size, leads.length),
+      tasa_ganado_pct: pct(contactosGanados.size, leads.length),
+      tasa_cierre_pct: pct(contactosGanados.size, contactosCon.size),
+      valor_ganado: Math.round(valorGanado * 100) / 100,
+      ticket_medio: ganadas.length ? Math.round((valorGanado / ganadas.length) * 100) / 100 : null,
+      dias_hasta_ganado_media: dias.length ? Math.round((dias.reduce((a, b) => a + b, 0) / dias.length) * 10) / 10 : null,
+      dias_hasta_ganado_mediana: dias.length ? Math.round(mediana(dias) * 10) / 10 : null,
+      perdidos: new Set(delPeriodo.filter(perdida).map(o => o.contact_id)).size,
+      // Todas las oportunidades con el mismo valor = valor por defecto del
+      // pipeline (Capilar: 2.990 € en todas), no un importe real de la venta.
+      valor_por_defecto: (() => {
+        const v = new Set(delPeriodo.map(o => Number(o.valor) || 0));
+        return delPeriodo.length > 1 && v.size === 1 ? [...v][0] : null;
+      })(),
+      pipeline_en_uso: enUso,
+      pipelines: porPipeline,
+      sincronizado: pipelines.length > 0,
+    });
+  } catch (e) {
+    console.error('[leads] GET /embudo:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// GET /respuesta?location_id=&desde=&hasta= — minutos desde el alta del lead
+// hasta la primera respuesta (leads_respuesta), en dos variantes: "humana"
+// (usuario de GHL o llamada; KPI principal; columna primera_manual_at) y
+// "automatica" (workflow, bot/IA de una app; columna primera_at). Desglose por
+// canal, día de la semana y franja de llegada del lead (Madrid).
+router.get('/respuesta', requireAuth, async (req, res) => {
+  try {
+    const { desde, hasta } = rangoPeriodo(req.query);
+    const ambito = await locationsAmbito(req.query.location_id || null);
+    const leads = await fetchAll(() => filtrosLeads(
+      supabase.from('leads')
+        .select('ghl_contact_id, canal, fecha_creacion, leads_respuesta(conversaciones, primera_at, primera_manual_at, primera_tipo, primera_origen)')
+        .order('ghl_contact_id'),
+      ambito, { desde: desde.toISODate(), hasta: hasta.toISODate() }));
+
+    const ahora = Date.now();
+    const filas = leads.map(l => {
+      const r = Array.isArray(l.leads_respuesta) ? l.leads_respuesta[0] : l.leads_respuesta;
+      const alta = new Date(l.fecha_creacion).getTime();
+      const min = t => (t ? Math.max(0, (new Date(t).getTime() - alta) / 60000) : null);
+      const d = DateTime.fromMillis(alta).setZone(TZ);
+      return { canal: l.canal, dia: d.weekday - 1, franja: franjaDeHora(d.hour), alta, r, automatica: min(r?.primera_at), humana: min(r?.primera_manual_at) };
+    });
+    const revisados = filas.filter(f => f.r);
+
+    // Métricas de un grupo. "Sin respuesta en 24 h" solo cuenta leads con más
+    // de 24 h de antigüedad (los recientes aún pueden recibirla).
+    const metricas = (grupo, k) => {
+      const mins = grupo.map(f => f[k]).filter(m => m != null);
+      const maduros = grupo.filter(f => ahora - f.alta > 86400_000);
+      return {
+        leads: grupo.length,
+        respondidos: mins.length,
+        mediana_min: mins.length ? Math.round(mediana(mins) * 10) / 10 : null,
+        menos_5min_pct: pct(mins.filter(m => m < 5).length, grupo.length),
+        menos_1h_pct: pct(mins.filter(m => m < 60).length, grupo.length),
+        sin_respuesta_24h_pct: pct(maduros.filter(f => f[k] == null || f[k] > 1440).length, maduros.length),
+      };
+    };
+    const variante = k => ({
+      ...metricas(revisados, k),
+      por_canal: CANALES.map(c => ({ canal: c, ...metricas(revisados.filter(f => f.canal === c), k) })).filter(x => x.leads),
+      por_dia: DIAS.map((nombre, i) => ({ dia: nombre, ...metricas(revisados.filter(f => f.dia === i), k) })),
+      por_franja: FRANJAS.map(fr => ({ franja: fr.nombre, desde: fr.desde, hasta: fr.hasta, ...metricas(revisados.filter(f => f.franja === fr.nombre), k) })),
+    });
+    const tipos = {}, origenes = {};
+    revisados.forEach(f => {
+      if (f.r.primera_tipo) tipos[f.r.primera_tipo] = (tipos[f.r.primera_tipo] || 0) + 1;
+      if (f.r.primera_origen) origenes[f.r.primera_origen] = (origenes[f.r.primera_origen] || 0) + 1;
+    });
+
+    res.json({
+      desde: desde.toISODate(), hasta: hasta.toISODate(),
+      leads: filas.length,
+      revisados: revisados.length,
+      pendientes_revisar: filas.length - revisados.length,
+      sin_conversacion: revisados.filter(f => f.r.conversaciones === 0).length,
+      // Ningún saliente registrado en GHL en todo el periodo: la subcuenta
+      // atiende fuera de GHL (teléfono, otra herramienta) y no hay dato.
+      sin_registro_en_ghl: revisados.length > 0 && revisados.every(f => f.automatica == null && f.humana == null),
+      // Hay respuestas, pero ninguna humana: todo lo responde un workflow o un bot.
+      sin_respuesta_humana: revisados.length > 0 && revisados.every(f => f.humana == null),
+      tipo_respuesta_automatica: tipos,
+      origen_respuesta_automatica: origenes,
+      humana: variante('humana'),
+      automatica: variante('automatica'),
+    });
+  } catch (e) {
+    console.error('[leads] GET /respuesta:', e.message);
     res.status(500).json({ error: e.message });
   }
 });

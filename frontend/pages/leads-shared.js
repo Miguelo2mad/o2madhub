@@ -146,6 +146,26 @@
     details[open] summary::before { content: '▾'; }
     details .details-body { padding: 16px 0 0; }
 
+    .frase { font-size: 14px; line-height: 1.6; color: var(--blanco); background: var(--arena-dim); border-radius: 8px; padding: 12px 14px; margin-bottom: 14px; }
+    .grid-3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; margin-bottom: 14px; }
+    .mini { background: var(--negro); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; }
+    .mini .m-lbl { font-size: 11px; color: var(--text-muted); }
+    .mini .m-val { font-size: 18px; font-weight: 700; color: var(--arena); margin-top: 2px; }
+    .barras-h { display: flex; flex-direction: column; gap: 6px; font-size: 12px; }
+    .barras-h .bh { display: grid; grid-template-columns: 110px 1fr 70px; gap: 8px; align-items: center; }
+    .barras-h .bh-track { background: rgba(196,168,130,0.08); border-radius: 3px; height: 10px; overflow: hidden; }
+    .barras-h .bh-fill { background: var(--arena); height: 100%; border-radius: 3px; }
+    .barras-h .bh-val { text-align: right; color: var(--text-muted); }
+    .embudo { display: flex; align-items: stretch; gap: 0; margin-bottom: 16px; flex-wrap: wrap; }
+    .embudo .paso { flex: 1; min-width: 140px; background: var(--negro); border: 1px solid var(--border); padding: 12px 14px; }
+    .embudo .paso:first-child { border-radius: 8px 0 0 8px; }
+    .embudo .paso:last-child { border-radius: 0 8px 8px 0; }
+    .embudo .paso + .paso { border-left: none; }
+    .embudo .p-lbl { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: .05em; }
+    .embudo .p-val { font-size: 22px; font-weight: 700; color: var(--arena); }
+    .embudo .p-tasa { font-size: 11px; color: var(--text-muted); }
+    .pipeline { border-top: 1px solid var(--border); padding-top: 12px; margin-top: 12px; }
+    .pipeline h4 { font-size: 12px; font-weight: 600; margin-bottom: 8px; }
     .empty { color: var(--text-muted); font-size: 13px; padding: 32px; text-align: center; }
     .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid var(--border); border-top-color: var(--arena); border-radius: 50%; animation: spin .7s linear infinite; }
     @keyframes spin { to { transform: rotate(360deg); } }
@@ -202,6 +222,14 @@ const CANAL_COLOR = { meta: '#5b8fd9', google: '#d9a441', organico: '#7fa86b', d
 const MESES_CORTOS = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
 const DIAS_SEMANA = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
 
+// Minutos → "4 min", "2 h 10 min", "3 d".
+function fmtMin(m) {
+  if (m == null) return '—';
+  if (m < 60) return `${Math.round(m)} min`;
+  if (m < 1440) return `${Math.floor(m / 60)} h ${Math.round(m % 60)} min`;
+  return `${Math.round(m / 1440 * 10) / 10} d`;
+}
+const fmtPct = v => (v == null ? '—' : `${v.toLocaleString('es-ES')}%`);
 function fmtInt(n) { return new Intl.NumberFormat('es-ES').format(Math.round(n || 0)); }
 function eur(n) { return new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' }).format(n || 0); }
 function esc(s) { return String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
@@ -268,13 +296,14 @@ const rangoActual = () => ({ desde: document.getElementById('desde').value, hast
 
 // ── KPIs (respuesta de /api/leads/resumen) ───────────────────────────────
 function renderKpis(r) {
-  document.getElementById('kpiHoy').textContent = fmtInt(r.hoy);
+  const unicos = n => (n != null ? `<span style="font-size:12px;font-weight:500;color:var(--text-muted);"> · ${fmtInt(n)} únicos</span>` : '');
+  document.getElementById('kpiHoy').innerHTML = fmtInt(r.hoy) + unicos(r.hoy_unicos);
   document.getElementById('kpiHoySub').textContent = fmtDia(r.fecha);
-  document.getElementById('kpiSemana').textContent = fmtInt(r.semana);
-  document.getElementById('kpiMes').textContent = fmtInt(r.mes);
+  document.getElementById('kpiSemana').innerHTML = fmtInt(r.semana) + unicos(r.semana_unicos);
+  document.getElementById('kpiMes').innerHTML = fmtInt(r.mes) + unicos(r.mes_unicos);
   document.getElementById('kpiMesSub').innerHTML =
     `${varHtml(r.variacion_pct, 'vs mes anterior')}<br>${varHtml(r.variacion_mismo_dia_pct, 'vs mismo día del mes anterior')}`;
-  document.getElementById('kpiMesAnt').textContent = fmtInt(r.mes_anterior);
+  document.getElementById('kpiMesAnt').innerHTML = fmtInt(r.mes_anterior) + unicos(r.mes_anterior_unicos);
   document.getElementById('kpiMesAntSub').innerHTML =
     `Mismo mes año anterior: ${fmtInt(r.mismo_mes_anio_anterior)}<br>${varHtml(r.variacion_anual_pct, 'este mes vs año anterior')}`;
 }
@@ -334,12 +363,90 @@ function renderBarrasCanal(svgId, serie, granularidad) {
   const xLabels = serie.map((s, i) => (i % step === 0 || i === n - 1)
     ? `<text x="${PAD.left + i * slot + slot / 2}" y="${H - 10}" text-anchor="middle" fill="rgba(245,240,232,0.35)" font-size="10">${etiquetaPeriodo(s.periodo, granularidad)}</text>`
     : '').join('');
-  svg.innerHTML = `${yLabels}${bars}${xLabels}`;
+  // Media móvil de 7 días (solo en la serie diaria).
+  const media = serie[0].media7 != null && n > 1
+    ? `<polyline points="${serie.map((s, i) => `${PAD.left + i * slot + slot / 2},${y(s.media7)}`).join(' ')}" fill="none" stroke="var(--blanco)" stroke-width="1.5" stroke-dasharray="4 3" opacity="0.8"><title>Media móvil 7 días</title></polyline>`
+    : '';
+  svg.innerHTML = `${yLabels}${bars}${media}${xLabels}`;
 }
 
 function leyendaCanales(id) {
   document.getElementById(id).innerHTML = CANALES.map(c =>
-    `<span><span class="legend-dot" style="background:${CANAL_COLOR[c]};"></span>${CANAL_LABEL[c]}</span>`).join('');
+    `<span><span class="legend-dot" style="background:${CANAL_COLOR[c]};"></span>${CANAL_LABEL[c]}</span>`).join('') +
+    `<span><span style="display:inline-block;width:14px;border-top:1.5px dashed var(--blanco);vertical-align:middle;margin-right:4px;"></span>Media 7 días (vista diaria)</span>`;
+}
+
+// ── Comparativa anual (respuesta de /api/leads/anual) ────────────────────
+const ANIO_COLOR = ['#8a8175', '#5b8fd9', '#C4A882', '#7fa86b', '#d9a441'];
+const MESES_LARGOS = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
+
+// HTML del bloque; la página lo coloca donde quiera y luego llama a renderAnual.
+const ANUAL_HTML = `
+  <div class="chart-box">
+    <div class="chart-head">
+      <h3>Comparativa anual · leads por mes</h3>
+      <span style="font-size:11px;color:var(--text-muted);">Sin importaciones masivas</span>
+    </div>
+    <div class="kpi-grid" style="margin-bottom:16px;">
+      <div class="kpi-card"><div class="kpi-label" id="ytdLabel">Acumulado del año</div><div class="kpi-value" id="ytdValor">—</div><div class="kpi-sub" id="ytdSub"></div></div>
+    </div>
+    <svg id="chartAnual" viewBox="0 0 800 220" preserveAspectRatio="xMidYMid meet" style="height:220px;"></svg>
+    <div class="chart-legend" id="legendAnual"></div>
+    <div class="table-scroll" style="margin-top:14px;">
+      <table><thead id="theadAnual"></thead><tbody id="tbodyAnual"></tbody></table>
+    </div>
+  </div>`;
+
+function renderAnual(r) {
+  const anios = r.anios_con_datos.length ? r.anios_con_datos : [r.anios[r.anios.length - 1]];
+  const color = y => ANIO_COLOR[(y - r.anios[0]) % ANIO_COLOR.length];
+  const a = r.acumulado;
+  document.getElementById('ytdLabel').textContent = `Acumulado ${a.anio} (a ${fmtDia(a.hasta)})`;
+  document.getElementById('ytdValor').innerHTML = `${fmtInt(a.actual)}<span style="font-size:12px;font-weight:500;color:var(--text-muted);"> · ${fmtInt(a.actual_unicos)} únicos</span>`;
+  document.getElementById('ytdSub').innerHTML = a.anterior
+    ? `${varHtml(a.variacion_pct)} vs ${fmtInt(a.anterior)} en ${a.anio - 1} a ${fmtDia(a.anterior_hasta)}`
+    : `Sin datos de ${a.anio - 1} para comparar`;
+
+  // Líneas superpuestas: una por año; el año en curso se corta en el mes actual.
+  const svg = document.getElementById('chartAnual');
+  const W = 800, H = 220, PAD = { top: 16, right: 16, bottom: 32, left: 44 };
+  const iW = W - PAD.left - PAD.right, iH = H - PAD.top - PAD.bottom;
+  const ultimo = r.anios[r.anios.length - 1];
+  const valores = y => (y === ultimo ? r.meses[y].slice(0, r.mes_actual) : r.meses[y]);
+  const max = Math.max(...anios.flatMap(valores), 1);
+  const x = i => PAD.left + (i / 11) * iW;
+  const yv = v => PAD.top + iH - (v / max) * iH;
+  const grid = [0, 0.5, 1].map(f => {
+    const yy = PAD.top + iH - f * iH;
+    return `<text x="${PAD.left - 6}" y="${yy + 4}" text-anchor="end" fill="rgba(245,240,232,0.35)" font-size="10">${fmtInt(max * f)}</text>
+      <line x1="${PAD.left}" y1="${yy}" x2="${W - PAD.right}" y2="${yy}" stroke="rgba(196,168,130,0.1)"/>`;
+  }).join('');
+  const lineas = anios.map(y => {
+    const v = valores(y);
+    const pts = v.map((n, i) => `${x(i)},${yv(n)}`).join(' ');
+    return `<polyline points="${pts}" fill="none" stroke="${color(y)}" stroke-width="2.5" stroke-linejoin="round"/>` +
+      v.map((n, i) => `<circle cx="${x(i)}" cy="${yv(n)}" r="3" fill="${color(y)}"><title>${MESES_LARGOS[i]} ${y}: ${fmtInt(n)} leads</title></circle>`).join('');
+  }).join('');
+  const xl = MESES_CORTOS.map((m, i) => `<text x="${x(i)}" y="${H - 10}" text-anchor="middle" fill="rgba(245,240,232,0.35)" font-size="10">${m}</text>`).join('');
+  svg.innerHTML = grid + lineas + xl;
+  document.getElementById('legendAnual').innerHTML = anios.map(y =>
+    `<span><span class="legend-dot" style="background:${color(y)};"></span>${y} · ${fmtInt(r.totales[y])}</span>`).join('');
+
+  // Tabla mes × año con variación interanual frente al año anterior.
+  document.getElementById('theadAnual').innerHTML = `<tr><th>Mes</th>${anios.map((y, i) =>
+    `<th>${y}</th>${i > 0 ? `<th style="font-weight:400;">vs ${anios[i - 1]}</th>` : ''}`).join('')}</tr>`;
+  const fila = (etq, val, cls = '') => `<tr class="${cls}"><td>${etq}</td>${anios.map((y, i) => {
+    const v = val(y);
+    const celda = v == null ? '<td style="color:var(--text-muted);">—</td>' : `<td>${fmtInt(v)}</td>`;
+    if (i === 0) return celda;
+    const prev = val(anios[i - 1]);
+    const vr = v != null && prev ? Math.round(((v - prev) / prev) * 1000) / 10 : null;
+    return celda + `<td>${v != null && prev ? varHtml(vr) : '<span style="color:var(--text-muted);">—</span>'}</td>`;
+  }).join('')}</tr>`;
+  const futuro = (y, m) => y === ultimo && m >= r.mes_actual;
+  document.getElementById('tbodyAnual').innerHTML =
+    MESES_LARGOS.map((nombre, m) => fila(nombre + (m === r.mes_actual - 1 ? '*' : ''), y => (futuro(y, m) ? null : r.meses[y][m]))).join('') +
+    fila('Total', y => r.totales[y], 'totales');
 }
 
 // Donut por canal (por_canal de /api/leads/desglose).

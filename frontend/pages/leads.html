@@ -60,6 +60,8 @@
     <div class="chart-legend" id="legend"></div>
   </div>
 
+  <div id="anual"></div>
+
   <div class="table-box">
     <h3>Ranking de clientes · <span id="rankingRango" style="color:var(--text-muted);font-weight:400;"></span></h3>
     <div class="table-scroll">
@@ -101,6 +103,7 @@
 
   (async () => {
     document.getElementById('kpis').innerHTML = KPIS_HTML;
+    document.getElementById('anual').innerHTML = ANUAL_HTML;
     leyendaCanales('legend');
     if (!await iniciarSesion()) return;
     montarPeriodo({ onPeriodo: recargarPeriodo, onGranularidad: cargarSerie });
@@ -118,6 +121,7 @@
 
   function recargarTodo() {
     cargarResumen();
+    cargarAnual();
     cargarMatriz();
     recargarPeriodo();
     if (document.getElementById('detallesLog').open) cargarLog();
@@ -126,6 +130,10 @@
 
   async function cargarResumen() {
     try { renderKpis(await api('/api/leads/resumen')); } catch (e) { console.error('resumen error:', e); }
+  }
+
+  async function cargarAnual() {
+    try { renderAnual(await api('/api/leads/anual')); } catch (e) { console.error('anual error:', e); }
   }
 
   async function cargarSerie() {

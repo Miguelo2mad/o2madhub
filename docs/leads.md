@@ -7,11 +7,16 @@ GoHighLevel y los muestra en dos niveles:
   anterior), evolución por canal de todos los clientes, ranking de clientes
   del periodo con su variación y matriz cliente × 12 meses (solo subcuentas
   activas con token). Cada fila abre el panel del cliente.
-- `/leads/cliente?location_id=…` (panel de un cliente): cliente del hub, KPIs,
-  evolución por canal (día/semana/mes), mapa de calor hora × día de la semana
-  (Madrid) con totales por día y por franja, desglose por canal, top campañas,
-  coste por lead (si tiene cuenta de Google Ads mapeada) y listado con
-  exportación a CSV.
+- `/leads/cliente?location_id=…` (panel de un cliente): cliente del hub; KPIs
+  con totales y únicos; evolución por canal (día/semana/mes, con media móvil
+  de 7 días en diario); comparativa anual; "Cuándo entran los leads" (frase
+  resumen, top 3 franjas, reparto por día y franja, mapa de calor); desglose
+  por canal y top campañas; calidad; embudo de oportunidades; velocidad de
+  respuesta; coste por lead (si tiene cuenta de Google Ads mapeada) y listado
+  con exportación a CSV.
+- Ambos paneles tienen la comparativa anual: una línea por año (desde 2024),
+  tabla mes × año con variación interanual y acumulado del año frente al
+  mismo periodo del año anterior.
 - `/leads/clientes` (admin): subcuentas, tokens y mapeos.
 
 **Regla de negocio: en Leads solo cuentan las subcuentas "en captación"
@@ -32,6 +37,9 @@ abre por URL y muestra un aviso.
 | API | `backend/api/leads.js`, montada en `/api/leads` |
 | Páginas | `frontend/pages/leads.html` (`/leads`), `leads-cliente.html` (`/leads/cliente`), `leads-clientes.html` (`/leads/clientes`, admin); helpers, estilos y gráficas comunes en `leads-shared.js` |
 | Reclasificación | `backend/scripts/leads-reclasificar.js` (canal/UTMs desde `raw`; dry run por defecto, `--apply` guarda) |
+| Extras de la sync | `backend/jobs/leads-extras.js` (importados, duplicados, oportunidades, velocidad de respuesta) |
+| Histórico | `backend/scripts/leads-backfill.js --desde=2024-01-01` (contactos) · `backend/scripts/leads-respuestas.js` (velocidad de respuesta) |
+| Migración 054 | `importado`, `es_duplicado`/`duplicado_de`, `sin_contacto`; `unicos` en `leads_diarios`; `ghl_pipelines`, `oportunidades`, `leads_respuesta` |
 | Cron | `index.js`, cada hora en el minuto 20 (Europe/Madrid) |
 
 ## Variables de entorno (Railway)
@@ -57,8 +65,8 @@ subcuenta, con `contacts.readonly` y `locations.readonly`.
    - Sin `token_privado`: se apunta en `leads_sync_log` con `error = 'sin token'`
      y se salta. No cuenta como error: no sale en los logs de Railway ni en
      el contador de errores, y `GET /sync-log` sin `location_id` oculta esas filas.
-   - Rango: si `ultima_sync` es null, backfill de los últimos 12 meses. Si no,
-     desde `ultima_sync − 24 h`, un solape para no perder contactos.
+   - Rango: si `ultima_sync` es null, histórico completo desde el 1-ene-2024.
+     Si no, desde `ultima_sync − 24 h`, un solape para no perder contactos.
    - El rango se trocea en ventanas de 30 días. En cada ventana se llama a
      `POST /contacts/search` con `pageLimit: 100`, filtro `dateAdded range
      {gte, lte}` y orden `dateAdded asc`. Se pagina con el cursor
@@ -68,6 +76,19 @@ subcuenta, con `contacts.readonly` y `locations.readonly`.
    - Upsert en `leads` por `ghl_contact_id`, con el contacto completo en `raw`.
    - `ultima_sync` = hora de inicio de esa subcuenta. Solo se actualiza si
      termina sin error.
+   - Extras (`leads-extras.js`), cada uno independiente; sus fallos quedan en
+     el log como "Leads OK; extras con error — …":
+     1. **Importados**: ≥30 altas en ±5 min = importación masiva de la base
+        previa del cliente (Nadal 6.441 el 10-sep-2025, Capilar 250 el
+        19-sep-2025). No son leads: `leads_diarios` y todas las consultas los
+        excluyen.
+     2. **Duplicados**: mismo teléfono (dígitos, últimos 9) o email (minúsculas)
+        que un lead anterior de la subcuenta → `es_duplicado` y `duplicado_de`.
+        Hay muy pocos, porque GHL ya fusiona los contactos con el mismo teléfono o email.
+     3. **Oportunidades**: pipelines con sus etapas en orden (`ghl_pipelines`) y
+        todas las oportunidades (`oportunidades`, cursor `startAfter`).
+     4. **Respuestas**: hasta 150 leads por ejecución (los nunca revisados y
+        los de menos de 7 días sin respuesta humana).
    - Una fila en `leads_sync_log` por subcuenta y ejecución, con nuevos,
      actualizados y error. Un error en una subcuenta no para las demás.
 3. Solo corre una sync a la vez. Si ya hay una en curso, `POST /sync` devuelve
@@ -140,6 +161,37 @@ con `--apply`.
 - CPL = gasto ÷ leads del mismo canal (google o meta). Si la web pierde el
   `gclid`, los leads de Google salen como "directo" y el CPL sale inflado.
 
+### Embudo
+
+De los leads dados de alta en el periodo: con oportunidad, oportunidades
+por etapa (pipelines y etapas tal cual en GHL), ganados, valor ganado, ticket
+medio y días hasta ganado. A octubre de 2026, **ningún cliente cambia el
+estado** de la oportunidad (todas "open"). Capilar mueve las oportunidades a
+la etapa "Presupuesto Ganado" o "Perdido", así que cuenta como ganada si el
+estado es "won" **o** la etapa se llama de ganado (ganad/won/sale/venta), y lo
+mismo para perdida. Un pipeline está **en uso** si alguna oportunidad ha
+salido de la primera etapa. Si ninguno lo está (Nadal, viva sports,
+Cañellas), el panel no da tasa de ganados.
+
+### Velocidad de respuesta
+
+`leads_respuesta`: por lead, el primer saliente (mensaje o llamada; no las
+actividades del sistema) desde su alta, en dos variantes:
+
+- **Humana** (`primera_manual_at`, KPI principal): mensaje con `userId`, es
+  decir, escrito por un usuario de GHL, o llamada que no lanza una app.
+- **Automática** (`primera_at`, con `primera_tipo` y `primera_origen`):
+  workflows, campañas y bots/IA conectados como app del marketplace
+  (`source = "app"` + `meta.marketplace.appId`, sin `userId`).
+
+La primera de cualquier tipo es la menor de las dos. Casos reales:
+
+- **Nadal** responde todo con workflows y una app de marketplace, sin
+  respuestas humanas registradas.
+- **Capilar** no tiene ningún saliente en GHL; atiende fuera de GHL.
+
+El panel lo dice así, en vez de mostrar 0 o "sin respuesta".
+
 ## Dar de alta un cliente nuevo
 
 1. Crear la subcuenta en GoHighLevel, dentro de la agencia. En la siguiente
@@ -178,8 +230,12 @@ vuelve a marcar y tiene token, se sincroniza en segundo plano al guardar.
 | GET | `/export.csv` | mismos filtros que el listado; CSV con `;` y BOM |
 | POST | `/sync?location_id=` | admin. Sync manual; espera a que termine |
 | GET | `/sync-log?limite=&location_id=&desde=` | últimas ejecuciones (sin `location_id` oculta las filas "sin token") |
+| GET | `/anual?location_id=` | leads por mes y año desde 2024 + acumulado del año frente al mismo periodo del anterior |
+| GET | `/calidad?location_id=&desde=&hasta=` | totales, únicos, duplicados, sin contacto; por canal y campaña; importados excluidos |
+| GET | `/embudo?location_id=&desde=&hasta=` | leads → con oportunidad → etapas → ganados, valor, ticket, días hasta ganado, pipeline en uso |
+| GET | `/respuesta?location_id=&desde=&hasta=` | humana y automática: mediana, % <5 min, % <1 h, % sin respuesta en 24 h; por canal, día y franja |
 | GET | `/ranking?desde=&hasta=` | subcuentas activas con token por leads del periodo + periodo anterior comparable y variación |
-| GET | `/heatmap?location_id=&desde=&hasta=` | matriz 7×24 (lunes = 0, hora de Madrid) + totales por día, hora y franja |
+| GET | `/heatmap?location_id=&desde=&hasta=` | matriz 7×24 (lunes = 0, hora de Madrid), totales por día, hora y franja (0-8, 8-14, 14-20, 20-24), top 3 celdas y frase resumen |
 | GET | `/coste?location_id=&granularidad=&desde=&hasta=&fuente=google` | gasto, clics, leads del canal y CPL por periodo + totales y comparativa con el periodo anterior |
 | GET | `/cuentas-ads` | admin. Cuentas de Google Ads de Campañas |
 | PUT | `/clientes/:location_id/cuentas-ads` | admin. Reemplaza los mapeos: `{ cuentas: [{ fuente, cuenta_id, campana_filtro }] }` |

@@ -108,6 +108,59 @@ async function buscarContactos(cliente, { gte, lte, searchAfter, page = 1, pageL
   });
 }
 
+// ---- Oportunidades y conversaciones (token privado de la subcuenta) ----
+
+function getSubcuenta(cliente, url, params) {
+  if (!cliente.token_privado) throw new Error('Subcuenta sin token privado');
+  return request({ method: 'get', url, params, headers: headers(cliente.token_privado) });
+}
+
+// GET /opportunities/pipelines — pipelines con sus etapas (id, name, position).
+async function listarPipelines(cliente) {
+  const data = await getSubcuenta(cliente, '/opportunities/pipelines', { locationId: cliente.location_id });
+  return data.pipelines || [];
+}
+
+// GET /opportunities/search — todas las oportunidades de la subcuenta,
+// paginadas con el cursor startAfter/startAfterId que devuelve meta.
+async function listarOportunidades(cliente, { pausaMs = 150 } = {}) {
+  const todas = [];
+  let cursor = {};
+  for (let i = 0; i < 1000; i++) {
+    const data = await getSubcuenta(cliente, '/opportunities/search', { location_id: cliente.location_id, limit: 100, ...cursor });
+    const page = data.opportunities || [];
+    todas.push(...page);
+    const meta = data.meta || {};
+    if (page.length < 100 || !meta.startAfterId) break;
+    cursor = { startAfter: meta.startAfter, startAfterId: meta.startAfterId };
+    await sleep(pausaMs);
+  }
+  return todas;
+}
+
+// GET /conversations/search?contactId= — conversaciones de un contacto.
+async function conversacionesContacto(cliente, contactId) {
+  const data = await getSubcuenta(cliente, '/conversations/search', { locationId: cliente.location_id, contactId });
+  return data.conversations || [];
+}
+
+// GET /conversations/{id}/messages — mensajes de una conversación (hasta
+// maxPaginas × 100, paginando con lastMessageId).
+async function mensajesConversacion(cliente, conversationId, { maxPaginas = 3, pausaMs = 150 } = {}) {
+  const todos = [];
+  let lastMessageId;
+  for (let i = 0; i < maxPaginas; i++) {
+    const data = await getSubcuenta(cliente, `/conversations/${encodeURIComponent(conversationId)}/messages`,
+      { limit: 100, ...(lastMessageId ? { lastMessageId } : {}) });
+    const m = data.messages || {};
+    todos.push(...(m.messages || []));
+    if (!m.nextPage || !m.lastMessageId) break;
+    lastMessageId = m.lastMessageId;
+    await sleep(pausaMs);
+  }
+  return todos;
+}
+
 // ---- Normalización de contactos ----
 //
 // Qué manda GHL (verificado con 526 leads reales de Capilar Mora, oct 2026):
@@ -203,6 +256,17 @@ function derivarCanal(c, todas) {
   return 'otro';
 }
 
+// Claves de duplicado. Teléfono: solo dígitos y los 9 últimos (así +34 600…,
+// 0034 600… y 600… son el mismo); menos de 7 dígitos no cuenta. Email: minúsculas.
+function normalizarTelefono(t) {
+  const d = String(t || '').replace(/\D/g, '');
+  return d.length >= 7 ? d.slice(-9) : null;
+}
+function normalizarEmail(e) {
+  const v = String(e || '').trim().toLowerCase();
+  return v.includes('@') ? v : null;
+}
+
 function contactoALead(c, locationId) {
   const { first, last, todas } = atribuciones(c);
   const nombre = c.contactName || [c.firstName, c.lastName].filter(Boolean).join(' ') || c.companyName || null;
@@ -222,10 +286,15 @@ function contactoALead(c, locationId) {
     campaign_id: utm(['campaignId', 'gad_campaignid']),
     ad_id: utm(['adId']),
     tags: Array.isArray(c.tags) ? c.tags : [],
+    sin_contacto: !normalizarTelefono(c.phone) && !normalizarEmail(c.email),
     fecha_creacion: c.dateAdded,
     raw: c,
     synced_at: new Date().toISOString(),
   };
 }
 
-module.exports = { listarLocations, validarTokenPrivado, buscarContactos, contactoALead, derivarCanal, sleep };
+module.exports = {
+  listarLocations, validarTokenPrivado, buscarContactos, contactoALead, derivarCanal, sleep,
+  listarPipelines, listarOportunidades, conversacionesContacto, mensajesConversacion,
+  normalizarTelefono, normalizarEmail,
+};

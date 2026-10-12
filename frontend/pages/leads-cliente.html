@@ -61,10 +61,18 @@
     <div class="chart-legend" id="legend"></div>
   </div>
 
+  <div id="anual"></div>
+
   <div class="chart-box">
-    <h3>Cuándo entran los leads · hora × día de la semana (Madrid) · <span id="heatRango" style="color:var(--text-muted);font-weight:400;"></span></h3>
+    <h3>Cuándo entran los leads · <span id="heatRango" style="color:var(--text-muted);font-weight:400;"></span></h3>
+    <div class="frase" id="heatResumen">—</div>
+    <div class="grid-3" id="heatTop"></div>
+    <div class="grid-2" style="margin-bottom:16px;">
+      <div><div class="nota" style="margin:0 0 8px;">Por día de la semana</div><div class="barras-h" id="heatDias"></div></div>
+      <div><div class="nota" style="margin:0 0 8px;">Por franja (hora de Madrid)</div><div class="franjas" id="franjas" style="margin-top:0;"></div></div>
+    </div>
+    <div class="nota" style="margin:0 0 8px;">Hora × día de la semana</div>
     <div class="heat" id="heat"></div>
-    <div class="franjas" id="franjas"></div>
   </div>
 
   <div class="grid-2">
@@ -84,6 +92,68 @@
         </table>
       </div>
     </div>
+  </div>
+
+  <!-- Calidad -->
+  <div class="chart-box">
+    <div class="chart-head">
+      <h3>Calidad de los leads · <span id="calRango" style="color:var(--text-muted);font-weight:400;"></span></h3>
+      <span style="font-size:11px;color:var(--text-muted);" id="calImportados"></span>
+    </div>
+    <div class="kpi-grid" style="margin-bottom:16px;">
+      <div class="kpi-card"><div class="kpi-label">Leads totales</div><div class="kpi-value" id="calTotal">—</div></div>
+      <div class="kpi-card"><div class="kpi-label">Leads únicos</div><div class="kpi-value" id="calUnicos">—</div></div>
+      <div class="kpi-card"><div class="kpi-label">Duplicados</div><div class="kpi-value" id="calDup">—</div><div class="kpi-sub">Mismo teléfono o email que un lead anterior</div></div>
+      <div class="kpi-card"><div class="kpi-label">Sin teléfono ni email</div><div class="kpi-value" id="calSin">—</div></div>
+    </div>
+    <div class="grid-2" style="margin-bottom:0;">
+      <div class="table-scroll"><table>
+        <thead><tr><th>Canal</th><th>Total</th><th>Únicos</th><th>% duplicados</th><th>% sin contacto</th></tr></thead>
+        <tbody id="tbodyCalCanal"></tbody>
+      </table></div>
+      <div class="table-scroll" style="max-height:260px;overflow-y:auto;"><table>
+        <thead><tr><th>Campaña</th><th>Total</th><th>Únicos</th><th>% duplicados</th></tr></thead>
+        <tbody id="tbodyCalCampana"></tbody>
+      </table></div>
+    </div>
+  </div>
+
+  <!-- Embudo (oportunidades de GHL) -->
+  <div class="chart-box">
+    <h3>Embudo · leads del periodo <span id="embRango" style="color:var(--text-muted);font-weight:400;"></span></h3>
+    <div class="embudo" id="embPasos"></div>
+    <div class="grid-3" id="embKpis"></div>
+    <div id="embPipelines"></div>
+    <div class="nota">Cuenta los leads dados de alta en el periodo y sus oportunidades, estén en la etapa que estén hoy. Pipelines y etapas tal cual en GoHighLevel, en su orden. Ganada = estado "won" o etapa de ganado ("Presupuesto Ganado", "Venta"…); perdida, igual.</div>
+  </div>
+
+  <!-- Velocidad de respuesta -->
+  <div class="chart-box">
+    <div class="chart-head">
+      <h3>Velocidad de respuesta · <span id="respRango" style="color:var(--text-muted);font-weight:400;"></span></h3>
+      <div class="seg" id="respTipo">
+        <button data-t="humana" class="on">Humana</button>
+        <button data-t="automatica">Automática</button>
+      </div>
+    </div>
+    <div id="respAviso" class="frase hidden"></div>
+    <div class="kpi-grid" style="margin-bottom:16px;">
+      <div class="kpi-card"><div class="kpi-label">Mediana 1ª respuesta humana</div><div class="kpi-value" id="respMediana">—</div><div class="kpi-sub" id="respAuto"></div><div class="kpi-sub" id="respCobertura"></div></div>
+      <div class="kpi-card"><div class="kpi-label">Respondidos en &lt; 5 min</div><div class="kpi-value" id="resp5">—</div></div>
+      <div class="kpi-card"><div class="kpi-label">Respondidos en &lt; 1 h</div><div class="kpi-value" id="resp60">—</div></div>
+      <div class="kpi-card"><div class="kpi-label">Sin respuesta en 24 h</div><div class="kpi-value" id="resp24">—</div><div class="kpi-sub">De los leads con más de 24 h</div></div>
+    </div>
+    <div class="grid-2" style="margin-bottom:0;">
+      <div class="table-scroll"><table>
+        <thead><tr><th>Canal</th><th>Leads</th><th>Mediana</th><th>&lt; 5 min</th><th>&lt; 1 h</th><th>Sin resp. 24 h</th></tr></thead>
+        <tbody id="tbodyRespCanal"></tbody>
+      </table></div>
+      <div class="table-scroll"><table>
+        <thead><tr><th>Llegada del lead</th><th>Leads</th><th>Mediana</th><th>&lt; 5 min</th><th>&lt; 1 h</th><th>Sin resp. 24 h</th></tr></thead>
+        <tbody id="tbodyRespDia"></tbody>
+      </table></div>
+    </div>
+    <div class="nota" id="respNota"></div>
   </div>
 
   <!-- Coste por lead (solo si la subcuenta tiene cuenta de Google Ads mapeada) -->
@@ -144,11 +214,19 @@
   let cliente = null;
   let paginaActual = 1;
   let buscarTimer = null;
+  let respTipo = 'humana';
+  let respData = null;
 
   (async () => {
     if (!LOC) { window.location.href = '/leads'; return; }
     document.getElementById('kpis').innerHTML = KPIS_HTML;
+    document.getElementById('anual').innerHTML = ANUAL_HTML;
     leyendaCanales('legend');
+    document.querySelectorAll('#respTipo button').forEach(b => b.addEventListener('click', () => {
+      respTipo = b.dataset.t;
+      document.querySelectorAll('#respTipo button').forEach(x => x.classList.toggle('on', x === b));
+      if (respData) renderRespuesta(respData);
+    }));
     const selCanal = document.getElementById('filtroCanal');
     CANALES.forEach(c => selCanal.insertAdjacentHTML('beforeend', `<option value="${c}">${CANAL_LABEL[c]}</option>`));
     document.getElementById('buscar').addEventListener('input', () => {
@@ -181,12 +259,16 @@
 
   function recargarTodo() {
     cargarResumen();
+    cargarAnual();
     recargarPeriodo();
   }
   function recargarPeriodo() {
     cargarSerie();
     cargarHeatmap();
     cargarDesglose();
+    cargarCalidad();
+    cargarEmbudo();
+    cargarRespuesta();
     cargarCoste();
     cargarListado(1);
   }
@@ -221,14 +303,146 @@
       html += '<div class="h-lbl">Total</div>' + r.por_hora.map(v => `<div class="h-col" style="color:var(--arena);font-weight:600;">${v || ''}</div>`).join('') +
         `<div class="h-tot">${fmtInt(r.total)}</div>`;
       cont.innerHTML = html;
+      document.getElementById('heatResumen').textContent = r.resumen || 'Sin leads en el periodo.';
+      document.getElementById('heatTop').innerHTML = r.top.map((c, i) => `
+        <div class="mini">
+          <div class="m-lbl">#${i + 1} · ${c.dia_nombre} de ${c.hora} a ${c.hora + 1} h</div>
+          <div class="m-val">${fmtPct(c.pct)} <span style="font-size:11px;font-weight:400;color:var(--text-muted);">${fmtInt(c.total)} leads</span></div>
+        </div>`).join('');
+      const maxDia = Math.max(...r.por_dia, 1);
+      document.getElementById('heatDias').innerHTML = r.por_dia.map((n, d) => `
+        <div class="bh"><span>${DIAS_SEMANA[d]}</span>
+          <div class="bh-track"><div class="bh-fill" style="width:${(n / maxDia) * 100}%;"></div></div>
+          <span class="bh-val">${fmtInt(n)} · ${r.total ? Math.round((n / r.total) * 100) : 0}%</span></div>`).join('');
       document.getElementById('franjas').innerHTML = r.por_franja.map(f => `
         <div class="franja">
           <div class="f-lbl">${f.nombre} · ${f.desde}–${f.hasta} h</div>
-          <div class="f-val">${fmtInt(f.total)} <span style="font-size:11px;font-weight:400;color:var(--text-muted);">${r.total ? Math.round((f.total / r.total) * 100) + '%' : ''}</span></div>
+          <div class="f-val">${fmtInt(f.total)} <span style="font-size:11px;font-weight:400;color:var(--text-muted);">${fmtPct(f.pct)}</span></div>
         </div>`).join('');
     } catch (e) {
       cont.innerHTML = `<div class="empty" style="grid-column:1/-1;">${esc(e.message)}</div>`;
     }
+  }
+
+  async function cargarAnual() {
+    try { renderAnual(await api(`/api/leads/anual?${qs({ location_id: LOC })}`)); } catch (e) { console.error('anual error:', e); }
+  }
+
+  // ---- Calidad ----
+  async function cargarCalidad() {
+    try {
+      const r = await api(`/api/leads/calidad?${qs(filtros())}`);
+      document.getElementById('calRango').textContent = `${fmtDia(r.desde)} – ${fmtDia(r.hasta)}`;
+      document.getElementById('calImportados').textContent = r.importados_excluidos
+        ? `${fmtInt(r.importados_excluidos)} contactos de importaciones masivas excluidos` : '';
+      document.getElementById('calTotal').textContent = fmtInt(r.total);
+      document.getElementById('calUnicos').textContent = fmtInt(r.unicos);
+      document.getElementById('calDup').innerHTML = `${fmtInt(r.duplicados)} <span style="font-size:12px;font-weight:500;color:var(--text-muted);">· ${fmtPct(r.tasa_duplicados_pct)}</span>`;
+      document.getElementById('calSin').innerHTML = `${fmtInt(r.sin_contacto)} <span style="font-size:12px;font-weight:500;color:var(--text-muted);">· ${fmtPct(r.tasa_sin_contacto_pct)}</span>`;
+      document.getElementById('tbodyCalCanal').innerHTML = r.por_canal.length ? r.por_canal.map(c => `<tr>
+          <td><span class="legend-dot" style="background:${CANAL_COLOR[c.canal]};"></span>${CANAL_LABEL[c.canal]}</td>
+          <td>${fmtInt(c.total)}</td><td>${fmtInt(c.unicos)}</td><td>${fmtPct(c.tasa_duplicados_pct)}</td><td>${fmtPct(c.tasa_sin_contacto_pct)}</td>
+        </tr>`).join('') : '<tr><td colspan="5" class="empty">Sin leads</td></tr>';
+      document.getElementById('tbodyCalCampana').innerHTML = r.por_campana.length ? r.por_campana.map(c => `<tr>
+          <td title="${esc(c.utm_campaign || '')}">${c.utm_campaign ? esc(c.utm_campaign) : '<span style="color:var(--text-muted);">(sin campaña)</span>'}</td>
+          <td>${fmtInt(c.total)}</td><td>${fmtInt(c.unicos)}</td><td>${fmtPct(c.tasa_duplicados_pct)}</td>
+        </tr>`).join('') : '<tr><td colspan="4" class="empty">Sin leads</td></tr>';
+    } catch (e) {
+      document.getElementById('tbodyCalCanal').innerHTML = `<tr><td colspan="5" class="empty">${esc(e.message)}</td></tr>`;
+    }
+  }
+
+  // ---- Embudo ----
+  async function cargarEmbudo() {
+    const pasos = document.getElementById('embPasos');
+    try {
+      const r = await api(`/api/leads/embudo?${qs(filtros())}`);
+      document.getElementById('embRango').textContent = `· ${fmtDia(r.desde)} – ${fmtDia(r.hasta)}`;
+      if (!r.sincronizado) {
+        pasos.innerHTML = '<div class="empty" style="flex:1;">Aún no hay pipelines sincronizados de esta subcuenta (llegan en la siguiente sincronización).</div>';
+        ['embKpis', 'embPipelines'].forEach(id => { document.getElementById(id).innerHTML = ''; });
+        return;
+      }
+      const paso = (lbl, val, tasa) => `<div class="paso"><div class="p-lbl">${lbl}</div><div class="p-val">${val}</div><div class="p-tasa">${tasa || '&nbsp;'}</div></div>`;
+      pasos.innerHTML =
+        paso('Leads', fmtInt(r.leads), `${fmtInt(r.leads_unicos)} únicos`) +
+        paso('Con oportunidad', fmtInt(r.con_oportunidad), `${fmtPct(r.tasa_oportunidad_pct)} de los leads`) +
+        (r.pipeline_en_uso
+          ? paso('Ganados', fmtInt(r.ganados), `${fmtPct(r.tasa_ganado_pct)} de los leads · ${fmtPct(r.tasa_cierre_pct)} de las oportunidades`) +
+            paso('Perdidos', fmtInt(r.perdidos), '')
+          : paso('Ganados', '—', 'El pipeline no se trabaja: todas las oportunidades siguen en la primera etapa'));
+      const mini = (lbl, val) => `<div class="mini"><div class="m-lbl">${lbl}</div><div class="m-val">${val}</div></div>`;
+      document.getElementById('embKpis').innerHTML =
+        mini('Valor ganado' + (r.valor_por_defecto != null ? ' *' : ''), eur(r.valor_ganado)) +
+        mini('Ticket medio' + (r.valor_por_defecto != null ? ' *' : ''), r.ticket_medio != null ? eur(r.ticket_medio) : '—') +
+        mini('Días lead → ganado (mediana)', r.dias_hasta_ganado_mediana != null ? `${r.dias_hasta_ganado_mediana.toLocaleString('es-ES')} d` : '—') +
+        mini('Días lead → ganado (media)', r.dias_hasta_ganado_media != null ? `${r.dias_hasta_ganado_media.toLocaleString('es-ES')} d` : '—');
+      document.getElementById('embPipelines').innerHTML = r.pipelines.length ? r.pipelines.map(p => {
+        const max = Math.max(...p.etapas.map(e => e.total), 1);
+        return `<div class="pipeline">
+          <h4>${esc(p.nombre)} <span style="font-weight:400;color:var(--text-muted);">· ${fmtInt(p.total)} oportunidades ·
+            ${p.en_uso ? `${fmtInt(p.ganadas)} ganadas · ${fmtInt(p.perdidas)} perdidas` : '<span class="down">sin trabajar</span>'}
+            ${p.valor_abierto ? ` · ${eur(p.valor_abierto)} en curso` : ''}</span></h4>
+          <div class="barras-h">${p.etapas.map(e => `
+            <div class="bh"><span title="${esc(e.nombre)}" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(e.nombre)}</span>
+              <div class="bh-track"><div class="bh-fill" style="width:${(e.total / max) * 100}%;${e.tipo === 'ganada' ? 'background:var(--verde);' : e.tipo === 'perdida' ? 'background:var(--rojo);' : ''}"></div></div>
+              <span class="bh-val">${fmtInt(e.total)}</span></div>`).join('')}
+          </div></div>`;
+      }).join('') : '<div class="nota">Ningún lead del periodo tiene oportunidad.</div>';
+      if (r.valor_por_defecto != null) {
+        document.getElementById('embPipelines').insertAdjacentHTML('beforeend',
+          `<div class="nota">* Todas las oportunidades tienen el mismo valor (${eur(r.valor_por_defecto)}): es el valor por defecto del pipeline, no el importe real de cada venta.</div>`);
+      }
+    } catch (e) {
+      pasos.innerHTML = `<div class="empty" style="flex:1;">${esc(e.message)}</div>`;
+    }
+  }
+
+  // ---- Velocidad de respuesta ----
+  async function cargarRespuesta() {
+    try {
+      respData = await api(`/api/leads/respuesta?${qs(filtros())}`);
+      renderRespuesta(respData);
+    } catch (e) {
+      document.getElementById('respNota').textContent = `Error: ${e.message}`;
+    }
+  }
+
+  function renderRespuesta(r) {
+    const v = r[respTipo];
+    document.querySelector('#respMediana').parentElement.querySelector('.kpi-label').textContent =
+      respTipo === 'humana' ? 'Mediana 1ª respuesta humana' : 'Mediana 1ª respuesta automática';
+    document.getElementById('respRango').textContent = `${fmtDia(r.desde)} – ${fmtDia(r.hasta)}`;
+    const aviso = document.getElementById('respAviso');
+    aviso.classList.toggle('hidden', !r.sin_registro_en_ghl && !r.sin_respuesta_humana);
+    aviso.textContent = r.sin_registro_en_ghl
+      ? 'Esta subcuenta no tiene ningún mensaje ni llamada saliente registrado en GoHighLevel en el periodo: atiende los leads fuera de GHL (teléfono u otra herramienta), así que no hay dato de velocidad de respuesta. No significa que no se responda.'
+      : r.sin_respuesta_humana
+        ? 'No hay ninguna respuesta humana registrada en GoHighLevel en el periodo: todas las respuestas son automáticas (workflows o un bot/IA conectado como app). Si el equipo atiende después por teléfono o fuera de GHL, aquí no aparece.'
+        : '';
+    document.getElementById('respMediana').textContent = respTipo === 'humana' && r.sin_respuesta_humana ? 'Sin registro' : fmtMin(v.mediana_min);
+    const otra = respTipo === 'humana' ? r.automatica : r.humana;
+    document.getElementById('respAuto').textContent = respTipo === 'humana'
+      ? `Automática: ${fmtMin(otra.mediana_min)} (${fmtInt(otra.respondidos)} respondidos)`
+      : `Humana: ${r.sin_respuesta_humana ? 'sin registro' : fmtMin(otra.mediana_min)}`;
+    document.getElementById('respCobertura').textContent =
+      `${fmtInt(v.respondidos)} respondidos de ${fmtInt(r.revisados)} revisados` + (r.pendientes_revisar ? ` · ${fmtInt(r.pendientes_revisar)} pendientes de revisar` : '');
+    document.getElementById('resp5').textContent = fmtPct(v.menos_5min_pct);
+    document.getElementById('resp60').textContent = fmtPct(v.menos_1h_pct);
+    document.getElementById('resp24').textContent = fmtPct(v.sin_respuesta_24h_pct);
+    const fila = (etq, x) => `<tr><td>${etq}</td><td>${fmtInt(x.leads)}</td><td>${fmtMin(x.mediana_min)}</td><td>${fmtPct(x.menos_5min_pct)}</td><td>${fmtPct(x.menos_1h_pct)}</td><td>${fmtPct(x.sin_respuesta_24h_pct)}</td></tr>`;
+    document.getElementById('tbodyRespCanal').innerHTML = v.por_canal.length
+      ? v.por_canal.map(c => fila(`<span class="legend-dot" style="background:${CANAL_COLOR[c.canal]};"></span>${CANAL_LABEL[c.canal]}`, c)).join('')
+      : '<tr><td colspan="6" class="empty">Sin datos</td></tr>';
+    document.getElementById('tbodyRespDia').innerHTML =
+      v.por_dia.map((d, i) => fila(DIAS_SEMANA[i], d)).join('') +
+      v.por_franja.map(f => fila(`${f.franja} (${f.desde}–${f.hasta} h)`, f)).join('');
+    const lista = o => Object.entries(o).sort((a, b) => b[1] - a[1]).map(([t, n]) => `${t.replace('TYPE_', '').toLowerCase()} ${fmtInt(n)}`).join(' · ');
+    const tipos = lista(r.tipo_respuesta_automatica), origenes = lista(r.origen_respuesta_automatica);
+    document.getElementById('respNota').textContent =
+      'Primera respuesta saliente registrada en GHL desde el alta del lead. Humana: mensaje escrito por un usuario de GHL o llamada. ' +
+      'Automática: workflows, campañas y bots/IA conectados como app del marketplace.' +
+      (origenes ? ` Origen de las automáticas: ${origenes}.` : '') + (tipos ? ` Canal: ${tipos}.` : '');
   }
 
   // ---- Desglose ----
