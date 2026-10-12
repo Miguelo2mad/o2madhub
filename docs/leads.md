@@ -170,7 +170,9 @@ estado** de la oportunidad (todas "open"). Capilar mueve las oportunidades a
 la etapa "Presupuesto Ganado" o "Perdido", así que cuenta como ganada si el
 estado es "won" **o** la etapa se llama de ganado (ganad/won/sale/venta), y lo
 mismo para perdida. Un pipeline está **en uso** si alguna oportunidad ha
-salido de la primera etapa. Si ninguno lo está (Nadal, viva sports,
+cambiado de estado, está en una etapa de ganado o perdido, o está en una
+etapa que no es de entrada ("Nuevo…"/"New…"; Nadal reparte las altas en tres
+etapas "Nuevo contacto …"). Si ninguno lo está (Nadal, viva sports,
 Cañellas), el panel no da tasa de ganados.
 
 ### Velocidad de respuesta

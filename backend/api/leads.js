@@ -669,10 +669,13 @@ router.get('/calidad', requireAuth, async (req, res) => {
 // En la práctica los clientes no cambian el ESTADO de la oportunidad (todas
 // "open", oct 2026) sino que la mueven a una ETAPA "Presupuesto Ganado" /
 // "Perdido": ganada = estado won o etapa con nombre de ganada; igual perdida.
-// Un pipeline está "en uso" si alguna oportunidad salió de la primera etapa o
-// cambió de estado; si no, lead → ganado no significa nada y se avisa.
+// Un pipeline está "en uso" si alguna oportunidad cambió de estado, está en
+// una etapa de ganada/perdida o en una etapa que no es de entrada ("Nuevo…",
+// "New…": Nadal reparte las altas en 3 etapas "Nuevo contacto DENTAL /
+// ESTETICA / CAPILAR" sin trabajarlas). Si no, lead → ganado no significa nada.
 const ETAPA_GANADA = /ganad|\bwon\b|\bsale\b|venta|vendid/i;
 const ETAPA_PERDIDA = /perdid|\blost\b|no interesad|descartad/i;
+const ETAPA_ENTRADA = /^\s*(nuev|new\b)/i;
 router.get('/embudo', requireAuth, async (req, res) => {
   const locationId = req.query.location_id;
   if (!locationId) return res.status(400).json({ error: 'location_id es obligatorio' });
@@ -694,7 +697,11 @@ router.get('/embudo', requireAuth, async (req, res) => {
     const nombreEtapa = o => etapaPorId.get(o.etapa_id)?.nombre || '';
     const ganada = o => o.estado === 'won' || (o.estado === 'open' && ETAPA_GANADA.test(nombreEtapa(o)));
     const perdida = o => ['lost', 'abandoned'].includes(o.estado) || (o.estado === 'open' && ETAPA_PERDIDA.test(nombreEtapa(o)));
-    const trabajada = o => o.estado !== 'open' || (etapaPorId.get(o.etapa_id)?.indice || 0) > 0;
+    const trabajada = o => {
+      if (o.estado !== 'open') return true;
+      const e = etapaPorId.get(o.etapa_id);
+      return !!e && (ETAPA_GANADA.test(e.nombre) || ETAPA_PERDIDA.test(e.nombre) || (e.indice > 0 && !ETAPA_ENTRADA.test(e.nombre)));
+    };
 
     const delPeriodo = opps.filter(o => altaLead.has(o.contact_id));
     const contactosCon = new Set(delPeriodo.map(o => o.contact_id));
