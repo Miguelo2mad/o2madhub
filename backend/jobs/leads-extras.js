@@ -23,10 +23,15 @@ const RECHEQUEO_MS = 3600_000;              // un lead sin respuesta se re-mira 
 // sin userId). Verificado en Nadal (oct 2026): 218 salientes, 0 con userId.
 const deMarketplace = m => /marketplace/.test(typeof m.meta === 'string' ? m.meta : JSON.stringify(m.meta || {}));
 const esHumana = m => !!m.userId || (/CALL/i.test(m.messageType || '') && !deMarketplace(m));
+// Apps del marketplace que son Gulliver AI enviando por GHL. Verificado en
+// Nadal (oct 2026): las 216 primeras respuestas de esta app son WhatsApp, todas
+// de contactos con conversación en Gulliver y 201 a ±2 min del mensaje de la IA.
+const APPS_GULLIVER = new Set(['6a3d086913f8e75af6800118']);
 function origenAutomatico(m) {
   if (deMarketplace(m)) {
     const meta = typeof m.meta === 'string' ? JSON.parse(m.meta || '{}') : m.meta || {};
-    return `app:${meta.marketplace?.appId || '?'}`;
+    const appId = meta.marketplace?.appId;
+    return APPS_GULLIVER.has(appId) ? 'gulliver' : `app:${appId || '?'}`;
   }
   return m.source || 'desconocido';
 }

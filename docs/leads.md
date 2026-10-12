@@ -218,7 +218,8 @@ Cuando el cliente tiene Gulliver, el embudo del panel pasa a ser:
 1. **Leads**.
 2. **Atendidos por IA**: alguna interacción con la IA desde el alta (1 h de margen).
 3. **Con cita**: cita de Gulliver (`source = gulliver`) o de la agenda
-   (`calendar`) con fecha posterior al alta y reservada después del alta.
+   (`calendar`) con fecha posterior al alta y reservada entre el alta y 60
+   días después (más allá es un paciente que vuelve, no conversión del lead).
 4. **Visitado** (cita pasada no cancelada ni `no_show`), **No presentado**,
    **Cancelado** o **Pendiente** (cita futura).
 5. **Ganado**: sigue viniendo de GHL.
@@ -228,7 +229,10 @@ desglose por canal de captación y otro por mes de entrada del lead.
 
 En velocidad de respuesta, la primera respuesta de la IA (mensaje de WhatsApp
 o inicio de la llamada) cuenta como **automática**, con origen `gulliver`, si
-llega antes que la que registra GHL.
+llega antes que la que registra GHL. Gulliver envía por GHL como app del
+marketplace (`appId 6a3d086913f8e75af6800118`): esos salientes se etiquetan
+también como origen `gulliver` (`APPS_GULLIVER` en `leads-extras.js`;
+verificado en Nadal: 216 respuestas, 201 a ±2 min del mensaje de la IA).
 
 Alta de un cliente: `insert into clientes_gulliver (location_id, hotel_id)`
 con el `hotels.id` de Gulliver. La primera sync trae todo el histórico.

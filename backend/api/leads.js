@@ -679,6 +679,7 @@ router.get('/calidad', requireAuth, async (req, res) => {
 // Margen para casar actividad que GHL registra unos segundos/minutos antes que
 // el alta del contacto (el contacto se crea con el primer mensaje).
 const MARGEN_GULLIVER_MS = 3600_000;
+const VENTANA_CITA_MS = 60 * 86400_000; // cita reservada como máximo 60 días después del lead
 
 // Conversaciones y citas de Gulliver de las subcuentas pedidas que tienen
 // Gulliver, indexadas por ghl_contact_id y por teléfono E.164. Vacío si ninguna.
@@ -692,7 +693,7 @@ async function datosGulliver(ambito) {
   if (!locs.length) return { locs: new Set(), clientes: [] };
   const [ia, citas] = await Promise.all([
     fetchAll(() => supabase.from('leads_ia_contacto')
-      .select('location_id, telefono, ghl_contact_id, primera_at, ultima_at, mensajes, llamadas, primera_respuesta_ia_at, canales')
+      .select('location_id, telefono, ghl_contact_id, primera_at, ultima_at, mensajes, mensajes_usuario, llamadas, primera_respuesta_ia_at, canales')
       .in('location_id', locs).order('location_id').order('telefono')),
     fetchAll(() => supabase.from('leads_citas')
       .select('id, location_id, telefono, ghl_contact_id, creada_at, starts_at, estado, origen, canal')
@@ -724,10 +725,15 @@ function cruceGulliver(g, lead) {
   // Primera respuesta de la IA tras el alta (si la primera fue antes del lead, no cuenta).
   const resp = ia.map(c => c.primera_respuesta_ia_at && new Date(c.primera_respuesta_ia_at).getTime())
     .filter(t => t && t >= alta - MARGEN_GULLIVER_MS);
-  // Citas posteriores al lead: con fecha tras el alta y reservadas después del alta.
-  const citas = buscar(g.citas).filter(c => ['gulliver', 'calendar'].includes(c.origen)
-    && new Date(c.starts_at).getTime() >= alta
-    && (!c.creada_at || new Date(c.creada_at).getTime() >= alta - MARGEN_GULLIVER_MS));
+  // Citas del lead: con fecha tras el alta y reservadas entre el alta y 60 días
+  // después (reserva = creación de la cita, o su fecha si es anterior). Más
+  // allá es un paciente que vuelve, no conversión de ese lead.
+  const citas = buscar(g.citas).filter(c => {
+    if (!['gulliver', 'calendar'].includes(c.origen)) return false;
+    const fecha = new Date(c.starts_at).getTime();
+    const reserva = Math.min(c.creada_at ? new Date(c.creada_at).getTime() : fecha, fecha);
+    return fecha >= alta && reserva >= alta - MARGEN_GULLIVER_MS && reserva <= alta + VENTANA_CITA_MS;
+  });
   return { alta, atendido, primera_respuesta_ia: resp.length ? Math.min(...resp) : null, citas };
 }
 
