@@ -123,6 +123,7 @@
     <h3>Embudo · leads del periodo <span id="embRango" style="color:var(--text-muted);font-weight:400;"></span></h3>
     <div class="embudo" id="embPasos"></div>
     <div class="grid-3" id="embKpis"></div>
+    <div id="embGulliver"></div>
     <div id="embPipelines"></div>
     <div class="nota">Cuenta los leads dados de alta en el periodo y sus oportunidades, estén en la etapa que estén hoy. Pipelines y etapas tal cual en GoHighLevel, en su orden. Ganada = estado "won" o etapa de ganado ("Presupuesto Ganado", "Venta"…); perdida, igual.</div>
   </div>
@@ -364,7 +365,19 @@
         return;
       }
       const paso = (lbl, val, tasa) => `<div class="paso"><div class="p-lbl">${lbl}</div><div class="p-val">${val}</div><div class="p-tasa">${tasa || '&nbsp;'}</div></div>`;
-      pasos.innerHTML =
+      const g = r.gulliver;
+      renderEmbudoGulliver(g);
+      if (g) {
+        // Con Gulliver: Leads → Atendidos por IA → Con cita → Visitado → Ganado (GHL).
+        pasos.innerHTML =
+          paso('Leads', fmtInt(r.leads), `${fmtInt(r.leads_unicos)} únicos`) +
+          paso('Atendidos por IA', fmtInt(g.atendidos_ia), `${fmtPct(g.tasa_atendido_pct)} de los leads`) +
+          paso('Con cita', fmtInt(g.con_cita), `${fmtPct(g.tasa_cita_pct)} de los leads · ${fmtPct(g.tasa_cita_sobre_atendidos_pct)} de los atendidos`) +
+          paso('Visitados', fmtInt(g.visitados), `${fmtPct(g.tasa_visita_pct)} de las citas resueltas · ${fmtInt(g.no_presentados)} no presentados · ${fmtInt(g.cancelados)} cancelados · ${fmtInt(g.pendientes)} pendientes`) +
+          (r.pipeline_en_uso
+            ? paso('Ganados', fmtInt(r.ganados), `${fmtPct(r.tasa_ganado_pct)} de los leads`)
+            : paso('Ganados', '—', 'El pipeline de GHL no se trabaja'));
+      } else pasos.innerHTML =
         paso('Leads', fmtInt(r.leads), `${fmtInt(r.leads_unicos)} únicos`) +
         paso('Con oportunidad', fmtInt(r.con_oportunidad), `${fmtPct(r.tasa_oportunidad_pct)} de los leads`) +
         (r.pipeline_en_uso
@@ -396,6 +409,30 @@
     } catch (e) {
       pasos.innerHTML = `<div class="empty" style="flex:1;">${esc(e.message)}</div>`;
     }
+  }
+
+  // Embudo con Gulliver AI: desglose por canal de captación y por mes.
+  function renderEmbudoGulliver(g) {
+    const box = document.getElementById('embGulliver');
+    if (!g) { box.innerHTML = ''; return; }
+    const fila = (lbl, x) => `<tr><td>${lbl}</td><td>${fmtInt(x.leads)}</td><td>${fmtInt(x.atendidos_ia)} <span class="nota-inline">${fmtPct(x.tasa_atendido_pct)}</span></td>
+      <td>${fmtInt(x.con_cita)} <span class="nota-inline">${fmtPct(x.tasa_cita_pct)}</span></td>
+      <td>${fmtInt(x.visitados)} <span class="nota-inline">${fmtPct(x.tasa_lead_visita_pct)}</span></td>
+      <td>${fmtInt(x.no_presentados)}</td><td>${fmtInt(x.cancelados)}</td><td>${fmtInt(x.pendientes)}</td>
+      <td>${x.horas_hasta_cita_mediana != null ? `${x.horas_hasta_cita_mediana.toLocaleString('es-ES')} h` : '—'}</td></tr>`;
+    const tabla = (titulo, primera, filas) => `<h4 style="margin:16px 0 8px;">${titulo}</h4>
+      <div class="table-scroll"><table><thead><tr><th>${primera}</th><th>Leads</th><th>Atendidos IA</th><th>Con cita</th><th>Visitados</th><th>No presentados</th><th>Cancelados</th><th>Pendientes</th><th>Lead → cita (mediana)</th></tr></thead>
+      <tbody>${filas}</tbody></table></div>`;
+    const MESES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+    const origen = Object.entries(g.citas_por_origen || {}).map(([k, n]) => `${esc(k.replace('gulliver', 'IA').replace('calendar', 'agenda'))}: ${fmtInt(n)}`).join(' · ');
+    box.innerHTML =
+      `<div class="nota" style="margin-top:12px;">Mediana lead → cita reservada: <b>${g.horas_hasta_cita_mediana != null ? `${g.horas_hasta_cita_mediana.toLocaleString('es-ES')} h` : '—'}</b>
+        · ${fmtInt(g.con_cita_sin_ia)} leads con cita sin conversación con la IA (citas de la agenda)${origen ? ` · Citas por origen: ${origen}` : ''}</div>` +
+      tabla('¿Qué canal trae leads que acaban en cita?', 'Canal', g.por_canal.map(x => fila(esc(x.canal), x)).join('')) +
+      tabla('Por mes de entrada del lead', 'Mes', g.por_mes.map(x => fila(`${MESES[Number(x.mes.slice(5)) - 1]} ${x.mes.slice(0, 4)}`, x)).join('')) +
+      `<div class="nota">Gulliver AI: atendido = conversación por WhatsApp o llamada con la IA desde el alta del lead. Cita = cita de Gulliver (reservada por la IA) o de la agenda (Google Calendar) con fecha posterior al lead, casada por teléfono o contacto de GHL.
+        Visitado = cita ya pasada que no está cancelada ni marcada como no presentado. % de visitados sobre leads. Ganado sigue viniendo de GHL.
+        ${g.ultimo_sync_at ? `Datos de Gulliver a ${new Date(g.ultimo_sync_at).toLocaleString('es-ES', { timeZone: 'Europe/Madrid' })}.` : 'Aún sin sincronizar con Gulliver.'}${g.error_sync ? ` <span class="down">Último sync con error: ${esc(g.error_sync)}</span>` : ''}</div>`;
   }
 
   // ---- Velocidad de respuesta ----
@@ -442,6 +479,7 @@
     document.getElementById('respNota').textContent =
       'Primera respuesta saliente registrada en GHL desde el alta del lead. Humana: mensaje escrito por un usuario de GHL o llamada. ' +
       'Automática: workflows, campañas y bots/IA conectados como app del marketplace.' +
+      (r.con_gulliver ? ' También cuenta como automática la primera respuesta de Gulliver AI (WhatsApp o llamada) cuando llega antes (origen «gulliver»).' : '') +
       (origenes ? ` Origen de las automáticas: ${origenes}.` : '') + (tipos ? ` Canal: ${tipos}.` : '');
   }
 

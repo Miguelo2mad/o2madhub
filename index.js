@@ -27,6 +27,7 @@ const { runVentasPosSync }           = require('./backend/jobs/ventas-pos-sync')
 const { runChecklistsGeneracion }    = require('./backend/jobs/checklists-generacion-job');
 const { runChecklistsAvisos }        = require('./backend/jobs/checklists-avisos-job');
 const { syncLeads }                  = require('./backend/jobs/leads-sync');
+const { syncGulliver }               = require('./backend/jobs/leads-gulliver');
 
 const app = express();
 app.use(cors());
@@ -146,6 +147,11 @@ cron.schedule('0 7 * * *', () => {
 // Leads GoHighLevel sync — cada hora (minuto 20, fuera de los crons diarios en punto).
 cron.schedule('20 * * * *', () => {
   syncLeads().catch(e => console.error('[leads] cron failed:', e.message));
+}, { timezone: 'Europe/Madrid' });
+
+// Leads ← Gulliver AI (conversaciones y citas) — cada hora, minuto 40.
+cron.schedule('40 * * * *', () => {
+  syncGulliver().catch(e => console.error('[leads-gulliver] cron failed:', e.message));
 }, { timezone: 'Europe/Madrid' });
 
 // Ventas TPV sync — daily at 02:00 Madrid. Sin ruido si ningún cliente

@@ -164,6 +164,7 @@
     .embudo .p-lbl { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: .05em; }
     .embudo .p-val { font-size: 22px; font-weight: 700; color: var(--arena); }
     .embudo .p-tasa { font-size: 11px; color: var(--text-muted); }
+    .nota-inline { font-size: 11px; color: var(--text-muted); }
     .pipeline { border-top: 1px solid var(--border); padding-top: 12px; margin-top: 12px; }
     .pipeline h4 { font-size: 12px; font-weight: 600; margin-bottom: 8px; }
     .empty { color: var(--text-muted); font-size: 13px; padding: 32px; text-align: center; }

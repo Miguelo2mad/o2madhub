@@ -40,7 +40,9 @@ abre por URL y muestra un aviso.
 | Extras de la sync | `backend/jobs/leads-extras.js` (importados, duplicados, oportunidades, velocidad de respuesta) |
 | Histórico | `backend/scripts/leads-backfill.js --desde=2024-01-01` (contactos) · `backend/scripts/leads-respuestas.js` (velocidad de respuesta) |
 | Migración 054 | `importado`, `es_duplicado`/`duplicado_de`, `sin_contacto`; `unicos` en `leads_diarios`; `ghl_pipelines`, `oportunidades`, `leads_respuesta` |
-| Cron | `index.js`, cada hora en el minuto 20 (Europe/Madrid) |
+| Migración 055 | `clientes_gulliver` (subcuenta ↔ hotel de Gulliver), `leads_ia_contacto`, `leads_citas` |
+| Gulliver AI | `backend/lib/gulliver.js` (cliente), `backend/jobs/leads-gulliver.js` (`syncGulliver()`), `backend/scripts/leads-gulliver.js` (sync manual) |
+| Cron | `index.js`, cada hora: GHL en el minuto 20 y Gulliver en el 40 (Europe/Madrid) |
 
 ## Variables de entorno (Railway)
 
@@ -49,6 +51,9 @@ abre por URL y muestra un aviso.
   Integration de agencia recibe 401 en `/oauth/locationToken` (GHL lo reserva
   a tokens OAuth de agencia), así que ese endpoint no se usa.
 - `GHL_COMPANY_ID`: id de la agencia.
+- `GULLIVER_API_KEY`: la misma `x-gulliver-api-key` de la API de Gulliver. Sin
+  ella la sync de Gulliver se omite (sin error).
+- `GULLIVER_API_URL` (opcional): por defecto `https://gulliverapi-production.up.railway.app`.
 
 Los contactos se leen **solo** con el token privado de cada subcuenta
 (`clientes_ghl.token_privado`): un Private Integration creado dentro de la
@@ -193,6 +198,40 @@ La primera de cualquier tipo es la menor de las dos. Casos reales:
 - **Capilar** no tiene ningún saliente en GHL; atiende fuera de GHL.
 
 El panel lo dice así, en vez de mostrar 0 o "sin respuesta".
+
+### Gulliver AI (clientes con atención por IA)
+
+Gulliver atiende por WhatsApp y voz a los leads de algunos clientes y reserva
+sus citas. Su API expone en solo lectura `GET /api/v1/leads/contactos` (un
+contacto por teléfono E.164, con primera y última interacción, mensajes,
+llamadas y primera respuesta de la IA) y `GET /api/v1/leads/citas` (`phone`,
+`starts_at`, `status`, `source`, `channel`, `treatment`), paginados por cursor
+(código en `gulliver-welcome-video/apps/api/src/routes/leads-export.ts`).
+
+`syncGulliver()` los guarda en `leads_ia_contacto` y `leads_citas` para cada
+fila activa de `clientes_gulliver`. El cruce con `leads` se hace **al
+consultar**, por `ghl_contact_id` o por teléfono E.164, así que un lead que
+llega después de su conversación también casa.
+
+Cuando el cliente tiene Gulliver, el embudo del panel pasa a ser:
+
+1. **Leads**.
+2. **Atendidos por IA**: alguna interacción con la IA desde el alta (1 h de margen).
+3. **Con cita**: cita de Gulliver (`source = gulliver`) o de la agenda
+   (`calendar`) con fecha posterior al alta y reservada después del alta.
+4. **Visitado** (cita pasada no cancelada ni `no_show`), **No presentado**,
+   **Cancelado** o **Pendiente** (cita futura).
+5. **Ganado**: sigue viniendo de GHL.
+
+Además da la mediana de horas desde el lead hasta reservar la cita, un
+desglose por canal de captación y otro por mes de entrada del lead.
+
+En velocidad de respuesta, la primera respuesta de la IA (mensaje de WhatsApp
+o inicio de la llamada) cuenta como **automática**, con origen `gulliver`, si
+llega antes que la que registra GHL.
+
+Alta de un cliente: `insert into clientes_gulliver (location_id, hotel_id)`
+con el `hotels.id` de Gulliver. La primera sync trae todo el histórico.
 
 ## Dar de alta un cliente nuevo
 

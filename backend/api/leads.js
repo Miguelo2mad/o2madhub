@@ -6,6 +6,7 @@ const { DateTime } = require('luxon');
 const { supabase } = require('../lib/supabase');
 const { syncLeads, syncSubcuentaEnSegundoPlano, SIN_TOKEN } = require('../jobs/leads-sync');
 const { validarTokenPrivado } = require('../lib/ghl');
+const { telefonoE164 } = require('../lib/gulliver');
 
 const TZ = 'Europe/Madrid';
 const CANALES = ['meta', 'google', 'organico', 'directo', 'manual', 'otro'];
@@ -673,6 +674,131 @@ router.get('/calidad', requireAuth, async (req, res) => {
 // una etapa de ganada/perdida o en una etapa que no es de entrada ("Nuevo…",
 // "New…": Nadal reparte las altas en 3 etapas "Nuevo contacto DENTAL /
 // ESTETICA / CAPILAR" sin trabajarlas). Si no, lead → ganado no significa nada.
+// ---- Gulliver AI (atención por WhatsApp/voz y citas; ver jobs/leads-gulliver.js) ----
+
+// Margen para casar actividad que GHL registra unos segundos/minutos antes que
+// el alta del contacto (el contacto se crea con el primer mensaje).
+const MARGEN_GULLIVER_MS = 3600_000;
+
+// Conversaciones y citas de Gulliver de las subcuentas pedidas que tienen
+// Gulliver, indexadas por ghl_contact_id y por teléfono E.164. Vacío si ninguna.
+async function datosGulliver(ambito) {
+  const { data: conG, error } = await supabase.from('clientes_gulliver')
+    .select('location_id, ultimo_sync_at, error').in('location_id', ambito).eq('activo', true);
+  // Migración 055 aún sin aplicar: el módulo funciona igual, sin Gulliver.
+  if (error && ['42P01', 'PGRST205'].includes(error.code)) return { locs: new Set(), clientes: [] };
+  if (error) throw new Error(error.message);
+  const locs = conG.map(c => c.location_id);
+  if (!locs.length) return { locs: new Set(), clientes: [] };
+  const [ia, citas] = await Promise.all([
+    fetchAll(() => supabase.from('leads_ia_contacto')
+      .select('location_id, telefono, ghl_contact_id, primera_at, ultima_at, mensajes, llamadas, primera_respuesta_ia_at, canales')
+      .in('location_id', locs).order('location_id').order('telefono')),
+    fetchAll(() => supabase.from('leads_citas')
+      .select('id, location_id, telefono, ghl_contact_id, creada_at, starts_at, estado, origen, canal')
+      .in('location_id', locs).order('id')),
+  ]);
+  const idx = (filas) => {
+    const porCid = new Map(), porTel = new Map();
+    const add = (m, k, f) => { if (!k) return; const key = `${f.location_id}|${k}`; if (!m.has(key)) m.set(key, []); m.get(key).push(f); };
+    filas.forEach(f => { add(porCid, f.ghl_contact_id, f); add(porTel, f.telefono, f); });
+    return { porCid, porTel };
+  };
+  return { locs: new Set(locs), clientes: conG, ia: idx(ia), citas: idx(citas) };
+}
+
+// Conversación con la IA y citas de un lead (por ghl_contact_id o teléfono E.164).
+function cruceGulliver(g, lead) {
+  if (!g.locs.has(lead.location_id)) return null;
+  const tel = telefonoE164(lead.telefono);
+  const buscar = ({ porCid, porTel }) => {
+    const out = new Map();
+    [...(porCid.get(`${lead.location_id}|${lead.ghl_contact_id}`) || []),
+     ...(tel ? porTel.get(`${lead.location_id}|${tel}`) || [] : [])].forEach(f => out.set(f.id || f.telefono, f));
+    return [...out.values()];
+  };
+  const alta = new Date(lead.fecha_creacion).getTime();
+  const ia = buscar(g.ia);
+  // Atendido: alguna interacción con la IA desde el alta del lead.
+  const atendido = ia.some(c => new Date(c.ultima_at).getTime() >= alta - MARGEN_GULLIVER_MS);
+  // Primera respuesta de la IA tras el alta (si la primera fue antes del lead, no cuenta).
+  const resp = ia.map(c => c.primera_respuesta_ia_at && new Date(c.primera_respuesta_ia_at).getTime())
+    .filter(t => t && t >= alta - MARGEN_GULLIVER_MS);
+  // Citas posteriores al lead: con fecha tras el alta y reservadas después del alta.
+  const citas = buscar(g.citas).filter(c => ['gulliver', 'calendar'].includes(c.origen)
+    && new Date(c.starts_at).getTime() >= alta
+    && (!c.creada_at || new Date(c.creada_at).getTime() >= alta - MARGEN_GULLIVER_MS));
+  return { alta, atendido, primera_respuesta_ia: resp.length ? Math.min(...resp) : null, citas };
+}
+
+// Resultado de las citas de un lead: visitado > no presentado > pendiente > cancelado.
+function resultadoCitas(citas, ahora) {
+  if (!citas.length) return null;
+  const pasada = c => new Date(c.starts_at).getTime() < ahora;
+  if (citas.some(c => pasada(c) && !['cancelled', 'no_show'].includes(c.estado))) return 'visitado';
+  if (citas.some(c => c.estado === 'no_show')) return 'no_presentado';
+  if (citas.some(c => !pasada(c) && c.estado !== 'cancelled')) return 'pendiente';
+  return 'cancelado';
+}
+
+// Embudo IA de un conjunto de leads (ver GET /embudo → gulliver).
+function embudoGulliver(g, leads, ganadosSet) {
+  const ahora = Date.now();
+  const filas = leads.map(l => {
+    const x = cruceGulliver(g, l);
+    const reserva = x.citas.map(c => Math.min(new Date(c.creada_at || c.starts_at).getTime(), new Date(c.starts_at).getTime()));
+    return {
+      canal: l.canal,
+      mes: DateTime.fromMillis(x.alta).setZone(TZ).toFormat('yyyy-MM'),
+      atendido: x.atendido,
+      con_cita: x.citas.length > 0,
+      resultado: resultadoCitas(x.citas, ahora),
+      horas_cita: reserva.length ? Math.max(0, (Math.min(...reserva) - x.alta) / 3600_000) : null,
+      ganado: ganadosSet.has(l.ghl_contact_id),
+      citas: x.citas,
+    };
+  });
+  const bloque = grupo => {
+    const n = k => grupo.filter(f => f.resultado === k).length;
+    const conCita = grupo.filter(f => f.con_cita).length;
+    const atendidos = grupo.filter(f => f.atendido).length;
+    const horas = grupo.map(f => f.horas_cita).filter(h => h != null);
+    return {
+      leads: grupo.length,
+      atendidos_ia: atendidos,
+      con_cita: conCita,
+      visitados: n('visitado'),
+      no_presentados: n('no_presentado'),
+      cancelados: n('cancelado'),
+      pendientes: n('pendiente'),
+      ganados: grupo.filter(f => f.ganado).length,
+      tasa_atendido_pct: pct(atendidos, grupo.length),
+      tasa_cita_pct: pct(conCita, grupo.length),
+      tasa_cita_sobre_atendidos_pct: pct(grupo.filter(f => f.atendido && f.con_cita).length, atendidos),
+      // Asistencia sobre citas ya resueltas (las pendientes aún no cuentan).
+      tasa_visita_pct: pct(n('visitado'), conCita - n('pendiente')),
+      tasa_lead_visita_pct: pct(n('visitado'), grupo.length),
+      horas_hasta_cita_mediana: horas.length ? Math.round(mediana(horas) * 10) / 10 : null,
+    };
+  };
+  const meses = [...new Set(filas.map(f => f.mes))].sort();
+  const citasPorOrigen = {};
+  filas.forEach(f => f.citas.forEach(c => {
+    const k = `${c.origen}${c.canal && c.canal !== 'calendar' ? `:${c.canal}` : ''}`;
+    citasPorOrigen[k] = (citasPorOrigen[k] || 0) + 1;
+  }));
+  return {
+    ...bloque(filas),
+    // Leads con cita fuera de la IA (agenda de Google Calendar) sin conversación.
+    con_cita_sin_ia: filas.filter(f => f.con_cita && !f.atendido).length,
+    citas_por_origen: citasPorOrigen,
+    por_canal: CANALES.map(c => ({ canal: c, ...bloque(filas.filter(f => f.canal === c)) })).filter(x => x.leads),
+    por_mes: meses.map(m => ({ mes: m, ...bloque(filas.filter(f => f.mes === m)) })),
+    ultimo_sync_at: g.clientes[0]?.ultimo_sync_at || null,
+    error_sync: g.clientes[0]?.error || null,
+  };
+}
+
 const ETAPA_GANADA = /ganad|\bwon\b|\bsale\b|venta|vendid/i;
 const ETAPA_PERDIDA = /perdid|\blost\b|no interesad|descartad/i;
 const ETAPA_ENTRADA = /^\s*(nuev|new\b)/i;
@@ -683,7 +809,7 @@ router.get('/embudo', requireAuth, async (req, res) => {
     const { desde, hasta } = rangoPeriodo(req.query);
     const [leads, opps, { data: pipelines, error: pErr }] = await Promise.all([
       fetchAll(() => filtrosLeads(
-        supabase.from('leads').select('ghl_contact_id, fecha_creacion, es_duplicado').order('ghl_contact_id'),
+        supabase.from('leads').select('ghl_contact_id, location_id, telefono, canal, fecha_creacion, es_duplicado').order('ghl_contact_id'),
         [locationId], { desde: desde.toISODate(), hasta: hasta.toISODate() })),
       fetchAll(() => supabase.from('oportunidades')
         .select('id, contact_id, pipeline_id, etapa_id, estado, valor, creada_at, cambio_estado_at, cambio_etapa_at')
@@ -730,6 +856,9 @@ router.get('/embudo', requireAuth, async (req, res) => {
       };
     }).filter(p => p.total > 0);
     const enUso = porPipeline.some(p => p.en_uso);
+    // Con Gulliver: Leads → Atendidos por IA → Con cita → Visitado / No presentado / Cancelado → Ganado (GHL).
+    const g = await datosGulliver([locationId]);
+    const gulliver = g.locs.size ? embudoGulliver(g, leads, contactosGanados) : null;
 
     res.json({
       desde: desde.toISODate(), hasta: hasta.toISODate(),
@@ -756,6 +885,7 @@ router.get('/embudo', requireAuth, async (req, res) => {
       pipeline_en_uso: enUso,
       pipelines: porPipeline,
       sincronizado: pipelines.length > 0,
+      gulliver,
     });
   } catch (e) {
     console.error('[leads] GET /embudo:', e.message);
@@ -774,14 +904,21 @@ router.get('/respuesta', requireAuth, async (req, res) => {
     const ambito = await locationsAmbito(req.query.location_id || null);
     const leads = await fetchAll(() => filtrosLeads(
       supabase.from('leads')
-        .select('ghl_contact_id, canal, fecha_creacion, leads_respuesta(conversaciones, primera_at, primera_manual_at, primera_tipo, primera_origen)')
+        .select('ghl_contact_id, location_id, telefono, canal, fecha_creacion, leads_respuesta(conversaciones, primera_at, primera_manual_at, primera_tipo, primera_origen)')
         .order('ghl_contact_id'),
       ambito, { desde: desde.toISODate(), hasta: hasta.toISODate() }));
 
     const ahora = Date.now();
+    const g = await datosGulliver(ambito);
     const filas = leads.map(l => {
-      const r = Array.isArray(l.leads_respuesta) ? l.leads_respuesta[0] : l.leads_respuesta;
+      let r = Array.isArray(l.leads_respuesta) ? l.leads_respuesta[0] : l.leads_respuesta;
       const alta = new Date(l.fecha_creacion).getTime();
+      // La primera respuesta de la IA de Gulliver (WhatsApp o llamada) cuenta
+      // como automática si llega antes que la que registra GHL.
+      const ia = cruceGulliver(g, l)?.primera_respuesta_ia;
+      if (ia && (!r?.primera_at || ia < new Date(r.primera_at).getTime())) {
+        r = { ...(r || { conversaciones: 1, primera_manual_at: null }), primera_at: new Date(ia).toISOString(), primera_tipo: 'GULLIVER', primera_origen: 'gulliver' };
+      }
       const min = t => (t ? Math.max(0, (new Date(t).getTime() - alta) / 60000) : null);
       const d = DateTime.fromMillis(alta).setZone(TZ);
       return { canal: l.canal, dia: d.weekday - 1, franja: franjaDeHora(d.hour), alta, r, automatica: min(r?.primera_at), humana: min(r?.primera_manual_at) };
@@ -827,6 +964,7 @@ router.get('/respuesta', requireAuth, async (req, res) => {
       sin_respuesta_humana: revisados.length > 0 && revisados.every(f => f.humana == null),
       tipo_respuesta_automatica: tipos,
       origen_respuesta_automatica: origenes,
+      con_gulliver: g.locs.size > 0,
       humana: variante('humana'),
       automatica: variante('automatica'),
     });
