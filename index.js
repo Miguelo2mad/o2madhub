@@ -17,6 +17,7 @@ const campanasRouter        = require('./backend/api/campanas');
 const customerMetricsRouter       = require('./backend/api/customer-metrics');
 const crmRouter                   = require('./backend/api/crm');
 const serviceClassificationRouter = require('./backend/api/service-classification');
+const leadsRouter                 = require('./backend/api/leads');
 const { syncGoogleAds }              = require('./backend/jobs/google-ads-sync');
 const { syncFacturaDirecta }         = require('./backend/jobs/facturadirecta-sync');
 const { runCustomerMetricsJob }      = require('./backend/jobs/customer-metrics-job');
@@ -25,6 +26,7 @@ const { runServiceClassification }   = require('./backend/jobs/service-classific
 const { runVentasPosSync }           = require('./backend/jobs/ventas-pos-sync');
 const { runChecklistsGeneracion }    = require('./backend/jobs/checklists-generacion-job');
 const { runChecklistsAvisos }        = require('./backend/jobs/checklists-avisos-job');
+const { syncLeads }                  = require('./backend/jobs/leads-sync');
 
 const app = express();
 app.use(cors());
@@ -71,6 +73,7 @@ app.use('/api/campanas', campanasRouter);
 app.use('/api/customer-metrics', customerMetricsRouter);
 app.use('/api/crm', crmRouter);
 app.use('/api/service-classification', serviceClassificationRouter);
+app.use('/api/leads', leadsRouter);
 
 // Hub dashboard (Supabase Auth + realtime). Served at / and /hub.
 const HUB_PAGE = path.join(__dirname, 'frontend', 'pages', 'index.html');
@@ -86,6 +89,8 @@ app.get('/grupo-app',        (_req, res) => res.sendFile(path.join(__dirname, 'f
 app.get('/presupuestos-app', (_req, res) => res.sendFile(path.join(__dirname, 'frontend', 'pages', 'presupuestos.html')));
 app.get('/campanas', (_req, res) => res.sendFile(path.join(__dirname, 'frontend', 'pages', 'campanas.html')));
 app.get('/crm', (_req, res) => res.sendFile(path.join(__dirname, 'frontend', 'pages', 'crm.html')));
+app.get('/leads', (_req, res) => res.sendFile(path.join(__dirname, 'frontend', 'pages', 'leads.html')));
+app.get('/leads/clientes', (_req, res) => res.sendFile(path.join(__dirname, 'frontend', 'pages', 'leads-clientes.html')));
 
 app.get('/health', (_req, res) => res.json({ ok: true, ts: new Date().toISOString() }));
 
@@ -135,6 +140,11 @@ cron.schedule('45 6 * * *', () => {
 // Campañas Google Ads sync — daily at 07:00 Madrid.
 cron.schedule('0 7 * * *', () => {
   syncGoogleAds().catch(e => console.error('[campanas] cron failed:', e.message));
+}, { timezone: 'Europe/Madrid' });
+
+// Leads GoHighLevel sync — cada hora (minuto 20, fuera de los crons diarios en punto).
+cron.schedule('20 * * * *', () => {
+  syncLeads().catch(e => console.error('[leads] cron failed:', e.message));
 }, { timezone: 'Europe/Madrid' });
 
 // Ventas TPV sync — daily at 02:00 Madrid. Sin ruido si ningún cliente

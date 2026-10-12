@@ -1,0 +1,412 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Subcuentas GHL — O2MAD HUB</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+  <style>
+    :root {
+      --negro: #0F0E0C;
+      --arena: #C4A882;
+      --blanco: #F5F0E8;
+      --negro-soft: #1a1916;
+      --arena-dim: rgba(196,168,130,0.18);
+      --rojo: #d9684f;
+      --ambar: #d9a441;
+      --verde: #7fa86b;
+      --azul: #5b8fd9;
+      --border: rgba(196,168,130,0.22);
+      --text-muted: rgba(245,240,232,0.5);
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { font-size: 14px; }
+    body {
+      font-family: 'Inter', sans-serif;
+      background: var(--negro);
+      color: var(--blanco);
+      min-height: 100vh;
+    }
+
+    /* Header */
+    header {
+      position: sticky; top: 0; z-index: 100;
+      background: var(--negro-soft);
+      border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; gap: 16px;
+      padding: 0 24px; height: 56px;
+    }
+    .logo { font-weight: 700; font-size: 15px; color: var(--arena); letter-spacing: .04em; }
+    .logo span { color: var(--blanco); }
+    header .spacer { flex: 1; }
+    .user-email { font-size: 12px; color: var(--text-muted); }
+    header button {
+      background: var(--arena-dim); border: 1px solid var(--border);
+      color: var(--blanco); padding: 6px 14px; border-radius: 6px;
+      font-size: 12px; cursor: pointer; font-family: inherit;
+    }
+    header button:hover { background: rgba(196,168,130,0.3); }
+
+    /* Controls bar */
+    .controls {
+      display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+      padding: 16px 24px;
+      border-bottom: 1px solid var(--border);
+      background: var(--negro-soft);
+    }
+    .controls label { font-size: 12px; color: var(--text-muted); }
+    .controls select, .controls input[type=date], .input {
+      background: var(--negro); border: 1px solid var(--border);
+      color: var(--blanco); padding: 6px 10px; border-radius: 6px;
+      font-family: inherit; font-size: 13px; cursor: pointer;
+      color-scheme: dark;
+    }
+    .controls .spacer { flex: 1; }
+    .btn {
+      background: var(--arena-dim); border: 1px solid var(--border);
+      color: var(--blanco); padding: 7px 16px; border-radius: 6px;
+      font-size: 13px; font-family: inherit; cursor: pointer;
+      display: inline-flex; align-items: center; gap: 6px;
+      text-decoration: none;
+    }
+    .btn:hover { background: rgba(196,168,130,0.3); }
+    .btn.accent { background: var(--arena); color: var(--negro); border-color: transparent; font-weight: 600; }
+    .btn.accent:hover { background: #d4b898; }
+    .btn:disabled { opacity: .4; cursor: not-allowed; }
+    .btn.sm { font-size: 11px; padding: 4px 10px; }
+
+    /* Segmented (atajos / granularidad) */
+    .seg { display: inline-flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+    .seg button {
+      background: transparent; border: none; border-right: 1px solid var(--border);
+      color: var(--text-muted); padding: 6px 12px; font-family: inherit; font-size: 12px; cursor: pointer;
+    }
+    .seg button:last-child { border-right: none; }
+    .seg button:hover { color: var(--blanco); }
+    .seg button.on { background: var(--arena-dim); color: var(--arena); font-weight: 600; }
+
+    /* Main */
+    main { padding: 24px; max-width: 1200px; }
+
+    /* KPI cards */
+    .kpi-grid {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 12px; margin-bottom: 24px;
+    }
+    .kpi-card {
+      background: var(--negro-soft); border: 1px solid var(--border);
+      border-radius: 10px; padding: 16px;
+    }
+    .kpi-card .kpi-label { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: .06em; margin-bottom: 6px; }
+    .kpi-card .kpi-value { font-size: 24px; font-weight: 700; color: var(--arena); }
+    .kpi-card .kpi-sub { font-size: 11px; color: var(--text-muted); margin-top: 4px; }
+    .up { color: var(--verde); }
+    .down { color: var(--rojo); }
+
+    /* Chart */
+    .chart-box {
+      background: var(--negro-soft); border: 1px solid var(--border);
+      border-radius: 10px; padding: 16px; margin-bottom: 24px;
+    }
+    .chart-box h3 { font-size: 13px; font-weight: 600; margin-bottom: 12px; color: var(--blanco); }
+    .chart-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+    .chart-head h3 { margin-bottom: 0; }
+    .chart-box svg { width: 100%; display: block; }
+    .chart-legend { display: flex; gap: 16px; margin-top: 8px; font-size: 11px; flex-wrap: wrap; }
+    .legend-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; margin-right: 4px; }
+
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 24px; }
+    .grid-2 > * { margin-bottom: 0; }
+    @media (max-width: 800px) { .grid-2 { grid-template-columns: 1fr; } }
+
+    .donut-wrap { display: flex; align-items: center; gap: 20px; }
+    .donut-wrap svg { width: 160px; height: 160px; flex: none; }
+    .donut-list { font-size: 12px; display: flex; flex-direction: column; gap: 8px; flex: 1; }
+    .donut-list div { display: flex; justify-content: space-between; gap: 8px; }
+
+    /* Table */
+    .table-box {
+      background: var(--negro-soft); border: 1px solid var(--border);
+      border-radius: 10px; overflow: hidden; margin-bottom: 24px;
+    }
+    .table-box h3 { font-size: 13px; font-weight: 600; padding: 14px 16px; border-bottom: 1px solid var(--border); }
+    .table-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 16px; border-bottom: 1px solid var(--border); }
+    .table-head h3 { padding: 0; border: none; margin-right: auto; }
+    .table-scroll { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    th { padding: 10px 12px; text-align: right; font-weight: 500; color: var(--text-muted); white-space: nowrap; border-bottom: 1px solid var(--border); }
+    th:first-child { text-align: left; }
+    td { padding: 9px 12px; text-align: right; border-bottom: 1px solid rgba(196,168,130,0.08); white-space: nowrap; }
+    td:first-child { text-align: left; max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: var(--arena-dim); }
+    td.left, th.left { text-align: left; }
+    tr.totales td { font-weight: 700; color: var(--arena); border-top: 1px solid var(--border); }
+    .trend { font-size: 10px; margin-left: 3px; }
+    .chip { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; background: var(--arena-dim); }
+    .pager { display: flex; align-items: center; justify-content: flex-end; gap: 10px; padding: 10px 16px; font-size: 12px; color: var(--text-muted); border-top: 1px solid var(--border); }
+
+    /* Sync result */
+    .sync-box {
+      background: var(--negro-soft); border: 1px solid var(--border);
+      border-radius: 10px; padding: 16px; margin-bottom: 24px; font-size: 13px; line-height: 1.6;
+    }
+    .sync-box.error { border-color: rgba(217,104,79,0.5); }
+
+    /* Details / collapsible */
+    details { margin-bottom: 24px; }
+    details summary {
+      cursor: pointer; font-size: 13px; font-weight: 600;
+      padding: 12px 16px; background: var(--negro-soft);
+      border: 1px solid var(--border); border-radius: 10px;
+      list-style: none; display: flex; align-items: center; gap: 8px;
+    }
+    details summary::before { content: '▸'; color: var(--arena); }
+    details[open] summary::before { content: '▾'; }
+    details .details-body { padding: 16px 0 0; }
+
+    /* Empty / loading */
+    .empty { color: var(--text-muted); font-size: 13px; padding: 32px; text-align: center; }
+    .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid var(--border); border-top-color: var(--arena); border-radius: 50%; animation: spin .7s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .hidden { display: none !important; }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="logo">O2MAD <span>HUB</span></div>
+  <span style="font-size:13px;color:var(--text-muted);">Leads · Subcuentas GHL</span>
+  <div class="spacer"></div>
+  <span class="user-email" id="userEmail"></span>
+  <button onclick="window.location.href='/leads'">← Leads</button>
+  <button onclick="signOut()">Salir</button>
+</header>
+
+<div class="controls">
+  <span style="font-size:12px;color:var(--text-muted);">
+    Las subcuentas nuevas de GoHighLevel aparecen solas en cada sincronización. Para importar sus leads, cada una necesita
+    su token privado: en GHL, dentro de la subcuenta → Settings → Private Integrations, con scopes
+    <code>contacts.readonly</code> y <code>locations.readonly</code>. Al guardarlo se valida y se importan los últimos 12 meses.
+  </span>
+  <div class="spacer"></div>
+  <button class="btn accent" id="btnSync" onclick="syncAhora()"><span id="syncLabel">Sincronizar ahora</span></button>
+</div>
+
+<main style="max-width:1400px;">
+  <div id="syncResult" class="sync-box hidden"></div>
+  <div id="noAdmin" class="sync-box error hidden">Esta página es solo para administradores.</div>
+
+  <div class="table-box">
+    <h3>Subcuentas</h3>
+    <div class="table-scroll">
+      <table>
+        <thead>
+          <tr>
+            <th>Subcuenta</th>
+            <th class="left">Location ID</th>
+            <th class="left">Cliente del hub</th>
+            <th class="left">Activa</th>
+            <th class="left">Token privado</th>
+            <th>Leads mes</th>
+            <th class="left">Última sync</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="tbody"><tr><td colspan="8" class="empty">Cargando…</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+</main>
+
+<script>
+  const SUPABASE_URL = 'https://eqruoeoiqvlnlzidqxqr.supabase.co';
+  const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVxcnVvZW9pcXZsbmx6aWRxeHFyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE4NTY4MDcsImV4cCI6MjA5NzQzMjgwN30.QYMAUUrARJ9i_F8tb4gyGBkJAL66m7izlqgE2gZyz5k';
+
+  const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  let accessToken = null;
+  let clientes = [];
+  let empresas = [];
+
+  sb.auth.getSession().then(async ({ data }) => {
+    if (!data.session) { window.location.href = '/'; return; }
+    const user = data.session.user;
+    accessToken = data.session.access_token;
+    document.getElementById('userEmail').textContent = user.email;
+    const { data: prof } = await sb.from('profiles').select('role').eq('id', user.id).maybeSingle();
+    const role = (prof?.role || user.app_metadata?.role || user.user_metadata?.role || 'gestor').toLowerCase();
+    if (role !== 'admin') {
+      document.getElementById('noAdmin').classList.remove('hidden');
+      document.getElementById('btnSync').disabled = true;
+      document.getElementById('tbody').innerHTML = '';
+      return;
+    }
+    cargar();
+  });
+
+  async function signOut() {
+    await sb.auth.signOut();
+    window.location.href = '/';
+  }
+
+  async function api(path, opts = {}) {
+    const res = await fetch(path, {
+      ...opts,
+      headers: { 'Authorization': `Bearer ${accessToken}`, 'Content-Type': 'application/json', ...(opts.headers || {}) },
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: res.statusText }));
+      throw new Error(err.error || res.statusText);
+    }
+    return res.json();
+  }
+
+  function esc(s) { return String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+  function fmtInt(n) { return new Intl.NumberFormat('es-ES').format(Math.round(n || 0)); }
+  function fmtFechaHora(ts) {
+    return ts ? new Date(ts).toLocaleString('es-ES', { timeZone: 'Europe/Madrid', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'Nunca';
+  }
+
+  async function cargar() {
+    try {
+      [clientes, empresas] = await Promise.all([api('/api/leads/clientes'), api('/api/leads/empresas')]);
+      render();
+    } catch (e) {
+      document.getElementById('tbody').innerHTML = `<tr><td colspan="8" class="empty">${esc(e.message)}</td></tr>`;
+    }
+  }
+
+  function render() {
+    const tbody = document.getElementById('tbody');
+    if (!clientes.length) {
+      tbody.innerHTML = '<tr><td colspan="8" class="empty">Aún no hay subcuentas. Pulsa "Sincronizar ahora" para traerlas de GoHighLevel.</td></tr>';
+      return;
+    }
+    const opciones = sel => `<option value="">— Sin asignar —</option>` +
+      empresas.map(e => `<option value="${e.id}" ${e.id === sel ? 'selected' : ''}>${esc(e.nombre)}</option>`).join('');
+    tbody.innerHTML = clientes.map(c => `
+      <tr data-loc="${esc(c.location_id)}" style="${c.activo ? '' : 'opacity:.55;'}">
+        <td style="max-width:none;"><input class="input" data-f="nombre" value="${esc(c.nombre)}" style="width:240px;cursor:text;" /></td>
+        <td class="left" style="font-family:monospace;font-size:11px;color:var(--text-muted);">${esc(c.location_id)}</td>
+        <td class="left"><select class="input" data-f="cliente_id" style="max-width:220px;">${opciones(c.cliente_id)}</select></td>
+        <td class="left"><input type="checkbox" data-f="activo" ${c.activo ? 'checked' : ''} /></td>
+        <td class="left">
+          ${c.token_configurado
+            ? `<span class="chip up" style="margin-right:6px;">Configurado ····${esc(c.token_ultimos4)}</span>`
+            : `<span class="chip" style="margin-right:6px;color:var(--text-muted);">Sin token</span>`}
+          <input class="input" type="password" data-f="token_privado" autocomplete="off"
+            placeholder="${c.token_configurado ? 'Pegar para reemplazar' : 'Pegar token privado'}" style="width:160px;cursor:text;" />
+          ${c.token_configurado ? `<button class="btn sm" onclick="borrarToken('${esc(c.location_id)}')">Quitar</button>` : ''}
+        </td>
+        <td>${fmtInt(c.leads_mes)}</td>
+        <td class="left">${fmtFechaHora(c.ultima_sync)}</td>
+        <td>
+          <button class="btn sm accent" onclick="guardar('${esc(c.location_id)}', this)">Guardar</button>
+          <button class="btn sm" onclick="syncAhora('${esc(c.location_id)}')">Sync</button>
+        </td>
+      </tr>`).join('');
+  }
+
+  async function guardar(locationId, btn) {
+    const tr = document.querySelector(`tr[data-loc="${CSS.escape(locationId)}"]`);
+    const val = f => tr.querySelector(`[data-f="${f}"]`);
+    const body = {
+      nombre: val('nombre').value.trim(),
+      cliente_id: val('cliente_id').value || null,
+      activo: val('activo').checked,
+    };
+    const token = val('token_privado').value.trim();
+    if (token) body.token_privado = token;
+    btn.disabled = true;
+    if (token) mostrarResultado(`<span class="spinner"></span> Validando token de <strong>${esc(body.nombre)}</strong> contra GoHighLevel…`);
+    try {
+      const r = await api(`/api/leads/clientes/${encodeURIComponent(locationId)}`, { method: 'PATCH', body: JSON.stringify(body) });
+      btn.textContent = '✓ Guardado';
+      if (r.backfill_lanzado) {
+        mostrarResultado(`<span class="spinner"></span> Token válido (····${esc(r.token_ultimos4)}). Importando los últimos 12 meses de
+          <strong>${esc(r.nombre)}</strong> en segundo plano; puedes seguir trabajando, el resultado aparecerá aquí.`);
+        esperarBackfill(r.location_id, r.nombre, r.backfill_lanzado_en);
+      } else if (token) {
+        mostrarResultado(`Token válido guardado para <strong>${esc(r.nombre)}</strong>. La subcuenta está inactiva: actívala para importar sus leads.`);
+      }
+      setTimeout(cargar, 800);
+    } catch (e) {
+      btn.textContent = 'Error';
+      btn.title = e.message;
+      btn.disabled = false;
+      if (token) mostrarResultado(`Token no guardado para <strong>${esc(body.nombre)}</strong>: ${esc(e.message)}`, true);
+    }
+  }
+
+  // Sondea el log hasta que aparece la ejecución del backfill lanzado al guardar el token.
+  async function esperarBackfill(locationId, nombre, desde) {
+    for (let i = 0; i < 360; i++) { // máx. ~30 min
+      await new Promise(r => setTimeout(r, 5000));
+      try {
+        const log = await api(`/api/leads/sync-log?${new URLSearchParams({ location_id: locationId, desde, limite: 1 })}`);
+        const l = log[0];
+        if (!l) continue;
+        const seg = Math.round((new Date(l.fin) - new Date(l.inicio)) / 1000);
+        if (l.error) {
+          mostrarResultado(`Backfill de <strong>${esc(nombre)}</strong> con error tras ${seg}s: ${esc(l.error)}
+            (${fmtInt(l.leads_nuevos)} leads importados antes del error).`, true);
+        } else {
+          mostrarResultado(`<strong>Backfill de ${esc(nombre)} terminado</strong> en ${seg}s ·
+            <span class="up">${fmtInt(l.leads_nuevos)} leads nuevos</span> · ${fmtInt(l.leads_actualizados)} actualizados.`);
+        }
+        cargar();
+        return;
+      } catch (e) {
+        console.error('esperarBackfill:', e);
+      }
+    }
+    mostrarResultado(`El backfill de <strong>${esc(nombre)}</strong> sigue sin terminar tras 30 min. Revisa "Últimas sincronizaciones" en /leads.`, true);
+  }
+
+  async function borrarToken(locationId) {
+    try {
+      await api(`/api/leads/clientes/${encodeURIComponent(locationId)}`, { method: 'PATCH', body: JSON.stringify({ token_privado: null }) });
+      cargar();
+    } catch (e) {
+      mostrarResultado(`Error: ${esc(e.message)}`, true);
+    }
+  }
+
+  function mostrarResultado(html, error) {
+    const box = document.getElementById('syncResult');
+    box.className = 'sync-box' + (error ? ' error' : '');
+    box.innerHTML = html;
+  }
+
+  async function syncAhora(locationId) {
+    const btn = document.getElementById('btnSync');
+    btn.disabled = true;
+    document.getElementById('syncLabel').innerHTML = '<span class="spinner"></span> Sincronizando…';
+    mostrarResultado('Sincronizando con GoHighLevel. La primera vez importa 12 meses por subcuenta y puede tardar varios minutos.');
+    try {
+      const r = await api(`/api/leads/sync${locationId ? `?location_id=${encodeURIComponent(locationId)}` : ''}`, { method: 'POST' });
+      const errores = r.clientes.filter(c => c.error);
+      mostrarResultado(`
+        <strong>Sincronización terminada</strong> en ${r.segundos}s ·
+        ${r.subcuentas_ghl != null ? `${r.subcuentas_ghl} subcuentas en GHL` : 'una subcuenta'}
+        ${r.subcuentas_nuevas.length ? ` (${r.subcuentas_nuevas.length} nuevas)` : ''} ·
+        <span class="up">${fmtInt(r.leads_nuevos)} nuevos</span> · ${fmtInt(r.leads_actualizados)} actualizados ·
+        <span class="${errores.length ? 'down' : ''}">${errores.length} con error</span>
+        ${r.sin_token.length ? ` · <span style="color:var(--text-muted);">${r.sin_token.length} sin token (saltadas)</span>` : ''}
+        ${r.error_subcuentas ? `<div class="down" style="margin-top:6px;">Listado de subcuentas: ${esc(r.error_subcuentas)}</div>` : ''}
+        ${errores.map(c => `<div><span class="down">✕</span> ${esc(c.nombre)}: ${esc(c.error)}</div>`).join('')}`,
+        errores.length > 0 || !!r.error_subcuentas);
+      cargar();
+    } catch (e) {
+      mostrarResultado(`Error: ${esc(e.message)}`, true);
+    } finally {
+      btn.disabled = false;
+      document.getElementById('syncLabel').textContent = 'Sincronizar ahora';
+    }
+  }
+</script>
+</body>
+</html>

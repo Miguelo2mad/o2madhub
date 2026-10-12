@@ -22,8 +22,12 @@ producción interno de la agencia.
 ## Arquitectura — principios fijos
 
 - Un único proyecto Railway + una única instancia Supabase para todos los módulos del hub.
-- GHL (GoHighLevel) está reservado EXCLUSIVAMENTE como capa de mensajería Meta para Gulliver AI.
-  No se usa para scheduling orgánico ni para ningún otro envío del hub.
+- GHL (GoHighLevel) tiene dos usos, y solo esos dos:
+  1. Capa de mensajería Meta para Gulliver AI.
+  2. Fuente de leads del hub (módulo Leads, `/leads`): lectura de los contactos de las subcuentas
+     de la agencia (API v2) → Supabase (`clientes_ghl`, `leads`, `leads_sync_log`). Solo lectura:
+     el hub no escribe en GHL. Detalle en `docs/leads.md`.
+  No se usa para scheduling orgánico ni para ningún envío del hub.
 - Baileys (Node.js) es la capa de monitorización de WhatsApp: listener pasivo, no se usa para
   enviar mensajes salientes de forma proactiva salvo que se decida explícitamente lo contrario.
 - Metricool es la plataforma de programación de redes elegida para clientes de O2MAD (no GHL).
