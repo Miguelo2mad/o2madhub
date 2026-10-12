@@ -128,6 +128,17 @@
     <div class="nota">Cuenta los leads dados de alta en el periodo y sus oportunidades, estén en la etapa que estén hoy. Pipelines y etapas tal cual en GoHighLevel, en su orden. Ganada = estado "won" o etapa de ganado ("Presupuesto Ganado", "Venta"…); perdida, igual.</div>
   </div>
 
+  <!-- Secuencia de seguimiento (pasos del workflow de GHL) -->
+  <div class="chart-box hidden" id="secBox">
+    <h3>Secuencia de seguimiento · <span id="secRango" style="color:var(--text-muted);font-weight:400;"></span></h3>
+    <div class="grid-3" id="secKpis"></div>
+    <div class="table-scroll"><table>
+      <thead><tr><th>Paso</th><th>Leads</th><th>Recuperados</th><th>% recuperados</th><th>Desde el alta (mediana)</th></tr></thead>
+      <tbody id="tbodySec"></tbody>
+    </table></div>
+    <div class="nota" id="secNota"></div>
+  </div>
+
   <!-- Velocidad de respuesta -->
   <div class="chart-box">
     <div class="chart-head">
@@ -270,6 +281,7 @@
     cargarCalidad();
     cargarEmbudo();
     cargarRespuesta();
+    cargarSecuencia();
     cargarCoste();
     cargarListado(1);
   }
@@ -433,6 +445,34 @@
       `<div class="nota">Gulliver AI: atendido = conversación por WhatsApp o llamada con la IA desde el alta del lead. Cita = cita de Gulliver (reservada por la IA) o de la agenda (Google Calendar) con fecha posterior al lead, casada por teléfono o contacto de GHL.
         Visitado = cita ya pasada que no está cancelada ni marcada como no presentado. % de visitados sobre leads. Ganado sigue viniendo de GHL.
         ${g.ultimo_sync_at ? `Datos de Gulliver a ${new Date(g.ultimo_sync_at).toLocaleString('es-ES', { timeZone: 'Europe/Madrid' })}.` : 'Aún sin sincronizar con Gulliver.'}${g.error_sync ? ` <span class="down">Último sync con error: ${esc(g.error_sync)}</span>` : ''}</div>`;
+  }
+
+  // ---- Secuencia de seguimiento ----
+  // El bloque solo aparece si la subcuenta tiene pasos registrados por el webhook del workflow.
+  async function cargarSecuencia() {
+    const box = document.getElementById('secBox');
+    try {
+      const r = await api(`/api/leads/secuencia?${qs(filtros())}`);
+      if (!r.disponible || !r.pasos.length) { box.classList.add('hidden'); return; }
+      box.classList.remove('hidden');
+      document.getElementById('secRango').textContent = `${fmtDia(r.desde)} – ${fmtDia(r.hasta)}`;
+      const mini = (lbl, val) => `<div class="mini"><div class="m-lbl">${lbl}</div><div class="m-val">${val}</div></div>`;
+      document.getElementById('secKpis').innerHTML =
+        mini('Leads en la secuencia', `${fmtInt(r.en_secuencia)} de ${fmtInt(r.leads)}`) +
+        mini('Recuperados', `${fmtInt(r.recuperados)} · ${fmtPct(r.tasa_recuperacion_pct)}`) +
+        mini('Respondieron antes del primer paso', fmtInt(r.respondieron_antes_de_la_secuencia));
+      document.getElementById('tbodySec').innerHTML = r.pasos.map(p => `<tr><td>${esc(p.paso)}</td><td>${fmtInt(p.leads)}</td>
+        <td>${fmtInt(p.recuperados)}</td><td>${fmtPct(p.tasa_pct)}</td>
+        <td>${p.horas_desde_alta_mediana != null ? `${p.horas_desde_alta_mediana.toLocaleString('es-ES')} h` : '—'}</td></tr>`).join('');
+      document.getElementById('secNota').textContent =
+        'Cada paso lo registra el workflow de GoHighLevel por webhook. Recuperado en un paso = la primera respuesta del lead llegó después de ese paso y antes del siguiente. ' +
+        (r.con_gulliver
+          ? 'Respuesta = primera conversación con la IA de Gulliver (WhatsApp o llamada), primera cita posterior al lead o un resultado del paso como «contestó» o «reservó».'
+          : 'Sin Gulliver, GoHighLevel no da la hora de los mensajes entrantes: solo cuenta el resultado que envíe el workflow en cada paso («contestó», «reservó»…).');
+    } catch (e) {
+      box.classList.remove('hidden');
+      document.getElementById('secNota').textContent = `Error: ${e.message}`;
+    }
   }
 
   // ---- Velocidad de respuesta ----

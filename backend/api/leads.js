@@ -1,5 +1,6 @@
 // Módulo Leads: contactos de GoHighLevel por cliente (ver backend/jobs/leads-sync.js
 // y docs/leads.md). Fechas guardadas en UTC; todo se agrega en Europe/Madrid.
+const crypto = require('crypto');
 const express = require('express');
 const router = express.Router();
 const { DateTime } = require('luxon');
@@ -976,6 +977,123 @@ router.get('/respuesta', requireAuth, async (req, res) => {
     });
   } catch (e) {
     console.error('[leads] GET /respuesta:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ---- Secuencia de seguimiento (pasos del workflow de GHL) ----
+
+// POST /secuencia/webhook?secret= — lo llama cada paso del workflow de GHL
+// (acción Webhook). Sin sesión: se autentica con LEADS_WEBHOOK_SECRET.
+// Body (tal cual lo manda GHL o un Custom Webhook): location_id | location.id,
+// contact_id, paso, resultado (opcional), enviado_at (opcional, ISO).
+// Un paso se registra una vez por lead; si vuelve a llegar solo se actualiza el resultado.
+const secretoValido = s => {
+  const esperado = process.env.LEADS_WEBHOOK_SECRET;
+  if (!esperado || typeof s !== 'string' || s.length !== esperado.length) return false;
+  return crypto.timingSafeEqual(Buffer.from(s), Buffer.from(esperado));
+};
+router.post('/secuencia/webhook', async (req, res) => {
+  if (!secretoValido(req.query.secret)) return res.status(401).json({ error: 'Unauthorized' });
+  const b = req.body || {};
+  const cd = b.customData || {};
+  const txt = v => (typeof v === 'string' && v.trim() ? v.trim() : null);
+  const locationId = txt(b.location_id) || txt(b.location?.id) || txt(cd.location_id) || txt(b.locationId);
+  const contactId = txt(b.contact_id) || txt(cd.contact_id) || txt(b.contactId);
+  const paso = (txt(b.paso) || txt(cd.paso) || '').slice(0, 60);
+  const resultado = (txt(b.resultado) || txt(cd.resultado) || '').slice(0, 60) || null;
+  const enviadoRaw = txt(b.enviado_at) || txt(cd.enviado_at);
+  const enviado = enviadoRaw && !Number.isNaN(Date.parse(enviadoRaw)) ? new Date(enviadoRaw).toISOString() : new Date().toISOString();
+  if (!locationId || !contactId || !paso) return res.status(400).json({ error: 'location_id, contact_id y paso son obligatorios' });
+  try {
+    const { data: previo, error: selErr } = await supabase.from('leads_secuencia').select('id')
+      .eq('location_id', locationId).eq('ghl_contact_id', contactId).eq('paso', paso).maybeSingle();
+    if (selErr) throw new Error(selErr.message);
+    const { error } = previo
+      ? await supabase.from('leads_secuencia').update({ ...(resultado ? { resultado } : {}), updated_at: new Date().toISOString() }).eq('id', previo.id)
+      : await supabase.from('leads_secuencia').insert({ location_id: locationId, ghl_contact_id: contactId, paso, resultado, enviado_at: enviado });
+    if (error) throw new Error(error.message);
+    res.json({ ok: true, nuevo: !previo });
+  } catch (e) {
+    console.error('[leads] POST /secuencia/webhook:', e.message);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+// Resultados de un paso que cuentan como respuesta del lead aunque no haya
+// conversación registrada (p. ej. la llamada de la IA: contestó o reservó).
+const RESULTADO_RESPUESTA = /^(contest|reserv|respond|cita)/i;
+
+// GET /secuencia?location_id=&desde=&hasta= — leads del periodo que recibieron
+// cada paso y cuántos se recuperaron en él: su primera respuesta llegó después
+// de ese paso y antes del siguiente. Respuesta = primera conversación con la IA
+// de Gulliver, primera cita posterior al lead o un resultado del paso que
+// implique respuesta (contestó, reservó…). GHL no da la hora de los entrantes,
+// así que sin Gulliver solo cuenta el resultado que envíe el workflow.
+router.get('/secuencia', requireAuth, async (req, res) => {
+  const locationId = req.query.location_id;
+  if (!locationId) return res.status(400).json({ error: 'location_id es obligatorio' });
+  try {
+    const { desde, hasta } = rangoPeriodo(req.query);
+    const { data: prueba, error: tErr } = await supabase.from('leads_secuencia').select('id').limit(1);
+    if (tErr && ['42P01', 'PGRST205'].includes(tErr.code)) return res.json({ disponible: false, pasos: [] });
+    if (tErr) throw new Error(tErr.message);
+    const leads = await fetchAll(() => filtrosLeads(
+      supabase.from('leads').select('ghl_contact_id, location_id, telefono, canal, fecha_creacion').order('ghl_contact_id'),
+      [locationId], { desde: desde.toISODate(), hasta: hasta.toISODate() }));
+    const pasosFilas = await fetchAll(() => supabase.from('leads_secuencia')
+      .select('ghl_contact_id, paso, enviado_at, resultado').eq('location_id', locationId).order('id'));
+    const g = await datosGulliver([locationId]);
+    const porLead = new Map();
+    pasosFilas.forEach(p => { if (!porLead.has(p.ghl_contact_id)) porLead.set(p.ghl_contact_id, []); porLead.get(p.ghl_contact_id).push(p); });
+
+    const stats = new Map(); // paso → { leads, recuperados, horas[] }
+    const st = paso => { if (!stats.has(paso)) stats.set(paso, { paso, leads: 0, recuperados: 0, horas: [] }); return stats.get(paso); };
+    let enSecuencia = 0, recuperadosTotal = 0, respondieronAntes = 0;
+    for (const l of leads) {
+      const pasos = (porLead.get(l.ghl_contact_id) || []).sort((a, b) => a.enviado_at.localeCompare(b.enviado_at));
+      if (!pasos.length) continue;
+      enSecuencia++;
+      const alta = new Date(l.fecha_creacion).getTime();
+      // Primera respuesta del lead tras su alta.
+      const candidatos = [];
+      const x = cruceGulliver(g, l);
+      if (x) {
+        const ia = [...(g.ia.porCid.get(`${l.location_id}|${l.ghl_contact_id}`) || []),
+          ...(telefonoE164(l.telefono) ? g.ia.porTel.get(`${l.location_id}|${telefonoE164(l.telefono)}`) || [] : [])];
+        ia.filter(c => (c.mensajes_usuario > 0 || c.llamadas > 0)).forEach(c => {
+          const t = new Date(c.primera_at).getTime();
+          if (t >= alta - MARGEN_GULLIVER_MS) candidatos.push(t);
+        });
+        x.citas.forEach(c => candidatos.push(new Date(c.creada_at || c.starts_at).getTime()));
+      }
+      pasos.filter(p => p.resultado && RESULTADO_RESPUESTA.test(p.resultado)).forEach(p => candidatos.push(new Date(p.enviado_at).getTime()));
+      const respuesta = candidatos.length ? Math.min(...candidatos) : null;
+      const t0 = new Date(pasos[0].enviado_at).getTime();
+      if (respuesta != null && respuesta < t0) respondieronAntes++;
+      pasos.forEach((p, i) => {
+        const s = st(p.paso);
+        s.leads++;
+        const tp = new Date(p.enviado_at).getTime();
+        s.horas.push(Math.max(0, (tp - alta) / 3600_000));
+        const siguiente = pasos[i + 1] ? new Date(pasos[i + 1].enviado_at).getTime() : Infinity;
+        if (respuesta != null && respuesta >= tp && respuesta < siguiente) { s.recuperados++; recuperadosTotal++; }
+      });
+    }
+    const pasos = [...stats.values()].map(s => ({
+      paso: s.paso, leads: s.leads, recuperados: s.recuperados, tasa_pct: pct(s.recuperados, s.leads),
+      horas_desde_alta_mediana: s.horas.length ? Math.round(mediana(s.horas) * 10) / 10 : null,
+    })).sort((a, b) => (a.horas_desde_alta_mediana ?? 0) - (b.horas_desde_alta_mediana ?? 0));
+    res.json({
+      disponible: true, desde: desde.toISODate(), hasta: hasta.toISODate(),
+      leads: leads.length, en_secuencia: enSecuencia, recuperados: recuperadosTotal,
+      tasa_recuperacion_pct: pct(recuperadosTotal, enSecuencia),
+      respondieron_antes_de_la_secuencia: respondieronAntes,
+      con_gulliver: g.locs.size > 0,
+      pasos,
+    });
+  } catch (e) {
+    console.error('[leads] GET /secuencia:', e.message);
     res.status(500).json({ error: e.message });
   }
 });

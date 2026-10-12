@@ -42,7 +42,9 @@ abre por URL y muestra un aviso.
 | Migración 054 | `importado`, `es_duplicado`/`duplicado_de`, `sin_contacto`; `unicos` en `leads_diarios`; `ghl_pipelines`, `oportunidades`, `leads_respuesta` |
 | Migración 055 | `clientes_gulliver` (subcuenta ↔ hotel de Gulliver), `leads_ia_contacto`, `leads_citas` |
 | Gulliver AI | `backend/lib/gulliver.js` (cliente), `backend/jobs/leads-gulliver.js` (`syncGulliver()`), `backend/scripts/leads-gulliver.js` (sync manual) |
-| Cron | `index.js`, cada hora: GHL en el minuto 20 y Gulliver en el 40 (Europe/Madrid) |
+| Migración 056 | `leads_secuencia` (pasos del workflow de seguimiento), `leads_alertas` (avisos ya enviados) |
+| Alertas | `backend/jobs/leads-alertas.js` (`revisarAlertas()`): email si un lead de Meta lleva 30 min sin ningún saliente |
+| Cron | `index.js`, cada hora: GHL en el minuto 20 y Gulliver en el 40; alertas cada 5 min (Europe/Madrid) |
 
 ## Variables de entorno (Railway)
 
@@ -54,6 +56,9 @@ abre por URL y muestra un aviso.
 - `GULLIVER_API_KEY`: la misma `x-gulliver-api-key` de la API de Gulliver. Sin
   ella la sync de Gulliver se omite (sin error).
 - `GULLIVER_API_URL` (opcional): por defecto `https://gulliverapi-production.up.railway.app`.
+- `LEADS_WEBHOOK_SECRET`: secreto del webhook de la secuencia de seguimiento
+  (`?secret=` en la URL que llama el workflow de GHL).
+- `LEADS_ALERT_TO` (opcional): destino de las alertas; por defecto `info@o2mad.com`.
 
 Los contactos se leen **solo** con el token privado de cada subcuenta
 (`clientes_ghl.token_privado`): un Private Integration creado dentro de la
@@ -236,6 +241,36 @@ verificado en Nadal: 216 respuestas, 201 a ±2 min del mensaje de la IA).
 
 Alta de un cliente: `insert into clientes_gulliver (location_id, hotel_id)`
 con el `hotels.id` de Gulliver. La primera sync trae todo el histórico.
+
+### Secuencia de seguimiento
+
+Cada paso del workflow de seguimiento de GHL (WhatsApp a las 2 h, llamada de
+la IA…) llama a una acción Webhook:
+
+`POST https://hub.o2mad.com/api/leads/secuencia/webhook?secret=<LEADS_WEBHOOK_SECRET>`
+
+Con `location_id` (o el `location.id` estándar de GHL), `contact_id`, `paso` y,
+si se conoce, `resultado`. Se guarda en `leads_secuencia`, un registro por lead
+y paso; si el paso vuelve a llegar, solo se actualiza el resultado.
+
+El bloque «Secuencia de seguimiento» del panel del cliente da, por paso, los
+leads que lo recibieron y los **recuperados**: la primera respuesta del lead
+llegó después de ese paso y antes del siguiente. Cuenta como respuesta:
+
+- la primera conversación con la IA de Gulliver;
+- la primera cita posterior al lead;
+- un resultado del paso que empiece por contest/reserv/respond/cita.
+
+GHL no da la hora de los mensajes entrantes, así que sin Gulliver solo cuenta
+el resultado.
+
+### Alerta de leads sin respuesta
+
+Cada 5 minutos, `revisarAlertas()` busca en GHL las altas de las subcuentas en
+captación de entre hace 3 h y hace 30 min. Para cada lead de Meta mira sus
+conversaciones. Si no hay ningún mensaje saliente, avisa por email: un solo
+email por ejecución, y cada lead se avisa una sola vez (`leads_alertas`). Si
+en esa ventana hay 30 altas o más, es una importación y se omite.
 
 ## Dar de alta un cliente nuevo
 

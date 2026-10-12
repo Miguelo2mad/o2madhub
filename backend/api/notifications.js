@@ -153,4 +153,10 @@ async function enviarAvisoChecklist({ cliente, local, checklistNombre, tareas })
   return { enviado: true, motivo: null, destinatario: to };
 }
 
-module.exports = { sendDailySummary, buildHtml, sendNoCifNotice, enviarAvisoChecklist };
+// Email genérico (alertas de Leads y similares).
+async function enviarEmail({ to, subject, html }) {
+  const info = await getTransport().sendMail({ from: `O2MAD Hub <${process.env.GMAIL_USER}>`, to, subject, html });
+  return info.messageId;
+}
+
+module.exports = { sendDailySummary, buildHtml, sendNoCifNotice, enviarAvisoChecklist, enviarEmail };

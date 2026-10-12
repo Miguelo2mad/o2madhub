@@ -28,6 +28,7 @@ const { runChecklistsGeneracion }    = require('./backend/jobs/checklists-genera
 const { runChecklistsAvisos }        = require('./backend/jobs/checklists-avisos-job');
 const { syncLeads }                  = require('./backend/jobs/leads-sync');
 const { syncGulliver }               = require('./backend/jobs/leads-gulliver');
+const { revisarAlertas }             = require('./backend/jobs/leads-alertas');
 
 const app = express();
 app.use(cors());
@@ -147,6 +148,11 @@ cron.schedule('0 7 * * *', () => {
 // Leads GoHighLevel sync — cada hora (minuto 20, fuera de los crons diarios en punto).
 cron.schedule('20 * * * *', () => {
   syncLeads().catch(e => console.error('[leads] cron failed:', e.message));
+}, { timezone: 'Europe/Madrid' });
+
+// Leads: alerta por email de leads de Meta con 30 min sin ningún saliente — cada 5 min.
+cron.schedule('*/5 * * * *', () => {
+  revisarAlertas().catch(e => console.error('[leads-alertas] cron failed:', e.message));
 }, { timezone: 'Europe/Madrid' });
 
 // Leads ← Gulliver AI (conversaciones y citas) — cada hora, minuto 40.

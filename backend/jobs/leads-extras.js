@@ -280,4 +280,4 @@ async function extrasCliente(cliente) {
   return fallos.length ? fallos.join(' | ') : null;
 }
 
-module.exports = { marcarImportados, marcarDuplicados, syncOportunidades, syncRespuestas, extrasCliente };
+module.exports = { marcarImportados, marcarDuplicados, syncOportunidades, syncRespuestas, extrasCliente, respuestaDeLead };
