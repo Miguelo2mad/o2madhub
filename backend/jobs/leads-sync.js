@@ -1,7 +1,8 @@
 // Sincronización de leads de GoHighLevel → Supabase (tablas clientes_ghl,
 // leads, leads_sync_log). Cron horario en index.js y POST /api/leads/sync.
-//   1. /locations/search → alta de subcuentas nuevas en clientes_ghl (activas).
-//   2. Por cada subcuenta activa CON token_privado: backfill de 12 meses si
+//   1. /locations/search → alta de subcuentas nuevas en clientes_ghl, siempre
+//      INACTIVAS: en Leads solo cuenta lo que Miguel marca "en captación".
+//   2. Por cada subcuenta activa (= en captación) CON token_privado: backfill de 12 meses si
 //      nunca se sincronizó; si no, desde ultima_sync − 24 h (solape). Las que
 //      no tienen token se apuntan en el log como "sin token" y se saltan (no
 //      es un error: es que aún no se ha configurado).
@@ -25,7 +26,7 @@ async function altaSubcuentas() {
   const ya = new Set(existentes.map(r => r.location_id));
   const nuevas = locations
     .filter(l => l.id && !ya.has(l.id))
-    .map(l => ({ location_id: l.id, nombre: (l.name || l.id).trim(), activo: true }));
+    .map(l => ({ location_id: l.id, nombre: (l.name || l.id).trim(), activo: false }));
   if (nuevas.length) {
     // ignoreDuplicates: nunca pisa nombre/activo/mapeo editados a mano.
     const { error: insErr } = await supabase

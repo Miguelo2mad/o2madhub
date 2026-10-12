@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Leads del cliente — O2MAD HUB</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+  <script src="/leads-shared.js"></script>
+</head>
+<body>
+
+<header>
+  <div class="logo">O2MAD <span>HUB</span></div>
+  <span style="font-size:13px;color:var(--text-muted);">Leads · Cliente</span>
+  <div class="spacer"></div>
+  <span class="user-email" id="userEmail"></span>
+  <button onclick="window.location.href='/leads'">← Leads</button>
+  <button onclick="signOut()">Salir</button>
+</header>
+
+<div class="controls">
+  <div class="seg" id="atajos">
+    <button data-atajo="hoy">Hoy</button>
+    <button data-atajo="7d">7 días</button>
+    <button data-atajo="mes">Mes actual</button>
+    <button data-atajo="mesant">Mes anterior</button>
+    <button data-atajo="12m">12 meses</button>
+  </div>
+  <input type="date" id="desde" />
+  <span style="color:var(--text-muted);">→</span>
+  <input type="date" id="hasta" />
+  <div class="spacer"></div>
+  <button class="btn accent admin-only hidden" id="btnSync" onclick="lanzarSync({ locationId: LOC, alTerminar: recargarTodo })">
+    <span id="syncLabel">Sincronizar ahora</span>
+  </button>
+</div>
+
+<main>
+  <div class="page-title">
+    <h1 id="titulo">—</h1>
+    <div class="sub" id="subtitulo"></div>
+  </div>
+
+  <div id="syncResult" class="sync-box hidden"></div>
+
+  <div class="kpi-grid" id="kpis"></div>
+
+  <div class="chart-box">
+    <div class="chart-head">
+      <h3>Evolución por canal</h3>
+      <div class="seg" id="granularidad">
+        <button data-g="dia" class="on">Día</button>
+        <button data-g="semana">Semana</button>
+        <button data-g="mes">Mes</button>
+      </div>
+    </div>
+    <svg id="chart" viewBox="0 0 800 220" preserveAspectRatio="xMidYMid meet" style="height:220px;"></svg>
+    <div class="chart-legend" id="legend"></div>
+  </div>
+
+  <div class="chart-box">
+    <h3>Cuándo entran los leads · hora × día de la semana (Madrid) · <span id="heatRango" style="color:var(--text-muted);font-weight:400;"></span></h3>
+    <div class="heat" id="heat"></div>
+    <div class="franjas" id="franjas"></div>
+  </div>
+
+  <div class="grid-2">
+    <div class="chart-box">
+      <h3>Por canal · <span id="desgloseRango" style="color:var(--text-muted);font-weight:400;"></span></h3>
+      <div class="donut-wrap">
+        <svg id="donut" viewBox="0 0 160 160"></svg>
+        <div class="donut-list" id="donutList"></div>
+      </div>
+    </div>
+    <div class="table-box">
+      <h3>Top campañas</h3>
+      <div class="table-scroll" style="max-height:220px;overflow-y:auto;">
+        <table>
+          <thead><tr><th>Campaña</th><th>Canal</th><th>Leads</th></tr></thead>
+          <tbody id="tbodyCampanas"><tr><td colspan="3" class="empty">Cargando…</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- Coste por lead (solo si la subcuenta tiene cuenta de Google Ads mapeada) -->
+  <div class="chart-box hidden" id="costeBox">
+    <div class="chart-head">
+      <h3>Coste por lead · Google Ads</h3>
+      <span style="font-size:11px;color:var(--text-muted);" id="costeCuentas"></span>
+    </div>
+    <div class="kpi-grid" style="margin-bottom:16px;">
+      <div class="kpi-card"><div class="kpi-label">Gasto</div><div class="kpi-value" id="cGasto">—</div><div class="kpi-sub" id="cGastoSub"></div></div>
+      <div class="kpi-card"><div class="kpi-label">Leads Google</div><div class="kpi-value" id="cLeads">—</div><div class="kpi-sub" id="cLeadsSub"></div></div>
+      <div class="kpi-card"><div class="kpi-label">Coste por lead</div><div class="kpi-value" id="cCpl">—</div><div class="kpi-sub" id="cCplSub"></div></div>
+      <div class="kpi-card"><div class="kpi-label">Clics</div><div class="kpi-value" id="cClics">—</div><div class="kpi-sub" id="cClicsSub"></div></div>
+    </div>
+    <svg id="chartCoste" viewBox="0 0 800 200" preserveAspectRatio="xMidYMid meet" style="height:200px;"></svg>
+    <div class="chart-legend">
+      <span><span class="legend-dot" style="background:var(--azul);"></span>Gasto (€)</span>
+      <span><span class="legend-dot" style="background:var(--ambar);"></span>Coste por lead (€)</span>
+    </div>
+    <div class="nota" id="costeNota"></div>
+  </div>
+
+  <div class="table-box">
+    <div class="table-head">
+      <h3>Leads del periodo</h3>
+      <input class="input" id="buscar" placeholder="Buscar nombre, email, teléfono, campaña…" style="min-width:260px;cursor:text;" />
+      <select class="input" id="filtroCanal" onchange="cargarListado(1)">
+        <option value="">Todos los canales</option>
+      </select>
+      <button class="btn" onclick="exportarCsv()" id="btnCsv">Exportar CSV</button>
+    </div>
+    <div class="table-scroll">
+      <table>
+        <thead>
+          <tr>
+            <th class="left">Fecha</th>
+            <th class="left">Nombre</th>
+            <th class="left">Email</th>
+            <th class="left">Teléfono</th>
+            <th class="left">Canal</th>
+            <th class="left">Fuente</th>
+            <th class="left">Campaña</th>
+          </tr>
+        </thead>
+        <tbody id="tbodyLeads"><tr><td colspan="7" class="empty">Cargando…</td></tr></tbody>
+      </table>
+    </div>
+    <div class="pager">
+      <span id="pagerInfo"></span>
+      <button class="btn sm" id="pagPrev" onclick="cargarListado(paginaActual - 1)">‹ Anterior</button>
+      <button class="btn sm" id="pagNext" onclick="cargarListado(paginaActual + 1)">Siguiente ›</button>
+    </div>
+  </div>
+</main>
+
+<script>
+  const LOC = new URLSearchParams(location.search).get('location_id');
+  let cliente = null;
+  let paginaActual = 1;
+  let buscarTimer = null;
+
+  (async () => {
+    if (!LOC) { window.location.href = '/leads'; return; }
+    document.getElementById('kpis').innerHTML = KPIS_HTML;
+    leyendaCanales('legend');
+    const selCanal = document.getElementById('filtroCanal');
+    CANALES.forEach(c => selCanal.insertAdjacentHTML('beforeend', `<option value="${c}">${CANAL_LABEL[c]}</option>`));
+    document.getElementById('buscar').addEventListener('input', () => {
+      clearTimeout(buscarTimer);
+      buscarTimer = setTimeout(() => cargarListado(1), 300);
+    });
+    if (!await iniciarSesion()) return;
+    montarPeriodo({ onPeriodo: recargarPeriodo, onGranularidad: () => { cargarSerie(); cargarCoste(); } });
+    await cargarCliente();
+    recargarTodo();
+  })();
+
+  async function cargarCliente() {
+    try {
+      const clientes = await api('/api/leads/clientes');
+      cliente = clientes.find(c => c.location_id === LOC);
+      if (!cliente) { document.getElementById('titulo').textContent = 'Subcuenta no encontrada'; return; }
+      document.title = `${cliente.nombre} · Leads — O2MAD HUB`;
+      document.getElementById('titulo').textContent = cliente.nombre;
+      document.getElementById('subtitulo').innerHTML = [
+        cliente.cliente_nombre ? `Cliente del hub: <strong style="color:var(--blanco);">${esc(cliente.cliente_nombre)}</strong>` : 'Sin cliente del hub asignado',
+        `Última sincronización: ${fmtFechaHora(cliente.ultima_sync)}`,
+        cliente.activo ? '' : '<span class="down">No está en captación: fuera del panel global y de la sincronización</span>',
+        cliente.token_configurado ? '' : '<span class="down">Sin token privado: no se importan leads</span>',
+      ].filter(Boolean).join(' · ');
+    } catch (e) {
+      document.getElementById('titulo').textContent = e.message;
+    }
+  }
+
+  function recargarTodo() {
+    cargarResumen();
+    recargarPeriodo();
+  }
+  function recargarPeriodo() {
+    cargarSerie();
+    cargarHeatmap();
+    cargarDesglose();
+    cargarCoste();
+    cargarListado(1);
+  }
+  const filtros = () => ({ location_id: LOC, ...rangoActual() });
+
+  async function cargarResumen() {
+    try { renderKpis(await api(`/api/leads/resumen?${qs({ location_id: LOC })}`)); } catch (e) { console.error('resumen error:', e); }
+  }
+
+  async function cargarSerie() {
+    try {
+      const r = await api(`/api/leads/serie?${qs({ ...filtros(), granularidad: periodo.granularidad })}`);
+      renderBarrasCanal('chart', r.serie, r.granularidad);
+    } catch (e) { svgVacio(document.getElementById('chart'), e.message); }
+  }
+
+  // ---- Mapa de calor ----
+  async function cargarHeatmap() {
+    const cont = document.getElementById('heat');
+    try {
+      const r = await api(`/api/leads/heatmap?${qs(filtros())}`);
+      document.getElementById('heatRango').textContent = `${fmtDia(r.desde)} – ${fmtDia(r.hasta)} · ${fmtInt(r.total)} leads`;
+      const max = Math.max(...r.matriz.flat(), 1);
+      const color = v => v ? `rgba(196,168,130,${(0.15 + 0.85 * (v / max)).toFixed(2)})` : 'rgba(196,168,130,0.05)';
+      let html = '<div></div>' + Array.from({ length: 24 }, (_, h) => `<div class="h-col">${h}</div>`).join('') + '<div class="h-col" style="text-align:right;">Total</div>';
+      r.matriz.forEach((fila, d) => {
+        html += `<div class="h-lbl">${DIAS_SEMANA[d]}</div>` +
+          fila.map((v, h) => `<div class="h-cell" style="background:${color(v)};${v / max > 0.55 ? '' : 'color:var(--blanco);'}"
+            title="${DIAS_SEMANA[d]} ${h}:00–${h + 1}:00 · ${v} leads">${v || ''}</div>`).join('') +
+          `<div class="h-tot">${fmtInt(r.por_dia[d])}</div>`;
+      });
+      html += '<div class="h-lbl">Total</div>' + r.por_hora.map(v => `<div class="h-col" style="color:var(--arena);font-weight:600;">${v || ''}</div>`).join('') +
+        `<div class="h-tot">${fmtInt(r.total)}</div>`;
+      cont.innerHTML = html;
+      document.getElementById('franjas').innerHTML = r.por_franja.map(f => `
+        <div class="franja">
+          <div class="f-lbl">${f.nombre} · ${f.desde}–${f.hasta} h</div>
+          <div class="f-val">${fmtInt(f.total)} <span style="font-size:11px;font-weight:400;color:var(--text-muted);">${r.total ? Math.round((f.total / r.total) * 100) + '%' : ''}</span></div>
+        </div>`).join('');
+    } catch (e) {
+      cont.innerHTML = `<div class="empty" style="grid-column:1/-1;">${esc(e.message)}</div>`;
+    }
+  }
+
+  // ---- Desglose ----
+  async function cargarDesglose() {
+    try {
+      const r = await api(`/api/leads/desglose?${qs(filtros())}`);
+      document.getElementById('desgloseRango').textContent = `${fmtDia(r.desde)} – ${fmtDia(r.hasta)}`;
+      renderDonut('donut', 'donutList', r.por_canal, r.total);
+      const top = r.por_campana.slice(0, 20);
+      document.getElementById('tbodyCampanas').innerHTML = top.length ? top.map(c => {
+        const canal = Object.entries(c.canales).sort((a, b) => b[1] - a[1])[0]?.[0] || 'otro';
+        return `<tr>
+          <td title="${esc(c.utm_campaign || '')}">${c.utm_campaign ? esc(c.utm_campaign) : '<span style="color:var(--text-muted);">(sin campaña)</span>'}</td>
+          <td><span class="legend-dot" style="background:${CANAL_COLOR[canal]};"></span>${CANAL_LABEL[canal]}</td>
+          <td>${fmtInt(c.total)}</td>
+        </tr>`;
+      }).join('') : '<tr><td colspan="3" class="empty">Sin leads en el periodo</td></tr>';
+    } catch (e) {
+      document.getElementById('tbodyCampanas').innerHTML = `<tr><td colspan="3" class="empty">${esc(e.message)}</td></tr>`;
+    }
+  }
+
+  // ---- Coste por lead ----
+  async function cargarCoste() {
+    const box = document.getElementById('costeBox');
+    try {
+      const r = await api(`/api/leads/coste?${qs({ ...filtros(), granularidad: periodo.granularidad })}`);
+      if (!r.mapeada) { box.classList.add('hidden'); return; }
+      box.classList.remove('hidden');
+      document.getElementById('costeCuentas').textContent = 'Cuenta ' + r.cuentas.map(c => c.cuenta_id + (c.campana_filtro ? ` (campañas ${c.campana_filtro})` : '')).join(', ');
+      const t = r.totales, a = r.anterior;
+      const vs = `vs ${fmtDia(r.anterior_rango.desde)} – ${fmtDia(r.anterior_rango.hasta)}`;
+      document.getElementById('cGasto').textContent = eur(t.gasto);
+      document.getElementById('cGastoSub').innerHTML = `${varHtml(r.variacion_gasto_pct)} · antes ${eur(a.gasto)}`;
+      document.getElementById('cLeads').textContent = fmtInt(t.leads);
+      document.getElementById('cLeadsSub').innerHTML = `${varHtml(r.variacion_leads_pct)} · antes ${fmtInt(a.leads)}`;
+      document.getElementById('cCpl').textContent = t.cpl != null ? eur(t.cpl) : '—';
+      document.getElementById('cCplSub').innerHTML = `${varHtml(r.variacion_cpl_pct, '', true)} · antes ${a.cpl != null ? eur(a.cpl) : '—'}<br>${vs}`;
+      document.getElementById('cClics').textContent = fmtInt(t.clics);
+      document.getElementById('cClicsSub').textContent = `${fmtInt(t.impresiones)} impresiones`;
+      renderCoste(r.serie, r.granularidad);
+      const notas = ['Leads Google = leads con canal "google" (gclid, Paid Search o etiqueta de Google Ads). Si la web pierde el gclid, el CPL sale inflado.'];
+      if (r.primer_dia_gasto && r.primer_dia_gasto > r.anterior_rango.desde) {
+        notas.push(`Hay gasto registrado desde el ${fmtDia(r.primer_dia_gasto)}: antes de esa fecha la comparativa no tiene datos de gasto.`);
+      }
+      document.getElementById('costeNota').textContent = notas.join(' ');
+    } catch (e) {
+      box.classList.remove('hidden');
+      document.getElementById('costeNota').textContent = `Error: ${e.message}`;
+    }
+  }
+
+  function renderCoste(serie, granularidad) {
+    const svg = document.getElementById('chartCoste');
+    if (!serie.length || serie.every(s => !s.gasto)) return svgVacio(svg, 'Sin gasto en el periodo');
+    const W = 800, H = 200, PAD = { top: 16, right: 56, bottom: 32, left: 56 };
+    const iW = W - PAD.left - PAD.right, iH = H - PAD.top - PAD.bottom;
+    const n = serie.length, slot = iW / n, barW = Math.max(Math.min(slot * 0.6, 36), 1);
+    const maxG = Math.max(...serie.map(s => s.gasto), 1);
+    const maxC = Math.max(...serie.map(s => s.cpl || 0), 1);
+    const yG = v => PAD.top + iH - (v / maxG) * iH;
+    const yC = v => PAD.top + iH - (v / maxC) * iH;
+    const grid = [0, 0.5, 1].map(f => {
+      const yy = PAD.top + iH - f * iH;
+      return `<line x1="${PAD.left}" y1="${yy}" x2="${W - PAD.right}" y2="${yy}" stroke="rgba(196,168,130,0.1)"/>
+        <text x="${PAD.left - 6}" y="${yy + 4}" text-anchor="end" fill="rgba(91,143,217,0.8)" font-size="10">${eur(maxG * f)}</text>
+        <text x="${W - PAD.right + 6}" y="${yy + 4}" fill="rgba(217,164,65,0.8)" font-size="10">${eur(maxC * f)}</text>`;
+    }).join('');
+    const bars = serie.map((s, i) => `<rect x="${PAD.left + i * slot + (slot - barW) / 2}" y="${yG(s.gasto)}" width="${barW}" height="${Math.max(PAD.top + iH - yG(s.gasto), 0)}" fill="#5b8fd9" opacity="0.75">
+      <title>${etiquetaPeriodo(s.periodo, granularidad)} — gasto ${eur(s.gasto)} · ${s.leads} leads Google · CPL ${s.cpl != null ? eur(s.cpl) : '—'}</title></rect>`).join('');
+    const pts = serie.map((s, i) => s.cpl != null ? [PAD.left + i * slot + slot / 2, yC(s.cpl)] : null).filter(Boolean);
+    const linea = pts.length > 1 ? `<polyline points="${pts.map(p => p.join(',')).join(' ')}" fill="none" stroke="#d9a441" stroke-width="2"/>` : '';
+    const puntos = pts.map(([x, y]) => `<circle cx="${x}" cy="${y}" r="3" fill="#d9a441"/>`).join('');
+    const step = Math.ceil(n / 8);
+    const xl = serie.map((s, i) => (i % step === 0 || i === n - 1)
+      ? `<text x="${PAD.left + i * slot + slot / 2}" y="${H - 10}" text-anchor="middle" fill="rgba(245,240,232,0.35)" font-size="10">${etiquetaPeriodo(s.periodo, granularidad)}</text>` : '').join('');
+    svg.innerHTML = grid + bars + linea + puntos + xl;
+  }
+
+  // ---- Listado ----
+  function filtrosListado() {
+    return { ...filtros(), canal: document.getElementById('filtroCanal').value, q: document.getElementById('buscar').value.trim() };
+  }
+
+  async function cargarListado(page) {
+    if (page < 1) return;
+    const tbody = document.getElementById('tbodyLeads');
+    try {
+      const r = await api(`/api/leads?${qs({ ...filtrosListado(), page })}`);
+      paginaActual = r.page;
+      const paginas = Math.max(Math.ceil(r.total / r.page_size), 1);
+      document.getElementById('pagerInfo').textContent = `${fmtInt(r.total)} leads · página ${r.page} de ${paginas}`;
+      document.getElementById('pagPrev').disabled = r.page <= 1;
+      document.getElementById('pagNext').disabled = r.page >= paginas;
+      tbody.innerHTML = r.data.length ? r.data.map(l => `<tr>
+          <td>${fmtFechaHora(l.fecha_creacion)}</td>
+          <td class="left">${esc(l.nombre || '—')}</td>
+          <td class="left">${esc(l.email || '')}</td>
+          <td class="left">${esc(l.telefono || '')}</td>
+          <td class="left"><span class="legend-dot" style="background:${CANAL_COLOR[l.canal]};"></span>${CANAL_LABEL[l.canal] || esc(l.canal)}</td>
+          <td class="left">${esc(l.fuente || '')}</td>
+          <td class="left" title="${esc([l.utm_source, l.utm_content, l.campaign_id && 'id ' + l.campaign_id].filter(Boolean).join(' · '))}">${esc(l.utm_campaign || '')}</td>
+        </tr>`).join('') : '<tr><td colspan="7" class="empty">Sin leads con estos filtros</td></tr>';
+    } catch (e) {
+      tbody.innerHTML = `<tr><td colspan="7" class="empty">${esc(e.message)}</td></tr>`;
+    }
+  }
+
+  async function exportarCsv() {
+    const btn = document.getElementById('btnCsv');
+    btn.disabled = true;
+    try {
+      const res = await fetch(`/api/leads/export.csv?${qs(filtrosListado())}`, { headers: { 'Authorization': `Bearer ${accessToken}` } });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: res.statusText }));
+        throw new Error(err.error || res.statusText);
+      }
+      const blob = await res.blob();
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      const { desde, hasta } = rangoActual();
+      a.download = `leads-${(cliente?.nombre || LOC).replace(/[^\w-]+/g, '_').slice(0, 40)}-${desde}_${hasta}.csv`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+    } catch (e) {
+      document.getElementById('pagerInfo').textContent = `Error exportando: ${e.message}`;
+    } finally {
+      btn.disabled = false;
+    }
+  }
+</script>
+</body>
+</html>

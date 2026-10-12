@@ -109,11 +109,26 @@ async function buscarContactos(cliente, { gte, lte, searchAfter, page = 1, pageL
 }
 
 // ---- Normalización de contactos ----
+//
+// Qué manda GHL (verificado con 526 leads reales de Capilar Mora, oct 2026):
+// no hay array attributions; vienen attributionSource (first touch) y
+// lastAttributionSource (last touch), objetos con sessionSource ("Paid Social",
+// "Paid Search", "Organic Search", "Direct traffic", "Social media", "CRM UI"),
+// medium ("form", "facebook", "manual"), url (página del formulario, con la
+// query de la visita: gclid, gbraid, gad_source, gad_campaignid, utm_*…),
+// referrer y, en los leads de Meta, utmSource/adSource "facebook", campaign +
+// campaignId, adId y utmContent (ojo: utmMedium trae el NOMBRE de la campaña).
+// A veces llegan como objeto vacío {}.
 
 const META_RE = /facebook|\bfb\b|instagram|\big\b|\bmeta\b|paid social/i;
-const GOOGLE_RE = /google|adwords|\bgclid\b/i;
-const ORGANICO_RE = /organic|org[aá]nico|direct|referral|social media|\bseo\b/i;
+const GOOGLE_RE = /google|adwords|paid search/i;
+const TAG_META_RE = /meta ads|facebook ads|instagram ads|\bfb ads\b/i;
+const TAG_GOOGLE_RE = /google ads|adwords/i;
+const ORGANICO_RE = /organic|org[aá]nico|referral|social media|\bseo\b/i;
+const DIRECTO_RE = /direct/i;
 const MANUAL_RE = /manual|crm|import|csv|\bapi\b|zapier/i;
+const PARAMS_URL = ['gclid', 'gbraid', 'wbraid', 'gad_source', 'gad_campaignid', 'fbclid',
+  'utm_source', 'utm_medium', 'utm_campaign', 'utm_content'];
 
 function attrValor(a, ...keys) {
   if (!a) return null;
@@ -121,28 +136,70 @@ function attrValor(a, ...keys) {
   return null;
 }
 
-// Atribución: first touch (isFirst) para las UTMs del lead; last touch solo
-// cuenta para derivar el canal. El contacto completo queda en raw.
+// Copia de la atribución con los parámetros de su url (gclid, utm_*…) añadidos
+// si no venían ya como campo propio. null si el objeto está vacío.
+function normalizarAttr(a) {
+  if (!a || typeof a !== 'object' || !Object.keys(a).length) return null;
+  const out = { ...a };
+  if (a.url) {
+    try {
+      const params = new URL(a.url).searchParams;
+      for (const k of PARAMS_URL) if (params.get(k) && out[k] == null) out[k] = params.get(k);
+    } catch { /* url no parseable: se ignora */ }
+  }
+  return out;
+}
+
+// Atribución: first touch para las UTMs del lead; first y last cuentan para el
+// canal. Soporta también el formato attributions[] (isFirst/isLast) de otras
+// versiones de la API. El contacto completo queda en raw.
 function atribuciones(c) {
-  const list = Array.isArray(c.attributions) ? c.attributions : [];
-  const first = list.find(a => a.isFirst) || c.attributionSource || list[0] || null;
-  const last = list.find(a => a.isLast) || c.lastAttributionSource || list[list.length - 1] || null;
+  const list = (Array.isArray(c.attributions) ? c.attributions : []).map(normalizarAttr).filter(Boolean);
+  const first = list.find(a => a.isFirst) || normalizarAttr(c.attributionSource) || list[0] || null;
+  const last = list.find(a => a.isLast) || normalizarAttr(c.lastAttributionSource) || list[list.length - 1] || null;
   return { first, last, todas: [first, last, ...list].filter(Boolean) };
 }
 
-function derivarCanal(c, todas) {
-  const textoAttr = todas.map(a => [
-    attrValor(a, 'utmSource', 'utm_source'), attrValor(a, 'sessionSource', 'utmSessionSource'),
-    attrValor(a, 'medium'), attrValor(a, 'adSource'), attrValor(a, 'utmMedium', 'utm_medium'),
-  ].filter(Boolean).join(' ')).join(' ');
-  const fuente = c.source || '';
-  const tieneFbclid = todas.some(a => a.fbclid || a.fbc);
-  const tieneGclid = todas.some(a => a.gclid || a.wbraid || a.gbraid);
+const textoAttr = a => [
+  attrValor(a, 'utmSource', 'utm_source'), attrValor(a, 'sessionSource', 'utmSessionSource'),
+  attrValor(a, 'medium'), attrValor(a, 'adSource'),
+].filter(Boolean).join(' ');
 
-  if (tieneFbclid || META_RE.test(textoAttr) || META_RE.test(fuente)) return 'meta';
-  if (tieneGclid || GOOGLE_RE.test(textoAttr) || GOOGLE_RE.test(fuente)) return 'google';
-  if (textoAttr && ORGANICO_RE.test(textoAttr)) return 'organico';
-  if (!textoAttr && (!fuente || MANUAL_RE.test(fuente))) return 'manual';
+// Plataforma de pago de UNA atribución (click ids primero), o null.
+function senalPago(a) {
+  if (a.fbclid || a.fbc) return 'meta';
+  if (a.gclid || a.gbraid || a.wbraid || a.gad_source) return 'google';
+  const t = textoAttr(a);
+  if (META_RE.test(t)) return 'meta';
+  if (GOOGLE_RE.test(t)) return 'google';
+  return null;
+}
+
+// Origen no pagado de UNA atribución, o null.
+function senalNoPago(a) {
+  const t = textoAttr(a);
+  if (ORGANICO_RE.test(t)) return 'organico';
+  if (/crm ui|manual/i.test(t)) return 'manual';
+  if (DIRECTO_RE.test(t)) return 'directo';
+  return null;
+}
+
+// El canal es el del contacto que CREÓ el lead (first touch); el last touch
+// solo desempata si el primero no dice nada. Un lead que entró por un
+// formulario de Meta y luego volvió por Google Ads es de Meta (y al revés).
+// Orden: pago en first → pago en last → source → tags → no pagado en first
+// → no pagado en last → manual sin atribución → otro.
+function derivarCanal(c, todas) {
+  const fuente = c.source || '';
+  const tags = (Array.isArray(c.tags) ? c.tags : []).join(' | ');
+
+  for (const a of todas) { const p = senalPago(a); if (p) return p; }
+  if (META_RE.test(fuente)) return 'meta';
+  if (GOOGLE_RE.test(fuente)) return 'google';
+  if (TAG_META_RE.test(tags)) return 'meta';
+  if (TAG_GOOGLE_RE.test(tags)) return 'google';
+  for (const a of todas) { const n = senalNoPago(a); if (n) return n; }
+  if (!todas.some(a => textoAttr(a)) && (!fuente || MANUAL_RE.test(fuente))) return 'manual';
   return 'otro';
 }
 
@@ -158,10 +215,12 @@ function contactoALead(c, locationId) {
     telefono: c.phone || null,
     fuente: c.source || null,
     canal: derivarCanal(c, todas),
-    utm_source: utm(['utmSource', 'utm_source']),
+    utm_source: utm(['utmSource', 'utm_source', 'adSource']),
     utm_medium: utm(['utmMedium', 'utm_medium']),
     utm_campaign: utm(['utmCampaign', 'utm_campaign', 'campaign']),
     utm_content: utm(['utmContent', 'utm_content']),
+    campaign_id: utm(['campaignId', 'gad_campaignid']),
+    ad_id: utm(['adId']),
     tags: Array.isArray(c.tags) ? c.tags : [],
     fecha_creacion: c.dateAdded,
     raw: c,

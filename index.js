@@ -91,6 +91,7 @@ app.get('/campanas', (_req, res) => res.sendFile(path.join(__dirname, 'frontend'
 app.get('/crm', (_req, res) => res.sendFile(path.join(__dirname, 'frontend', 'pages', 'crm.html')));
 app.get('/leads', (_req, res) => res.sendFile(path.join(__dirname, 'frontend', 'pages', 'leads.html')));
 app.get('/leads/clientes', (_req, res) => res.sendFile(path.join(__dirname, 'frontend', 'pages', 'leads-clientes.html')));
+app.get('/leads/cliente', (_req, res) => res.sendFile(path.join(__dirname, 'frontend', 'pages', 'leads-cliente.html')));
 
 app.get('/health', (_req, res) => res.json({ ok: true, ts: new Date().toISOString() }));
 
